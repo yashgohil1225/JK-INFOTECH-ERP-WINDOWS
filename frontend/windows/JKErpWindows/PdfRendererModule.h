@@ -63,7 +63,8 @@ private:
       for (auto const &file : files) {
         std::wstring name{file.Name()};
         if (name.find(L"_page_") != std::wstring::npos ||
-            name.find(L"DirectPrint_") != std::wstring::npos) {
+            name.find(L"DirectPrint_") != std::wstring::npos ||
+            name.find(L"PrintPage_") != std::wstring::npos) {
           filesToDelete.push_back(file);
         }
       }
@@ -94,7 +95,7 @@ private:
 
       m_cachedPdfBuffer = buffer;
       m_cachedPdfUrl = url;
-      m_pageStreams.clear();
+      m_pageFilePaths.clear();
 
       // 3. Load PDF from buffer
       InMemoryRandomAccessStream stream;
@@ -241,7 +242,7 @@ public:
 private:
   winrt::Windows::UI::Xaml::Printing::PrintDocument m_printDocument{nullptr};
   winrt::event_token m_printTaskRequestedToken;
-  std::vector<winrt::Windows::Storage::Streams::IRandomAccessStream> m_pageStreams;
+  std::vector<std::wstring> m_pageFilePaths;
   winrt::Windows::Graphics::Printing::IPrintDocumentSource
       m_printDocumentSource{nullptr};
   winrt::Windows::Storage::Streams::IBuffer m_cachedPdfBuffer{nullptr};
@@ -249,7 +250,13 @@ private:
 
   void InitializePrintDocument() {
     if (m_printDocument != nullptr) {
-      return;
+      try {
+        auto printManager =
+            winrt::Windows::Graphics::Printing::PrintManager::GetForCurrentView();
+        printManager.PrintTaskRequested(m_printTaskRequestedToken);
+      } catch (...) {}
+      m_printDocument = nullptr;
+      m_printDocumentSource = nullptr;
     }
 
     m_printDocument = winrt::Windows::UI::Xaml::Printing::PrintDocument();
@@ -260,7 +267,7 @@ private:
           sender
               .template as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
       printDoc.SetPreviewPageCount(
-          static_cast<int32_t>(m_pageStreams.size()),
+          static_cast<int32_t>(m_pageFilePaths.size()),
           winrt::Windows::UI::Xaml::Printing::PreviewPageCountType::Final);
     });
 
@@ -268,14 +275,13 @@ private:
         [this](auto const &sender, auto const &args) {
           int32_t pageNumber = args.PageNumber();
           if (pageNumber > 0 &&
-              pageNumber <= static_cast<int32_t>(m_pageStreams.size())) {
+              pageNumber <= static_cast<int32_t>(m_pageFilePaths.size())) {
             winrt::Windows::UI::Xaml::Controls::Image image;
             image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
 
             winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bitmap;
-            auto stream = m_pageStreams[pageNumber - 1];
-            stream.Seek(0);
-            bitmap.SetSource(stream);
+            bitmap.UriSource(
+                winrt::Windows::Foundation::Uri(m_pageFilePaths[pageNumber - 1]));
             image.Source(bitmap);
 
             auto printDoc =
@@ -287,14 +293,13 @@ private:
     m_printDocument.AddPages([this](auto const &sender, auto const &) {
       auto printDoc =
           sender.as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
-      for (size_t i = 0; i < m_pageStreams.size(); ++i) {
+      for (size_t i = 0; i < m_pageFilePaths.size(); ++i) {
         winrt::Windows::UI::Xaml::Controls::Image image;
         image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
 
         winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bitmap;
-        auto stream = m_pageStreams[i];
-        stream.Seek(0);
-        bitmap.SetSource(stream);
+        bitmap.UriSource(
+            winrt::Windows::Foundation::Uri(m_pageFilePaths[i]));
         image.Source(bitmap);
 
         printDoc.AddPage(image);
@@ -393,24 +398,33 @@ private:
       PdfDocument pdfDoc = co_await PdfDocument::LoadFromStreamAsync(stream);
       uint32_t pageCount = pdfDoc.PageCount();
 
-      std::vector<winrt::Windows::Storage::Streams::IRandomAccessStream> pageStreams;
+      StorageFolder tempFolder = ApplicationData::Current().TemporaryFolder();
+      std::vector<std::wstring> pageFilePaths;
 
       for (uint32_t i = 0; i < pageCount; ++i) {
         PdfPage page = pdfDoc.GetPage(i);
 
-        InMemoryRandomAccessStream imgStream;
+        winrt::hstring filename =
+            L"PrintPage_" +
+            winrt::to_hstring(std::to_wstring(GetTickCount64()).c_str()) +
+            L"_" + winrt::to_hstring(std::to_wstring(i).c_str()) + L".png";
+
+        StorageFile imgFile = co_await tempFolder.CreateFileAsync(
+            filename, CreationCollisionOption::ReplaceExisting);
+
+        IRandomAccessStream imgStream = co_await imgFile.OpenAsync(FileAccessMode::ReadWrite);
 
         PdfPageRenderOptions options;
         options.DestinationWidth(static_cast<uint32_t>(page.Size().Width * 4));
         co_await page.RenderToStreamAsync(imgStream, options);
         co_await imgStream.FlushAsync();
-        imgStream.Seek(0);
+        imgStream.Close();
         page.Close();
 
-        pageStreams.push_back(imgStream);
+        pageFilePaths.push_back(L"file:///" + std::wstring(imgFile.Path()));
       }
 
-      m_pageStreams = std::move(pageStreams);
+      m_pageFilePaths = std::move(pageFilePaths);
 
       auto dispatcher =
           winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()

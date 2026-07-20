@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Outstanding Summary Report</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 15mm 10mm;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      color: #1e293b;
+      background-color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      margin-bottom: 25px;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 15px;
+    }
+    .company-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      text-transform: uppercase;
+      letter-spacing: -0.5px;
+    }
+    .company-details {
+      color: #475569;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .report-badge {
+      float: right;
+      text-align: right;
+    }
+    .badge-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      letter-spacing: 0.5px;
+    }
+    .badge-period {
+      font-size: 10px;
+      font-weight: bold;
+      color: #475569;
+      text-transform: uppercase;
+    }
+    .clear {
+      clear: both;
+    }
+    
+    .summary-boxes {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 30px;
+    }
+    .summary-box {
+      flex: 1;
+      padding: 15px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      margin: 0 5px;
+      text-align: right;
+      background-color: #f8fafc;
+    }
+    .summary-box.receivables {
+      border-left: 4px solid #10b981;
+    }
+    .summary-box.payables {
+      border-left: 4px solid #f43f5e;
+    }
+    .box-title {
+      font-size: 10px;
+      font-weight: bold;
+      color: #475569;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .box-value {
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+    }
+    .box-sub {
+      font-size: 11px;
+      color: #f43f5e;
+      margin-top: 5px;
+      font-weight: bold;
+    }
+
+    .report-section {
+      margin-bottom: 30px;
+      page-break-inside: avoid;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #334155;
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 5px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .data-table th {
+      background-color: #f1f5f9;
+      color: #475569;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+    }
+    .data-table td {
+      padding: 8px 12px;
+      font-size: 11.5px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .text-right {
+      text-align: right;
+    }
+    .total-row td {
+      font-weight: bold;
+      border-top: 1px solid #cbd5e1;
+      background-color: #f8fafc;
+    }
+    .overdue-text {
+      color: #f43f5e;
+      font-size: 10px;
+      font-weight: bold;
+    }
+    .party-name {
+      font-weight: 700;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="report-badge">
+      <h2 class="badge-title">OUTSTANDING SUMMARY</h2>
+      <div id="badge-period" class="badge-period"></div>
+    </div>
+    <h1 id="company-title" class="company-title"></h1>
+    <div id="company-details" class="company-details"></div>
+    <div class="clear"></div>
+  </div>
+
+  <div class="summary-boxes">
+    <div class="summary-box receivables">
+      <div class="box-title">Total Receivables (To Collect)</div>
+      <div class="box-value" id="rec-total">₹0.00</div>
+      <div class="box-sub" id="rec-overdue">Overdue: ₹0.00</div>
+    </div>
+    <div class="summary-box payables">
+      <div class="box-title">Total Payables (To Pay)</div>
+      <div class="box-value" id="pay-total">₹0.00</div>
+      <div class="box-sub" id="pay-overdue">Overdue: ₹0.00</div>
+    </div>
+  </div>
+
+  <div class="report-section">
+    <div class="section-title">Customer Receivables</div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Customer Name</th>
+          <th class="text-right">Total Outstanding</th>
+          <th class="text-right">Overdue Amount</th>
+        </tr>
+      </thead>
+      <tbody id="rec-body">
+        <!-- Rendered via JS -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="report-section" style="margin-top: 40px;">
+    <div class="section-title">Supplier Payables</div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Supplier Name</th>
+          <th class="text-right">Total Outstanding</th>
+          <th class="text-right">Overdue Amount</th>
+        </tr>
+      </thead>
+      <tbody id="pay-body">
+        <!-- Rendered via JS -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const rawData = '{{ db_data_json | safe }}';
+    const reportData = JSON.parse(rawData);
+
+    // Set header information
+    document.getElementById('company-title').textContent = reportData.companyInfo.name;
+    let detailsHTML = '';
+    if (reportData.companyInfo.address) detailsHTML += `Address: ${reportData.companyInfo.address}<br>`;
+    if (reportData.companyInfo.gst_number) detailsHTML += `GSTIN: ${reportData.companyInfo.gst_number} | `;
+    if (reportData.companyInfo.contact) detailsHTML += `Phone: ${reportData.companyInfo.contact} | `;
+    if (reportData.companyInfo.email) detailsHTML += `Email: ${reportData.companyInfo.email}`;
+    document.getElementById('company-details').innerHTML = detailsHTML;
+
+    // Set period badge
+    document.getElementById('badge-period').textContent = reportData.timestamp ? `As of ${reportData.timestamp}` : 'Current Outstanding';
+
+    function fmt(val) {
+      return '₹ ' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    const rec = reportData.receivables || { total: 0, overdue: 0, parties: [] };
+    const pay = reportData.payables || { total: 0, overdue: 0, parties: [] };
+
+    document.getElementById('rec-total').textContent = fmt(rec.total);
+    document.getElementById('rec-overdue').textContent = `Overdue: ${fmt(rec.overdue)}`;
+    
+    document.getElementById('pay-total').textContent = fmt(pay.total);
+    document.getElementById('pay-overdue').textContent = `Overdue: ${fmt(pay.overdue)}`;
+
+    function renderTable(tbodyId, parties) {
+      const tbody = document.getElementById(tbodyId);
+      if (!parties || parties.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; padding: 20px;">No outstanding balances.</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      parties.forEach(p => {
+        html += `
+          <tr>
+            <td class="party-name">${p.party_name}</td>
+            <td class="text-right" style="font-weight: 600;">${fmt(p.total_due)}</td>
+            <td class="text-right"><span class="overdue-text">${p.overdue > 0 ? fmt(p.overdue) : '-'}</span></td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    renderTable('rec-body', rec.parties);
+    renderTable('pay-body', pay.parties);
+  </script>
+</body>
+</html>

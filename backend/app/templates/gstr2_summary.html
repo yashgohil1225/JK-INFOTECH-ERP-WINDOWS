@@ -1,0 +1,205 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns="http://www.w3.org/TR/REC-html40">
+
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=utf-8">
+<meta name=ProgId content=Excel.Sheet>
+<meta name=Generator content="Microsoft Excel 15">
+<title>GSTR-2 Summary Report</title>
+<style>
+@page {
+  size: A4 landscape;
+  margin: 8mm 4mm 8mm 4mm;
+}
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  color: black;
+  background-color: white;
+}
+.report-container {
+  width: 100%;
+  margin: 0 auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  margin-bottom: 20px;
+}
+th, td {
+  border: 1px solid #d4d4d8;
+  padding: 4px 4px;
+  font-size: 7.5pt; /* fit beautifully on landscape A4 */
+  white-space: normal !important;
+  word-wrap: break-word;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.header-title {
+  font-size: 15pt;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 2px;
+}
+.header-subtitle {
+  font-size: 10pt;
+  text-align: center;
+  margin-bottom: 4px;
+}
+.header-meta {
+  font-size: 10pt;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 12px;
+}
+.sheet-header-row {
+  background-color: #f4f4f5;
+  font-weight: bold;
+  font-size: 9pt;
+  text-align: left;
+  border-bottom: 2px solid #a1a1aa;
+}
+.table-header-cell {
+  background-color: #e4e4e7;
+  font-weight: bold;
+  text-align: center;
+}
+.row-label {
+  font-weight: bold;
+  text-align: left;
+  background-color: #fafafa;
+}
+.val-cell {
+  text-align: right;
+}
+.total-cell {
+  font-weight: bold;
+  text-align: right;
+  background-color: #f1f5f9;
+}
+.total-row {
+  font-weight: bold;
+  background-color: #f8fafc;
+}
+</style>
+</head>
+
+<body>
+<div class="report-container">
+  <div class="header-title" id="comp-name">COMPANY NAME</div>
+  <div class="header-subtitle" id="comp-addr">Company Address</div>
+  <div class="header-meta" id="report-period">GSTR-2 SUMMARY USING FOR GSTR-9 INWARD ANALYSIS REPORT</div>
+
+  <div id="tables-container">
+    <!-- Dynamic tables will be rendered here -->
+  </div>
+</div>
+
+<script>
+const rawData = '{{ report_json | safe }}';
+const report = JSON.parse(rawData);
+
+document.getElementById('comp-name').textContent = report.company.name.toUpperCase();
+document.getElementById('comp-addr').textContent = report.company.address;
+document.getElementById('report-period').textContent = `GSTR-2 SUMMARY USING FOR GSTR-9 INWARD ANALYSIS REPORT FROM : ${report.period.start} TO : ${report.period.end}`;
+
+const container = document.getElementById('tables-container');
+const months = report.months;
+
+// Formatting helper
+function fmt(val) {
+  return Number(val || 0).toFixed(2);
+}
+
+// Map technical category keys to user-friendly Excel sheet headers
+const categoryMap = {
+  "B2B": "b2b",
+  "B2BUR": "b2bur",
+  "IMPS": "imps",
+  "IMPG": "impg",
+  "CDNR": "cdnr",
+  "CDNUR": "cdnur",
+  "AT": "at",
+  "ATADJ": "atadj",
+  "EXEMP": "exemp",
+  "ITCR": "itcr",
+  "HSNSUM": "hsnsum"
+};
+
+const rowLabels = [
+  "TAXABLE AMOUNT",
+  "INTEGRATED TAX",
+  "CENTRAL GSTTAX",
+  "STATE GST-TAX",
+  "CESS GST-TAX",
+  "TOTAL AMOUNTRS"
+];
+
+Object.keys(categoryMap).forEach(key => {
+  const catData = report.data[key];
+  if (!catData) return;
+
+  // Create Table
+  const table = document.createElement('table');
+  
+  // Set Column Widths (14 columns total: Label (16%), 12 months (6% each), Total (12%))
+  const colgroup = document.createElement('colgroup');
+  let colHtml = '<col style="width: 16%;">';
+  months.forEach(() => {
+    colHtml += '<col style="width: 6%;">';
+  });
+  colHtml += '<col style="width: 12%;">';
+  colgroup.innerHTML = colHtml;
+  table.appendChild(colgroup);
+
+  // 1. Sheet Header Row
+  const sheetHeaderRow = document.createElement('tr');
+  sheetHeaderRow.innerHTML = `<td colspan="${months.length + 2}" class="sheet-header-row">SHEET NAME : ${categoryMap[key]}</td>`;
+  table.appendChild(sheetHeaderRow);
+
+  // 2. Table Column Headers
+  const thRow = document.createElement('tr');
+  let thHtml = `<td class="table-header-cell" style="text-align: left;">GSTTAX-TYPE HEAD</td>`;
+  months.forEach(m => {
+    thHtml += `<td class="table-header-cell">${m}</td>`;
+  });
+  thHtml += `<td class="table-header-cell">TOTAL AMOUNT</td>`;
+  thRow.innerHTML = thHtml;
+  table.appendChild(thRow);
+
+  // 3. Render each of the 6 data rows
+  rowLabels.forEach(row => {
+    const rowTr = document.createElement('tr');
+    
+    // Total row class for TOTAL AMOUNTRS
+    const isTotalRow = row === "TOTAL AMOUNTRS";
+    if (isTotalRow) {
+      rowTr.className = "total-row";
+    }
+
+    const rowValData = catData[row] || {};
+    
+    let html = `<td class="row-label">${row}</td>`;
+    
+    // Render each monthly cell value
+    months.forEach(m => {
+      const val = rowValData[m] || 0;
+      html += `<td class="${isTotalRow ? 'total-cell' : 'val-cell'}">${fmt(val)}</td>`;
+    });
+    
+    // Render the final TOTAL cell
+    const totalVal = rowValData["TOTAL"] || 0;
+    html += `<td class="total-cell">${fmt(totalVal)}</td>`;
+    
+    rowTr.innerHTML = html;
+    table.appendChild(rowTr);
+  });
+
+  container.appendChild(table);
+});
+</script>
+</body>
+</html>

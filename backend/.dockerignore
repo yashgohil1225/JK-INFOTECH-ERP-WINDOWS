@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+venv
+.env
+.git
+.render
+build
+scratch
+erp.db
+diagnostic_log.txt

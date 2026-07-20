@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Low Stock Alerts Report</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 15mm 10mm;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      color: #1e293b;
+      background-color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      margin-bottom: 25px;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 15px;
+    }
+    .company-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      text-transform: uppercase;
+      letter-spacing: -0.5px;
+    }
+    .company-details {
+      color: #475569;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .report-badge {
+      float: right;
+      text-align: right;
+    }
+    .badge-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .badge-period {
+      font-size: 10px;
+      font-weight: bold;
+      color: #475569;
+      text-transform: uppercase;
+    }
+    .clear {
+      clear: both;
+    }
+    .report-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    .report-table th {
+      background-color: #f1f5f9;
+      color: #111827;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 10px 12px;
+      border-bottom: 2px solid #cbd5e1;
+      text-align: left;
+    }
+    .report-table td {
+      padding: 10px 12px;
+      font-size: 11px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .text-right {
+      text-align: right;
+    }
+    .text-center {
+      text-align: center;
+    }
+    .grand-total {
+      background-color: #111827;
+      color: white;
+      font-weight: bold;
+    }
+    .grand-total td {
+      border-bottom: none;
+      font-size: 12px;
+    }
+    .low-stock {
+      color: #111827;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="report-badge">
+      <h2 class="badge-title">Low Stock Alerts</h2>
+      <div id="badge-period" class="badge-period"></div>
+    </div>
+    <h1 id="company-title" class="company-title"></h1>
+    <div id="company-details" class="company-details"></div>
+    <div class="clear"></div>
+  </div>
+
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th style="width: 35%;">Product / SKU</th>
+        <th style="width: 20%;">Category</th>
+        <th class="text-center" style="width: 15%;">Reorder Level</th>
+        <th class="text-center" style="width: 15%;">Current Stock</th>
+        <th class="text-right" style="width: 15%;">Unit Cost</th>
+        <th class="text-right" style="width: 15%;">Shortage</th>
+      </tr>
+    </thead>
+    <tbody id="table-body">
+      <!-- Data injected dynamically -->
+    </tbody>
+  </table>
+
+  <script>
+    const rawData = '{{ report_data_json | safe }}';
+    const reportData = JSON.parse(rawData);
+
+    document.getElementById('company-title').textContent = reportData.companyInfo.name;
+    let detailsHTML = '';
+    if (reportData.companyInfo.address) detailsHTML += `Address: ${reportData.companyInfo.address}<br>`;
+    if (reportData.companyInfo.gst_number) detailsHTML += `GSTIN: ${reportData.companyInfo.gst_number} | `;
+    if (reportData.companyInfo.contact) detailsHTML += `Phone: ${reportData.companyInfo.contact} | `;
+    if (reportData.companyInfo.email) detailsHTML += `Email: ${reportData.companyInfo.email}`;
+    document.getElementById('company-details').innerHTML = detailsHTML;
+
+    document.getElementById('badge-period').textContent = `As of: ${reportData.asOfDate}`;
+
+    const tbody = document.getElementById('table-body');
+    let totalItems = 0;
+
+    if (reportData.products && reportData.products.length > 0) {
+      reportData.products.forEach(p => {
+        totalItems++;
+        const shortage = p.reorder_level - p.current_stock;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <strong>${p.name}</strong><br>
+            <span style="font-size: 9px; color: #64748b; font-weight: bold; letter-spacing: 0.5px;">SKU: ${p.sku || 'N/A'}</span>
+          </td>
+          <td>${p.category_name}</td>
+          <td class="text-center" style="font-weight: 600;">${p.reorder_level} ${p.unit}</td>
+          <td class="text-center low-stock">${p.current_stock} ${p.unit}</td>
+          <td class="text-right">₹${Number(p.purchase_price).toFixed(2)}</td>
+          <td class="text-right low-stock" style="font-weight: 800;">${shortage} ${p.unit}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const totalTr = document.createElement('tr');
+      totalTr.className = 'grand-total';
+      totalTr.innerHTML = `
+        <td colspan="5" style="text-transform: uppercase; letter-spacing: 1px; font-weight: 800; padding: 12px;">Total Alerted Items</td>
+        <td class="text-right" style="font-weight: 900; padding: 12px;">${totalItems} Items</td>
+      `;
+      tbody.appendChild(totalTr);
+    } else {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 40px; color: #64748b;">No low stock alerts found. All inventory counts are optimal.</td></tr>`;
+    }
+  </script>
+</body>
+</html>

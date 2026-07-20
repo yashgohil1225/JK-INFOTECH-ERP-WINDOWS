@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Profit & Loss Statement</title>
+  <style>
+    /* ─────────────────────────────────────────────
+       CSS CUSTOM PROPERTIES  (ERP Theme System)
+    ───────────────────────────────────────────── */
+    :root, .theme-fiori {
+      --brand-primary:   #111827;
+      --brand-accent:    #111827;
+      --brand-light:     #f3f4f6;
+      --brand-border:    #374151;
+      --text-dark:       #000000;
+      --text-muted:      #374151;
+      --text-light:      #4b5563;
+      --table-head-bg:   #374151;
+      --table-head-fg:   #ffffff;
+      --table-alt-bg:    #fafafa;
+      --total-bg:        #111827;
+      --total-fg:        #ffffff;
+      --page-bg:         #ffffff;
+      --paper-bg:        #ffffff;
+      --font-display:    system-ui, -apple-system, sans-serif;
+      --font-body:       system-ui, -apple-system, sans-serif;
+      --radius:          6px;
+    }
+    
+    .theme-tally {
+      --brand-primary:   #111827;
+      --brand-accent:    #111827;
+      --brand-light:     #f3f4f6;
+      --brand-border:    #374151;
+      --text-dark:       #000000;
+      --text-muted:      #374151;
+      --table-head-bg:   #374151;
+      --table-head-fg:   #ffffff;
+      --table-alt-bg:    #fafafa;
+      --page-bg:         #ffffff;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      background: var(--page-bg);
+      font-family: var(--font-body);
+      font-size: 11.5px;
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 16px;
+    }
+
+    .report-paper {
+      background: var(--paper-bg);
+      width: 210mm;
+      min-height: 297mm;
+      box-shadow: 0 4px 40px rgba(0,0,0,0.18);
+      border-top: 6px solid var(--brand-accent);
+      padding: 15mm 10mm;
+      position: relative;
+    }
+
+    .header {
+      margin-bottom: 20px;
+      border-bottom: 2px solid var(--brand-border);
+      padding-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .company-info {
+      flex: 1;
+    }
+    .company-title {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--brand-primary);
+      margin: 0 0 4px 0;
+      text-transform: uppercase;
+      letter-spacing: -0.3px;
+    }
+    .company-details {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .report-badge {
+      text-align: right;
+    }
+    .badge-title {
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--brand-primary);
+      margin: 0 0 4px 0;
+      letter-spacing: -0.5px;
+    }
+    .badge-period {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--brand-accent);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--brand-primary);
+      margin: 20px 0 10px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--brand-border);
+      padding-bottom: 4px;
+      background: var(--brand-light);
+      padding: 6px 12px;
+    }
+
+    .ledger-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border: 1.5px solid var(--brand-border);
+      margin-bottom: 25px;
+    }
+    .ledger-side {
+      padding: 0;
+    }
+    .ledger-side:first-child {
+      border-right: 1px solid var(--brand-border);
+    }
+    .side-header {
+      background-color: var(--table-head-bg);
+      color: var(--table-head-fg);
+      font-weight: 700;
+      padding: 8px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-align: center;
+      border-bottom: 1.5px solid var(--brand-border);
+    }
+    
+    .ledger-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .ledger-table td {
+      padding: 6px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+      font-size: 11.5px;
+    }
+    .ledger-table tr:last-child td {
+      border-bottom: none;
+    }
+    .amount-col {
+      width: 35%;
+      font-weight: 700;
+      text-align: right;
+      font-family: var(--font-body);
+      color: var(--text-dark);
+    }
+    .font-bold {
+      font-weight: 800;
+      color: var(--brand-primary);
+    }
+    .item-row .indent {
+      padding-left: 20px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    
+    .total-row {
+      border-top: 2px solid var(--brand-border) !important;
+      border-bottom: 3.5px double var(--brand-border) !important;
+      background-color: var(--brand-light);
+    }
+    .total-row td {
+      padding: 10px 12px;
+      font-weight: 800;
+      font-size: 13px;
+      color: var(--brand-primary);
+      text-transform: uppercase;
+    }
+    .total-row .amount-col {
+      color: var(--brand-accent);
+      font-size: 14px;
+    }
+
+    .text-emerald { color: #111827 !important; }
+    .text-rose { color: #111827 !important; }
+
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+    @media print {
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .report-paper {
+        box-shadow: none;
+        border-radius: 0;
+        margin: 0;
+        padding: 15mm 10mm;
+      }
+    }
+  </style>
+</head>
+<body class="theme-{{ theme or 'fiori' }}">
+  <div class="report-paper">
+    <div class="header">
+      <div class="company-info">
+        <h1 id="company-title" class="company-title"></h1>
+        <div id="company-details" class="company-details"></div>
+      </div>
+      <div class="report-badge">
+        <h2 class="badge-title">PROFIT & LOSS A/C</h2>
+        <div id="badge-period" class="badge-period"></div>
+      </div>
+    </div>
+
+    <!-- TRADING ACCOUNT SECTION -->
+    <div class="section-title">Trading Account</div>
+    <div class="ledger-container">
+      <div class="ledger-side">
+        <div class="side-header">Particulars (Dr)</div>
+        <table class="ledger-table"><tbody id="trading-debit-body"></tbody></table>
+      </div>
+      <div class="ledger-side">
+        <div class="side-header">Particulars (Cr)</div>
+        <table class="ledger-table"><tbody id="trading-credit-body"></tbody></table>
+      </div>
+    </div>
+
+    <!-- PROFIT & LOSS ACCOUNT SECTION -->
+    <div class="section-title">Profit & Loss Account</div>
+    <div class="ledger-container">
+      <div class="ledger-side">
+        <div class="side-header">Particulars (Dr)</div>
+        <table class="ledger-table"><tbody id="pl-debit-body"></tbody></table>
+      </div>
+      <div class="ledger-side">
+        <div class="side-header">Particulars (Cr)</div>
+        <table class="ledger-table"><tbody id="pl-credit-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const rawData = '{{ pl_data_json | safe }}';
+    const reportData = JSON.parse(rawData);
+
+    // Company Info
+    document.getElementById('company-title').textContent = reportData.companyInfo.name;
+    let detailsHTML = '';
+    if (reportData.companyInfo.address) detailsHTML += `Address: ${reportData.companyInfo.address}<br>`;
+    if (reportData.companyInfo.contact) detailsHTML += `Phone: ${reportData.companyInfo.contact} | `;
+    if (reportData.companyInfo.email) detailsHTML += `Email: ${reportData.companyInfo.email}`;
+    document.getElementById('company-details').innerHTML = detailsHTML;
+
+    // Period
+    const start = reportData.period.startDate;
+    const end = reportData.period.endDate;
+    document.getElementById('badge-period').textContent = `For the Period: ${start} to ${end}`;
+
+    function fmt(val) {
+      if (val === undefined || val === null || isNaN(val)) return '₹0.00';
+      return '₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // Trading Account
+    const trDeb = document.getElementById('trading-debit-body');
+    const tradingDebData = reportData.tradingAccount.debitSide;
+    
+    if (tradingDebData.openingStock.total > 0 || tradingDebData.openingStock.items.length > 0) {
+      trDeb.innerHTML += `<tr class="font-bold"><td>Opening Stock</td><td class="amount-col">${fmt(tradingDebData.openingStock.total)}</td></tr>`;
+      tradingDebData.openingStock.items.forEach(i => trDeb.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    if (tradingDebData.purchases.total > 0 || tradingDebData.purchases.items.length > 0) {
+      trDeb.innerHTML += `<tr class="font-bold"><td>Purchases</td><td class="amount-col">${fmt(tradingDebData.purchases.total)}</td></tr>`;
+      tradingDebData.purchases.items.forEach(i => trDeb.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    if (tradingDebData.directExpenses.total > 0 || tradingDebData.directExpenses.items.length > 0) {
+      trDeb.innerHTML += `<tr class="font-bold"><td>Direct Expenses</td><td class="amount-col">${fmt(tradingDebData.directExpenses.total)}</td></tr>`;
+      tradingDebData.directExpenses.items.forEach(i => trDeb.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    const gp = Number(tradingDebData.grossProfit || 0);
+    if (gp > 0) trDeb.innerHTML += `<tr class="font-bold text-emerald"><td>Gross Profit c/o</td><td class="amount-col">${fmt(gp)}</td></tr>`;
+
+    const trCred = document.getElementById('trading-credit-body');
+    const tradingCredData = reportData.tradingAccount.creditSide;
+    
+    if (tradingCredData.sales.total > 0 || tradingCredData.sales.items.length > 0) {
+      trCred.innerHTML += `<tr class="font-bold"><td>Sales</td><td class="amount-col">${fmt(tradingCredData.sales.total)}</td></tr>`;
+      tradingCredData.sales.items.forEach(i => trCred.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    if (tradingCredData.closingStock.total > 0 || tradingCredData.closingStock.items.length > 0) {
+      trCred.innerHTML += `<tr class="font-bold"><td>Closing Stock</td><td class="amount-col">${fmt(tradingCredData.closingStock.total)}</td></tr>`;
+      tradingCredData.closingStock.items.forEach(i => trCred.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    const gl = Number(tradingCredData.grossLoss || 0);
+    if (gl > 0) trCred.innerHTML += `<tr class="font-bold text-rose"><td>Gross Loss c/o</td><td class="amount-col">${fmt(gl)}</td></tr>`;
+
+    const trDiff = Math.abs(trDeb.rows.length - trCred.rows.length);
+    const trTarget = trDiff > 0 ? (trDeb.rows.length < trCred.rows.length ? trDeb : trCred) : null;
+    if (trTarget) for (let i = 0; i < trDiff; i++) trTarget.innerHTML += `<tr><td>&nbsp;</td><td>&nbsp;</td></tr>`;
+
+    trDeb.innerHTML += `<tr class="total-row"><td>Total</td><td class="amount-col">${fmt(tradingDebData.total)}</td></tr>`;
+    trCred.innerHTML += `<tr class="total-row"><td>Total</td><td class="amount-col">${fmt(tradingCredData.total)}</td></tr>`;
+
+
+    // Profit & Loss Account
+    const plDeb = document.getElementById('pl-debit-body');
+    const plDebData = reportData.profitLossAccount.debitSide;
+    
+    if (gl > 0) plDeb.innerHTML += `<tr class="font-bold text-rose"><td>Gross Loss b/f</td><td class="amount-col">${fmt(gl)}</td></tr>`;
+    if (plDebData.indirectExpenses.total > 0 || plDebData.indirectExpenses.items.length > 0) {
+      plDeb.innerHTML += `<tr class="font-bold"><td>Indirect Expenses</td><td class="amount-col">${fmt(plDebData.indirectExpenses.total)}</td></tr>`;
+      plDebData.indirectExpenses.items.forEach(i => plDeb.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    const np = Number(plDebData.netProfit || 0);
+    if (np > 0) plDeb.innerHTML += `<tr class="font-bold text-emerald"><td>Net Profit</td><td class="amount-col">${fmt(np)}</td></tr>`;
+
+    const plCred = document.getElementById('pl-credit-body');
+    const plCredData = reportData.profitLossAccount.creditSide;
+    
+    if (gp > 0) plCred.innerHTML += `<tr class="font-bold text-emerald"><td>Gross Profit b/f</td><td class="amount-col">${fmt(gp)}</td></tr>`;
+    if (plCredData.indirectIncomes.total > 0 || plCredData.indirectIncomes.items.length > 0) {
+      plCred.innerHTML += `<tr class="font-bold"><td>Indirect Incomes</td><td class="amount-col">${fmt(plCredData.indirectIncomes.total)}</td></tr>`;
+      plCredData.indirectIncomes.items.forEach(i => plCred.innerHTML += `<tr class="item-row"><td class="indent">${i.name}</td><td class="amount-col">${fmt(i.amount)}</td></tr>`);
+    }
+    const nl = Number(plCredData.netLoss || 0);
+    if (nl > 0) plCred.innerHTML += `<tr class="font-bold text-rose"><td>Net Loss</td><td class="amount-col">${fmt(nl)}</td></tr>`;
+
+    const plDiff = Math.abs(plDeb.rows.length - plCred.rows.length);
+    const plTarget = plDiff > 0 ? (plDeb.rows.length < plCred.rows.length ? plDeb : plCred) : null;
+    if (plTarget) for (let i = 0; i < plDiff; i++) plTarget.innerHTML += `<tr><td>&nbsp;</td><td>&nbsp;</td></tr>`;
+
+    plDeb.innerHTML += `<tr class="total-row"><td>Total</td><td class="amount-col">${fmt(plDebData.total)}</td></tr>`;
+    plCred.innerHTML += `<tr class="total-row"><td>Total</td><td class="amount-col">${fmt(plCredData.total)}</td></tr>`;
+  </script>
+</body>
+</html>

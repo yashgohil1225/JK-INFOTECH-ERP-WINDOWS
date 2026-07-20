@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GSTR-2 Summary Report</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      color: #000;
+      background-color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      width: 100%;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .company-name {
+      font-size: 18px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .company-address {
+      font-size: 11px;
+    }
+    .gstin-number {
+      font-size: 12px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .report-title {
+      font-size: 12px;
+      font-weight: bold;
+      text-decoration: underline;
+      margin-top: 5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 15px;
+    }
+    th {
+      border-top: 1px dashed #000;
+      border-bottom: 1px dashed #000;
+      padding: 5px 2px;
+      text-align: left;
+      font-weight: bold;
+    }
+    td {
+      padding: 4px 2px;
+    }
+    .text-right {
+      text-align: right;
+    }
+    .text-center {
+      text-align: center;
+    }
+    .font-bold {
+      font-weight: bold;
+    }
+    .section-header {
+      font-weight: bold;
+      margin: 15px 0 5px 0;
+      text-transform: uppercase;
+    }
+    .total-row td {
+      border-top: 1px dashed #000;
+      border-bottom: 1px dashed #000;
+      font-weight: bold;
+    }
+    .summary-box {
+      margin-top: 25px;
+      width: 100%;
+    }
+    .summary-title {
+      font-weight: bold;
+      text-decoration: underline;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div id="company-name" class="company-name"></div>
+      <div id="company-address" class="company-address"></div>
+      <div id="company-gstin" class="gstin-number"></div>
+      <div id="report-title" class="report-title"></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 8%;">BILL-DATE</th>
+          <th style="width: 8%;">BILL-NO.</th>
+          <th style="width: 14%;">GSTIN-NUMBERS</th>
+          <th style="width: 20%;">SUPPLIER NAME</th>
+          <th class="text-right" style="width: 10%;">TAXABLE-AMOUNTRS.</th>
+          <th class="text-right" style="width: 8%;">IGST-AMOUNTRS.</th>
+          <th class="text-right" style="width: 8%;">CGST-AMOUNTRS.</th>
+          <th class="text-right" style="width: 8%;">SGST-AMOUNTRS.</th>
+          <th class="text-right" style="width: 6%;">CESS-AMOUNTRS.</th>
+          <th class="text-right" style="width: 10%;">TOTALGST-AMOUNTRS.</th>
+          <th class="text-right" style="width: 10%;">NETBILL-AMOUNTRS.</th>
+        </tr>
+      </thead>
+      <tbody id="report-body">
+        <!-- Dynamically rendered via JS -->
+      </tbody>
+    </table>
+
+    <div class="summary-box">
+      <div class="summary-title">INWARD DAYBOOKS SUMMARY (ITC) :-</div>
+      <table>
+        <tbody id="summary-body">
+          <!-- Dynamically rendered via JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // Injected by jinja
+    const rawData = '{{ db_data_json | safe }}';
+    const reportData = JSON.parse(rawData);
+
+    // Set headers
+    document.getElementById('company-name').textContent = reportData.company.name;
+    document.getElementById('company-address').textContent = reportData.company.address;
+    document.getElementById('company-gstin').textContent = 'GOODS AND SERVICES TAX IDENTIFICATION NUMBER: ' + reportData.company.gst_number;
+    document.getElementById('report-title').textContent = 'GOODS AND SERVICES TAX GSTR-2 MONTHLY INWARD ANALYSIS REPORT FROM : ' + reportData.period.start + ' TO : ' + reportData.period.end;
+
+    const tbody = document.getElementById('report-body');
+    
+    // Totals
+    let totalTaxable = 0;
+    let totalIgst = 0;
+    let totalCgst = 0;
+    let totalSgst = 0;
+    let totalCess = 0;
+    let totalGst = 0;
+    let totalNet = 0;
+
+    // Helper for formatting decimals
+    function fmt(val) {
+      return Number(val || 0).toFixed(2);
+    }
+
+    // Helper to formatDate
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    }
+
+    if (reportData.b2b && reportData.b2b.length > 0) {
+      // B2B Section Header
+      const b2bHeader = document.createElement('tr');
+      b2bHeader.innerHTML = `<td colspan="11" class="font-bold section-header">DAYBOOK : INWARD SALES OF BUSINESS TO BUSINESS-(B2B)</td>`;
+      tbody.appendChild(b2bHeader);
+
+      let b2bTaxable = 0;
+      let b2bIgst = 0;
+      let b2bCgst = 0;
+      let b2bSgst = 0;
+      let b2bCess = 0;
+      let b2bGst = 0;
+      let b2bNet = 0;
+
+      reportData.b2b.forEach(inv => {
+        const taxable = Number(inv.taxable_value || 0);
+        const igst = Number(inv.igst || 0);
+        const cgst = Number(inv.cgst || 0);
+        const sgst = Number(inv.sgst || 0);
+        const cess = Number(inv.cess || 0);
+        const gst = igst + cgst + sgst;
+        const net = Number(inv.total_bill_value || inv.value || 0);
+
+        b2bTaxable += taxable;
+        b2bIgst += igst;
+        b2bCgst += cgst;
+        b2bSgst += sgst;
+        b2bCess += cess;
+        b2bGst += gst;
+        b2bNet += net;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${formatDate(inv.bill_date || inv.date)}</td>
+          <td>${inv.bill_no || inv.inv_no}</td>
+          <td>${inv.supplier_gstin || inv.gstin}</td>
+          <td>${inv.supplier_name || inv.receiver_name}</td>
+          <td class="text-right">${fmt(taxable)}</td>
+          <td class="text-right">${fmt(igst)}</td>
+          <td class="text-right">${fmt(cgst)}</td>
+          <td class="text-right">${fmt(sgst)}</td>
+          <td class="text-right">${fmt(cess)}</td>
+          <td class="text-right">${fmt(gst)}</td>
+          <td class="text-right">${fmt(net)}</td>
+        `;
+        tbody.appendChild(row);
+      });
+
+      // B2B Totals Row
+      const b2bTotalRow = document.createElement('tr');
+      b2bTotalRow.className = 'total-row';
+      b2bTotalRow.innerHTML = `
+        <td colspan="4" class="font-bold">TOTAL OF INWARD SALES OF BUSINESS TO BUSINESS-(B2B) RS.:</td>
+        <td class="text-right font-bold">${fmt(b2bTaxable)}</td>
+        <td class="text-right font-bold">${fmt(b2bIgst)}</td>
+        <td class="text-right font-bold">${fmt(b2bCgst)}</td>
+        <td class="text-right font-bold">${fmt(b2bSgst)}</td>
+        <td class="text-right font-bold">${fmt(b2bCess)}</td>
+        <td class="text-right font-bold">${fmt(b2bGst)}</td>
+        <td class="text-right font-bold">${fmt(b2bNet)}</td>
+      `;
+      tbody.appendChild(b2bTotalRow);
+
+      totalTaxable += b2bTaxable;
+      totalIgst += b2bIgst;
+      totalCgst += b2bCgst;
+      totalSgst += b2bSgst;
+      totalCess += b2bCess;
+      totalGst += b2bGst;
+      totalNet += b2bNet;
+    }
+
+    // Build the bottom summary box
+    const summaryBody = document.getElementById('summary-body');
+    
+    // Header for summary table
+    const summaryHeader = document.createElement('tr');
+    summaryHeader.innerHTML = `
+      <th style="width: 40%;">PARTICULARS</th>
+      <th class="text-right" style="width: 10%;">TAXABLE-VALUE</th>
+      <th class="text-right" style="width: 8%;">IGST-AMOUNT</th>
+      <th class="text-right" style="width: 8%;">CGST-AMOUNT</th>
+      <th class="text-right" style="width: 8%;">SGST-AMOUNT</th>
+      <th class="text-right" style="width: 6%;">CESS-AMOUNT</th>
+      <th class="text-right" style="width: 10%;">TOTAL-GST</th>
+      <th class="text-right" style="width: 10%;">NET-AMOUNT</th>
+    `;
+    summaryBody.appendChild(summaryHeader);
+
+    if (totalTaxable > 0) {
+      const b2bSumRow = document.createElement('tr');
+      b2bSumRow.innerHTML = `
+        <td class="font-bold">INWARD BUSINESS TO BUSINESS-(B2B) RS.:</td>
+        <td class="text-right">${fmt(totalTaxable)}</td>
+        <td class="text-right">${fmt(totalIgst)}</td>
+        <td class="text-right">${fmt(totalCgst)}</td>
+        <td class="text-right">${fmt(totalSgst)}</td>
+        <td class="text-right">${fmt(totalCess)}</td>
+        <td class="text-right">${fmt(totalGst)}</td>
+        <td class="text-right">${fmt(totalNet)}</td>
+      `;
+      summaryBody.appendChild(b2bSumRow);
+
+      const netPayableRow = document.createElement('tr');
+      netPayableRow.className = 'total-row';
+      netPayableRow.innerHTML = `
+        <td class="font-bold">TOTAL CLAIMABLE INPUT TAX CREDIT (ITC) RS.:</td>
+        <td class="text-right font-bold">${fmt(totalTaxable)}</td>
+        <td class="text-right font-bold">${fmt(totalIgst)}</td>
+        <td class="text-right font-bold">${fmt(totalCgst)}</td>
+        <td class="text-right font-bold">${fmt(totalSgst)}</td>
+        <td class="text-right font-bold">${fmt(totalCess)}</td>
+        <td class="text-right font-bold">${fmt(totalGst)}</td>
+        <td class="text-right font-bold">${fmt(totalNet)}</td>
+      `;
+      summaryBody.appendChild(netPayableRow);
+    } else {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="8" class="text-center" style="padding: 20px;">No inward transactions recorded for the selected period.</td>`;
+      summaryBody.appendChild(emptyRow);
+    }
+  </script>
+</body>
+</html>

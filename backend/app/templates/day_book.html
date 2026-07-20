@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Day Book Report</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 15mm 10mm;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      color: #1e293b;
+      background-color: #fff;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      margin-bottom: 25px;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 15px;
+    }
+    .company-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      text-transform: uppercase;
+      letter-spacing: -0.5px;
+    }
+    .company-details {
+      color: #475569;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .report-badge {
+      float: right;
+      text-align: right;
+    }
+    .badge-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 5px 0;
+      letter-spacing: 0.5px;
+    }
+    .badge-period {
+      font-size: 10px;
+      font-weight: bold;
+      color: #475569;
+      text-transform: uppercase;
+    }
+    .clear {
+      clear: both;
+    }
+    .entry-block {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      overflow: hidden;
+      page-break-inside: avoid;
+    }
+    .entry-header {
+      background-color: #f8fafc;
+      padding: 8px 12px;
+      border-bottom: 1px solid #cbd5e1;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .entry-number {
+      color: #111827;
+      font-size: 13px;
+    }
+    .entry-meta {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .entry-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .entry-table th {
+      background-color: #f1f5f9;
+      color: #475569;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+      padding: 6px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+    }
+    .entry-table td {
+      padding: 8px 12px;
+      font-size: 11.5px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .entry-table tr:last-child td {
+      border-bottom: none;
+    }
+    .text-right {
+      text-align: right;
+    }
+    .text-muted {
+      color: #94a3b8;
+    }
+    .debit-col, .credit-col {
+      width: 15%;
+      font-weight: 600;
+    }
+    .debit-val {
+      color: #111827;
+    }
+    .credit-val {
+      color: #111827;
+    }
+    .description-row td {
+      font-style: italic;
+      color: #64748b;
+      font-size: 11px;
+      padding-top: 4px;
+      background-color: #fafafa;
+    }
+    .grand-total {
+      margin-top: 30px;
+      border-top: 2px solid #111827;
+      border-bottom: 2px solid #111827;
+      padding: 10px 12px;
+      font-weight: bold;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="report-badge">
+      <h2 class="badge-title">DAY BOOK</h2>
+      <div id="badge-period" class="badge-period"></div>
+    </div>
+    <h1 id="company-title" class="company-title"></h1>
+    <div id="company-details" class="company-details"></div>
+    <div class="clear"></div>
+  </div>
+
+  <div id="entries-container">
+    <!-- Daybook Entries rendered dynamically via JS -->
+  </div>
+
+  <div class="grand-total">
+    <span>GRAND TOTALS:</span>
+    <span style="float: right;">
+      DEBIT: <span id="grand-debit" style="color: #111827; margin-right: 20px;">₹0.00</span>
+      CREDIT: <span id="grand-credit" style="color: #111827;">₹0.00</span>
+    </span>
+  </div>
+
+  <script>
+    const rawData = '{{ db_data_json | safe }}';
+    const reportData = JSON.parse(rawData);
+
+    // Set header information
+    document.getElementById('company-title').textContent = reportData.companyInfo.name;
+    let detailsHTML = '';
+    if (reportData.companyInfo.address) detailsHTML += `Address: ${reportData.companyInfo.address}<br>`;
+    if (reportData.companyInfo.gst_number) detailsHTML += `GSTIN: ${reportData.companyInfo.gst_number} | `;
+    if (reportData.companyInfo.contact) detailsHTML += `Phone: ${reportData.companyInfo.contact} | `;
+    if (reportData.companyInfo.email) detailsHTML += `Email: ${reportData.companyInfo.email}`;
+    document.getElementById('company-details').innerHTML = detailsHTML;
+
+    // Set period badge
+    const startStr = reportData.period.startDate;
+    const endStr = reportData.period.endDate;
+    if (startStr && endStr) {
+      document.getElementById('badge-period').textContent = `Period: ${startStr} to ${endStr}`;
+    } else {
+      document.getElementById('badge-period').textContent = 'All Records';
+    }
+
+    const container = document.getElementById('entries-container');
+    let grandDebit = 0;
+    let grandCredit = 0;
+
+    function fmt(val) {
+      return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    if (reportData.entries && reportData.entries.length > 0) {
+      reportData.entries.forEach(entry => {
+        grandDebit += Number(entry.total_debit || 0);
+        grandCredit += Number(entry.total_credit || 0);
+
+        const entryBlock = document.createElement('div');
+        entryBlock.className = 'entry-block';
+
+        // Entry header block
+        const entryHeader = document.createElement('div');
+        entryHeader.className = 'entry-header';
+        entryHeader.innerHTML = `
+          <span class="entry-number">${entry.entry_number}</span>
+          <span class="entry-meta">
+            Date: ${formatDate(entry.entry_date)} | Type: ${entry.reference_type ? entry.reference_type.toUpperCase() : 'MANUAL'}
+          </span>
+        `;
+        entryBlock.appendChild(entryHeader);
+
+        // Entry Table
+        const table = document.createElement('table');
+        table.className = 'entry-table';
+        
+        let tableRowsHTML = `
+          <thead>
+            <tr>
+              <th style="width: 50%;">Account / Particulars</th>
+              <th style="width: 20%;">Type</th>
+              <th class="text-right debit-col">Debit (Dr)</th>
+              <th class="text-right credit-col">Credit (Cr)</th>
+            </tr>
+          </thead>
+          <tbody>
+        `;
+
+        entry.lines.forEach(line => {
+          const deb = Number(line.debit || 0);
+          const cred = Number(line.credit || 0);
+
+          tableRowsHTML += `
+            <tr>
+              <td class="font-semibold text-slate-800" style="${cred > 0 ? 'padding-left: 24px;' : ''}">
+                ${cred > 0 ? 'To ' : ''}${line.account_name}
+              </td>
+              <td class="text-muted font-medium">${line.account_type}</td>
+              <td class="text-right debit-val">${deb > 0 ? fmt(deb) : ''}</td>
+              <td class="text-right credit-val">${cred > 0 ? fmt(cred) : ''}</td>
+            </tr>
+          `;
+        });
+
+        // Narrations / Description if present
+        if (entry.description) {
+          tableRowsHTML += `
+            <tr class="description-row">
+              <td colspan="4"><strong>Narration:</strong> ${entry.description}</td>
+            </tr>
+          `;
+        }
+
+        tableRowsHTML += `</tbody>`;
+        table.innerHTML = tableRowsHTML;
+        entryBlock.appendChild(table);
+        container.appendChild(entryBlock);
+      });
+    } else {
+      container.innerHTML = `<div style="text-align: center; padding: 40px; border: 1px dashed #cbd5e1; border-radius: 6px; color: #64748b;">No transactions recorded in the selected period.</div>`;
+    }
+
+    document.getElementById('grand-debit').textContent = fmt(grandDebit);
+    document.getElementById('grand-credit').textContent = fmt(grandCredit);
+  </script>
+</body>
+</html>
