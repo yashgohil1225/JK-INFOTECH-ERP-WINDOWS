@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "dependencies": {
+    "native,Version=v0.0": {
+      "Microsoft.JavaScript.Hermes": {
+        "type": "Direct",
+        "requested": "[0.1.23, )",
+        "resolved": "0.1.23",
+        "contentHash": "cA9t1GjY4Yo0JD1AfA//e1lOwk48hLANfuX6GXrikmEBNZVr2TIX5ONJt5tqCnpZyLz6xGiPDgTfFNKbSfb21g=="
+      },
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.ReactNative.Cxx": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "pSOH47CQ5uEKDCJpokpaDOxXHQDNHiPHT0GcetsXSojTQ+pXnCP3jxq0wj0JnEYh55ODBDL445HwX1+XXg7VXg==",
+        "dependencies": {
+          "Microsoft.ReactNative": "0.75.20"
+        }
+      },
+      "Microsoft.UI.Xaml": {
+        "type": "Direct",
+        "requested": "[2.8.0, )",
+        "resolved": "2.8.0",
+        "contentHash": "vxdHxTr63s5KVtNddMFpgvjBjUH50z7seq/5jLWmmSuf8poxg+sXrywkofUdE8ZstbpO9y3FL/IXXUcPYbeesA==",
+        "dependencies": {
+          "Microsoft.Web.WebView2": "1.0.1264.42"
+        }
+      },
+      "Microsoft.Windows.CppWinRT": {
+        "type": "Direct",
+        "requested": "[2.0.230706.1, )",
+        "resolved": "2.0.230706.1",
+        "contentHash": "l0D7oCw/5X+xIKHqZTi62TtV+1qeSz7KVluNFdrJ9hXsst4ghvqQ/Yhura7JqRdZWBXAuDS0G0KwALptdoxweQ=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      },
+      "datetimepickerwindows": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.ReactNative": "[0.75.20, )",
+          "Microsoft.ReactNative.Cxx": "[0.75.20, )",
+          "Microsoft.UI.Xaml": "[2.8.0, )"
+        }
+      },
+      "reactnativeasyncstorage": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.ReactNative": "[0.75.20, )",
+          "Microsoft.ReactNative.Cxx": "[0.75.20, )",
+          "Microsoft.UI.Xaml": "[2.8.0, )"
+        }
+      },
+      "rnsvg": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.ReactNative": "[0.75.20, )",
+          "Microsoft.ReactNative.Cxx": "[0.75.20, )",
+          "Microsoft.UI.Xaml": "[2.8.0, )"
+        }
+      }
+    },
+    "native,Version=v0.0/win10-arm": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-arm-aot": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-arm64-aot": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-x64": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-x64-aot": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-x86": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    },
+    "native,Version=v0.0/win10-x86-aot": {
+      "Microsoft.ReactNative": {
+        "type": "Direct",
+        "requested": "[0.75.20, )",
+        "resolved": "0.75.20",
+        "contentHash": "GmgVMwPy0uTZ6wcd5IOlruh5EcDqydq++Kk8QpYMAIfq0FrNHvrgITMvm1mPwRFyKv5QgssgaYgIGFW89WnfOA=="
+      },
+      "Microsoft.Web.WebView2": {
+        "type": "Transitive",
+        "resolved": "1.0.1264.42",
+        "contentHash": "7OBUTkzQ5VI/3gb0ufi5U4zjuCowAJwQg2li0zXXzqkM+S1kmOlivTy1R4jAW+gY5Vyg510M+qMAESCQUjrfgA=="
+      }
+    }
+  }
+}

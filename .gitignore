@@ -1,0 +1,11 @@
+.venv/
+.vscode/
+node_modules/
+__pycache__/
+*.pyc
+graphify-out/
+reports/
+.agents/
+.env
+*.env
+jk-erp/
