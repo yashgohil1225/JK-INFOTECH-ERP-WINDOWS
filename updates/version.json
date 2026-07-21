@@ -1,6 +1,6 @@
 {
-  "version": "1.0.3",
-  "releaseNotes": "1. Natural alphanumeric table header sorting (INV/1, INV/2, INV/10).\n2. PDF printing and container scaling fixes.\n3. Native trackpad 2D panning and keyboard arrow navigation.",
+  "version": "1.0.4",
+  "releaseNotes": "1. Zero-dependency natural table header sorting (INV/1, INV/2, INV/10).\n2. Touchpad 2-finger horizontal swipe panning in PDF preview.\n3. PDF printing container layout bounds fixes.",
   "mandatory": false,
   "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/latest"
 }
