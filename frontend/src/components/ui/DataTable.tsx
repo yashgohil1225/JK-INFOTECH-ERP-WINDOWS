@@ -69,15 +69,16 @@ export function DataTable<T extends { id?: string | number }>({
       if (valA === undefined || valA === null || valA === "") return sortDirection === "asc" ? 1 : -1;
       if (valB === undefined || valB === null || valB === "") return sortDirection === "asc" ? -1 : 1;
 
-      if (typeof valA === "string" && typeof valB === "string") {
-        return sortDirection === "asc"
-          ? valA.localeCompare(valB)
-          : valB.localeCompare(valA);
+      let result = 0;
+      if (typeof valA === "number" && typeof valB === "number") {
+        result = valA - valB;
+      } else {
+        const strA = String(valA);
+        const strB = String(valB);
+        result = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
       }
 
-      return sortDirection === "asc"
-        ? (valA < valB ? -1 : valA > valB ? 1 : 0)
-        : (valA > valB ? -1 : valA < valB ? 1 : 0);
+      return sortDirection === "asc" ? result : -result;
     });
     return sorted;
   }, [data, sortColumn, sortDirection, columns]);

@@ -10,7 +10,7 @@ export interface UpdateInfo {
 }
 
 // Configurable Cloud Update Check URL
-const DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/yashgohil1225/jk-infotech-erp/main/updates/version.json";
+const DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/main/updates/version.json";
 
 export const getCurrentAppVersion = (): string => {
   return pkg.version || "1.0.0";
