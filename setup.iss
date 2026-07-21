@@ -77,10 +77,12 @@ Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech
 Filename: "powershell.exe"; Parameters: "-Command ""Get-AppxPackage *JKErpWindows* | Remove-AppxPackage"""; Flags: runhidden; RunOnceId: "UninstallUWP"
 
 [Code]
-// Helper function to check if the database files have already been initialized
+// Helper function to check if database files have already been initialized across any known directory
 function NotDataDirExists(): Boolean;
 begin
-  Result := not DirExists(ExpandConstant('{app}\pg_data'));
+  Result := (not DirExists(ExpandConstant('{app}\pg_data'))) and
+            (not DirExists(ExpandConstant('{userappdata}\frontend\data'))) and
+            (not DirExists(ExpandConstant('{commonappdata}\JK Infotech ERP\pg_data')));
 end;
 
 // Helper function to check if the PostgreSQL service is already registered in Windows Service Control Manager
@@ -94,10 +96,8 @@ function PostgresServiceIsNotRunning(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // Query status via sc query. If running, don't attempt start.
   if Exec(ExpandConstant('{sys}\sc.exe'), 'query JK_Infotech_PostgreSQL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
-    // Check if the service started successfully or is running by executing a test query
     Result := True;
   end
   else

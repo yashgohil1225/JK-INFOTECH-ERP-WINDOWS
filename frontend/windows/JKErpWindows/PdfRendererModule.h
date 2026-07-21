@@ -15,6 +15,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.UI.Core.h>
+#include <winrt/Windows.UI.Input.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
@@ -35,6 +36,63 @@ namespace JKErpWindows {
 REACT_MODULE_NOREG(PdfRenderer, L"PdfRenderer")
 struct PdfRenderer {
   inline static std::atomic<uint64_t> s_fileCounter{0};
+  ReactContext m_reactContext{nullptr};
+
+  REACT_INIT(Initialize)
+  void Initialize(ReactContext const& reactContext) noexcept {
+    m_reactContext = reactContext;
+    try {
+      auto dispatcher =
+          winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()
+              .CoreWindow()
+              .Dispatcher();
+      dispatcher.RunAsync(
+          winrt::Windows::UI::Core::CoreDispatcherPriority::Normal,
+          [this]() {
+            try {
+              auto coreWindow =
+                  winrt::Windows::ApplicationModel::Core::CoreApplication::
+                      MainView()
+                          .CoreWindow();
+              if (coreWindow) {
+                coreWindow.PointerWheelChanged(
+                    [this](auto const&,
+                           winrt::Windows::UI::Core::PointerEventArgs const&
+                               args) {
+                      try {
+                        auto keys = args.KeyModifiers();
+                        bool isCtrl =
+                            (keys &
+                             winrt::Windows::System::VirtualKeyModifiers::
+                                 Control) !=
+                            winrt::Windows::System::VirtualKeyModifiers::None;
+                        auto props = args.CurrentPoint().Properties();
+                        bool isHorizontal = props.IsHorizontalMouseWheel();
+                        int delta = props.MouseWheelDelta();
+
+                        if (isHorizontal && m_reactContext) {
+                          m_reactContext.EmitJSEvent(
+                              L"RCTDeviceEventEmitter",
+                              L"emit",
+                              JSValueArray{
+                                  "OnPdfHorizontalScroll",
+                                  JSValueObject{{"delta", delta}}});
+                        } else if (isCtrl && m_reactContext) {
+                          m_reactContext.EmitJSEvent(
+                              L"RCTDeviceEventEmitter",
+                              L"emit",
+                              JSValueArray{
+                                  "OnPdfZoomWheel",
+                                  JSValueObject{{"delta", delta}}});
+                        }
+                      } catch (...) {}
+                    });
+              }
+            } catch (...) {}
+          });
+    } catch (...) {}
+  }
+
   REACT_METHOD(RenderPdf)
   void RenderPdf(std::string url, std::string invoiceId,
                  ReactPromise<std::vector<std::string>> promise) noexcept {
@@ -243,20 +301,21 @@ private:
   winrt::Windows::UI::Xaml::Printing::PrintDocument m_printDocument{nullptr};
   winrt::event_token m_printTaskRequestedToken;
   std::vector<std::wstring> m_pageFilePaths;
+  std::vector<winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage> m_pageImages;
   winrt::Windows::Graphics::Printing::IPrintDocumentSource
       m_printDocumentSource{nullptr};
   winrt::Windows::Storage::Streams::IBuffer m_cachedPdfBuffer{nullptr};
   std::string m_cachedPdfUrl;
 
   void InitializePrintDocument() {
-    if (m_printDocument != nullptr) {
+    auto printManager =
+        winrt::Windows::Graphics::Printing::PrintManager::GetForCurrentView();
+
+    if (m_printTaskRequestedToken) {
       try {
-        auto printManager =
-            winrt::Windows::Graphics::Printing::PrintManager::GetForCurrentView();
         printManager.PrintTaskRequested(m_printTaskRequestedToken);
       } catch (...) {}
-      m_printDocument = nullptr;
-      m_printDocumentSource = nullptr;
+      m_printTaskRequestedToken = {};
     }
 
     m_printDocument = winrt::Windows::UI::Xaml::Printing::PrintDocument();
@@ -267,7 +326,7 @@ private:
           sender
               .template as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
       printDoc.SetPreviewPageCount(
-          static_cast<int32_t>(m_pageFilePaths.size()),
+          static_cast<int32_t>(m_pageImages.size()),
           winrt::Windows::UI::Xaml::Printing::PreviewPageCountType::Final);
     });
 
@@ -275,40 +334,48 @@ private:
         [this](auto const &sender, auto const &args) {
           int32_t pageNumber = args.PageNumber();
           if (pageNumber > 0 &&
-              pageNumber <= static_cast<int32_t>(m_pageFilePaths.size())) {
-            winrt::Windows::UI::Xaml::Controls::Image image;
-            image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
+              pageNumber <= static_cast<int32_t>(m_pageImages.size())) {
+            winrt::Windows::UI::Xaml::Controls::Grid pageGrid;
+            pageGrid.Width(792);
+            pageGrid.Height(1122);
 
-            winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bitmap;
-            bitmap.UriSource(
-                winrt::Windows::Foundation::Uri(m_pageFilePaths[pageNumber - 1]));
-            image.Source(bitmap);
+            winrt::Windows::UI::Xaml::Controls::Image image;
+            image.Width(792);
+            image.Height(1122);
+            image.HorizontalAlignment(winrt::Windows::UI::Xaml::HorizontalAlignment::Center);
+            image.VerticalAlignment(winrt::Windows::UI::Xaml::VerticalAlignment::Center);
+            image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
+            image.Source(m_pageImages[pageNumber - 1]);
+            pageGrid.Children().Append(image);
 
             auto printDoc =
                 sender.as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
-            printDoc.SetPreviewPage(pageNumber, image);
+            printDoc.SetPreviewPage(pageNumber, pageGrid);
           }
         });
 
     m_printDocument.AddPages([this](auto const &sender, auto const &) {
       auto printDoc =
           sender.as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
-      for (size_t i = 0; i < m_pageFilePaths.size(); ++i) {
+      for (size_t i = 0; i < m_pageImages.size(); ++i) {
+        winrt::Windows::UI::Xaml::Controls::Grid pageGrid;
+        pageGrid.Width(792);
+        pageGrid.Height(1122);
+
         winrt::Windows::UI::Xaml::Controls::Image image;
+        image.Width(792);
+        image.Height(1122);
+        image.HorizontalAlignment(winrt::Windows::UI::Xaml::HorizontalAlignment::Center);
+        image.VerticalAlignment(winrt::Windows::UI::Xaml::VerticalAlignment::Center);
         image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
+        image.Source(m_pageImages[i]);
+        pageGrid.Children().Append(image);
 
-        winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bitmap;
-        bitmap.UriSource(
-            winrt::Windows::Foundation::Uri(m_pageFilePaths[i]));
-        image.Source(bitmap);
-
-        printDoc.AddPage(image);
+        printDoc.AddPage(pageGrid);
       }
       printDoc.AddPagesComplete();
     });
 
-    auto printManager =
-        winrt::Windows::Graphics::Printing::PrintManager::GetForCurrentView();
     m_printTaskRequestedToken =
         printManager.PrintTaskRequested([this](auto const &, auto const &args) {
           auto printTask = args.Request().CreatePrintTask(
@@ -318,11 +385,15 @@ private:
         });
   }
 
-  IAsyncAction PrintPdfDirectAsync(std::string url,
+  IAsyncAction PrintPdfDirectAsync(std::string url, std::string authToken,
                                    ReactPromise<bool> promise) {
     try {
-      // 1. Download PDF bytes
+      // 1. Download PDF bytes with auth token
       HttpClient client;
+      if (!authToken.empty()) {
+        client.DefaultRequestHeaders().TryAppendWithoutValidation(
+            L"Authorization", winrt::to_hstring("Bearer " + authToken));
+      }
       Uri uri{winrt::to_hstring(url)};
       HttpResponseMessage response = co_await client.GetAsync(uri);
       if (!response.IsSuccessStatusCode()) {
@@ -334,33 +405,19 @@ private:
 
       IBuffer buffer = co_await response.Content().ReadAsBufferAsync();
 
-      // 2. Write to a temporary file
+      // 2. Write to a temporary PDF file in UWP temp folder
       StorageFolder tempFolder = ApplicationData::Current().TemporaryFolder();
       winrt::hstring filename =
-          L"DirectPrint_" +
+          L"InvoicePrint_" +
           winrt::to_hstring(std::to_wstring(GetTickCount64()).c_str()) +
           L".pdf";
       StorageFile tempFile = co_await tempFolder.CreateFileAsync(
           filename, CreationCollisionOption::ReplaceExisting);
       co_await FileIO::WriteBufferAsync(tempFile, buffer);
 
-      // 3. Launch the file in the default PDF viewer (Edge/Acrobat) on the UI thread
-      auto dispatcher =
-          winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()
-              .CoreWindow()
-              .Dispatcher();
-      co_await dispatcher.RunAsync(
-          winrt::Windows::UI::Core::CoreDispatcherPriority::Normal,
-          [tempFile, promise]() {
-            try {
-              winrt::Windows::System::Launcher::LaunchFileAsync(tempFile);
-              promise.Resolve(true);
-            } catch (winrt::hresult_error const &ex) {
-              promise.Reject(winrt::to_string(ex.message()).c_str());
-            } catch (...) {
-              promise.Reject("Failed to launch system viewer");
-            }
-          });
+      // 3. Open PDF in system viewer (Edge/Acrobat). User prints from there.
+      bool launched = co_await winrt::Windows::System::Launcher::LaunchFileAsync(tempFile);
+      promise.Resolve(launched);
     } catch (winrt::hresult_error const &ex) {
       promise.Reject(
           ("WinRT Error: " + winrt::to_string(ex.message())).c_str());
@@ -371,6 +428,7 @@ private:
     }
     co_return;
   }
+
 
   IAsyncAction PrintPdfUrlAsync(std::string url, std::string authToken,
                                 ReactPromise<bool> promise) {
@@ -398,52 +456,48 @@ private:
       PdfDocument pdfDoc = co_await PdfDocument::LoadFromStreamAsync(stream);
       uint32_t pageCount = pdfDoc.PageCount();
 
-      StorageFolder tempFolder = ApplicationData::Current().TemporaryFolder();
-      std::vector<std::wstring> pageFilePaths;
-
+      // Render each PDF page to an in-memory PNG stream (background thread OK)
+      std::vector<InMemoryRandomAccessStream> pageStreams;
       for (uint32_t i = 0; i < pageCount; ++i) {
         PdfPage page = pdfDoc.GetPage(i);
-
-        winrt::hstring filename =
-            L"PrintPage_" +
-            winrt::to_hstring(std::to_wstring(GetTickCount64()).c_str()) +
-            L"_" + winrt::to_hstring(std::to_wstring(i).c_str()) + L".png";
-
-        StorageFile imgFile = co_await tempFolder.CreateFileAsync(
-            filename, CreationCollisionOption::ReplaceExisting);
-
-        IRandomAccessStream imgStream = co_await imgFile.OpenAsync(FileAccessMode::ReadWrite);
-
+        InMemoryRandomAccessStream imgStream;
         PdfPageRenderOptions options;
-        options.DestinationWidth(static_cast<uint32_t>(page.Size().Width * 4));
+        options.DestinationWidth(static_cast<uint32_t>(page.Size().Width * 3));
         co_await page.RenderToStreamAsync(imgStream, options);
         co_await imgStream.FlushAsync();
-        imgStream.Close();
+        imgStream.Seek(0);
         page.Close();
-
-        pageFilePaths.push_back(L"file:///" + std::wstring(imgFile.Path()));
+        pageStreams.push_back(std::move(imgStream));
       }
 
-      m_pageFilePaths = std::move(pageFilePaths);
-
+      // Switch coroutine fully to the UI thread.
+      // BitmapImage is a UI (STA) COM object — it must be created AND used
+      // on the same UI thread. resume_foreground guarantees this.
       auto dispatcher =
           winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()
               .CoreWindow()
               .Dispatcher();
-      dispatcher.RunAsync(
-          winrt::Windows::UI::Core::CoreDispatcherPriority::Normal,
-          [this, promise]() {
-            try {
-              InitializePrintDocument();
-              winrt::Windows::Graphics::Printing::PrintManager::
-                  ShowPrintUIAsync();
-              promise.Resolve(true);
-            } catch (winrt::hresult_error const &ex) {
-              promise.Reject(winrt::to_string(ex.message()).c_str());
-            } catch (...) {
-              promise.Reject("Failed to show print dialog");
-            }
-          });
+      co_await winrt::resume_foreground(dispatcher);
+
+      // Now on UI thread: create and fully load each BitmapImage before printing
+      m_pageImages.clear();
+      for (auto& imgStream : pageStreams) {
+        imgStream.Seek(0);
+        winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bmp;
+        co_await bmp.SetSourceAsync(imgStream);
+        m_pageImages.push_back(bmp);
+      }
+
+      // All images loaded — show the native Windows Print dialog
+      try {
+        InitializePrintDocument();
+        co_await winrt::Windows::Graphics::Printing::PrintManager::ShowPrintUIAsync();
+        promise.Resolve(true);
+      } catch (winrt::hresult_error const& ex) {
+        promise.Reject(winrt::to_string(ex.message()).c_str());
+      } catch (...) {
+        promise.Reject("Failed to show print dialog");
+      }
     } catch (winrt::hresult_error const &ex) {
       promise.Reject(
           ("WinRT Error: " + winrt::to_string(ex.message())).c_str());

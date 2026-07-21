@@ -44,15 +44,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
     };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.mainBg }]}>
+    <View focusable={false} style={[styles.container, { backgroundColor: colors.mainBg }]}>
 
       {/* 3. WORKSPACE CORE */}
-      <View style={styles.workspaceWrapper}>
+      <View focusable={false} style={styles.workspaceWrapper}>
         {/* Navigation Sidebar */}
         {!(isCreatingInvoice || isPrintPreviewOpen || isFullScreenOpen) && <Sidebar />}
 
         {/* Content Viewport */}
         <View 
+          focusable={false}
           style={[
             styles.contentWrapper, 
             { 

@@ -586,21 +586,22 @@ class AuthService:
         await self.db.commit()
         return MessageResponse(message="Password reset successfully")
     async def get_associated_companies(self, user: User) -> list[CompanyResponse]:
-        """Get all companies this user's email has access to."""
-        # Use a subquery to find unique company IDs for this email
-        # This avoids PostgreSQL "must appear in GROUP BY" errors when selecting full Company objects
-        subq = (
-            select(User.company_id, func.max(User.last_login).label("latest_login"))
-            .where(User.email == user.email, User.is_active == True)
-            .group_by(User.company_id)
-        ).subquery()
+        """Get all companies this user's email has access to (or all active companies for superadmin)."""
+        if user.is_superadmin:
+            query = select(Company).where(Company.is_active == True).order_by(Company.name.asc())
+        else:
+            subq = (
+                select(User.company_id, func.max(User.last_login).label("latest_login"))
+                .where(User.email == user.email, User.is_active == True)
+                .group_by(User.company_id)
+            ).subquery()
 
-        query = (
-            select(Company)
-            .join(subq, Company.id == subq.c.company_id)
-            .where(Company.is_active == True)
-            .order_by(subq.c.latest_login.desc().nulls_last(), Company.name.asc())
-        )
+            query = (
+                select(Company)
+                .join(subq, Company.id == subq.c.company_id)
+                .where(Company.is_active == True)
+                .order_by(subq.c.latest_login.desc().nulls_last(), Company.name.asc())
+            )
 
         comp_result = await self.db.execute(query)
         companies = comp_result.scalars().all()
@@ -625,7 +626,20 @@ class AuthService:
         target_user = result.scalars().first()
         
         if not target_user:
-            raise ValueError("You do not have access to this company.")
+            if user.is_superadmin:
+                target_user = User(
+                    company_id=target_company_id,
+                    full_name=user.full_name,
+                    email=user.email,
+                    password_hash=user.password_hash,
+                    phone=user.phone,
+                    is_active=True,
+                    is_superadmin=True,
+                )
+                self.db.add(target_user)
+                await self.db.flush()
+            else:
+                raise ValueError("You do not have access to this company.")
             
         # Update last login
         target_user.last_login = datetime.now(timezone.utc)

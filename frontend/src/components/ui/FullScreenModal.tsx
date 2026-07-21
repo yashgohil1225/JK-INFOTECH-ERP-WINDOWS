@@ -26,6 +26,8 @@ interface FullScreenModalProps {
   /** Content placed in the header between title block and close button */
   headerActions?: React.ReactNode;
   scrollEnabled?: boolean;
+  onKeyDown?: (e: any) => void;
+  onKeyUp?: (e: any) => void;
 }
 
 export function FullScreenModal({
@@ -37,7 +39,9 @@ export function FullScreenModal({
   children,
   footerActions,
   headerActions,
-  scrollEnabled = true
+  scrollEnabled = true,
+  onKeyDown,
+  onKeyUp
 }: FullScreenModalProps) {
   const { isDarkMode } = useUIStore();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -121,6 +125,9 @@ export function FullScreenModal({
 
   return (
     <View
+      focusable={true}
+      onKeyDown={onKeyDown}
+      onKeyUp={onKeyUp}
       style={[
         styles.masterContainer,
         {
@@ -131,6 +138,7 @@ export function FullScreenModal({
       ]}
     >
       <Animated.View
+        focusable={false}
         style={[
           styles.innerCard,
           {
@@ -181,6 +189,7 @@ export function FullScreenModal({
         {/* Scrollable / Non-scrollable Body */}
         {scrollEnabled ? (
           <ScrollView
+            focusable={false}
             style={styles.body}
             contentContainerStyle={styles.bodyContent}
             showsVerticalScrollIndicator={true}
@@ -189,7 +198,7 @@ export function FullScreenModal({
             {children}
           </ScrollView>
         ) : (
-          <View style={[styles.body, { flex: 1 }]}>
+          <View focusable={false} style={[styles.body, { flex: 1 }]}>
             {children}
           </View>
         )}

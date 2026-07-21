@@ -30,7 +30,10 @@ function toUIDate(isoDateStr: string): string {
   const clean = isoDateStr.split("T")[0];
   const parts = clean.split("-");
   if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    if (parts[2].length === 4) return clean;
+    if (parts[0].length === 4) {
+      return `${parts[2].padStart(2, "0")}-${parts[1].padStart(2, "0")}-${parts[0]}`;
+    }
   }
   return isoDateStr;
 }
@@ -39,7 +42,10 @@ function toISODate(uiDateStr: string): string {
   if (!uiDateStr) return "";
   const parts = uiDateStr.split("-");
   if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    if (parts[0].length === 4) return uiDateStr;
+    if (parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
   }
   return uiDateStr;
 }
@@ -691,6 +697,11 @@ export default function PurchasesScreen() {
                       }
                     }}
                     placeholder="Select product..."
+                    onAddNew={(searchQuery) => {
+                      // Navigate to inventory screen to create product or alert
+                      Alert.alert("Quick Add Product", `To add "${searchQuery}", please go to Inventory screen.`);
+                    }}
+                    addNewLabel="Quick Add Product"
                     onSubmitEditing={() => {
                       qtyRefs.current[idx]?.focus();
                     }}

@@ -41,12 +41,12 @@ import SettingsScreen from "./src/screens/SettingsScreen";
 import { useLicenseStore } from "./src/store/licenseStore";
 import LicenseScreen from "./src/screens/LicenseScreen";
 import { Modal } from "./src/components/ui/Modal";
+import { UpdateModal } from "./src/components/ui/UpdateModal";
 
 function AppContent() {
   const { isLoggedIn, company, localAutoLogin, isAuthenticating } = useAuthStore();
   const { activeScreen, isDarkMode } = useUIStore();
   const { isFrozen, checkLicenseStatus, checking } = useLicenseStore();
-  const [hasAttemptedAutoLogin, setHasAttemptedAutoLogin] = useState(false);
 
   const rootRef = useRef<any>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -56,26 +56,26 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    // Only auto-login if the license is not frozen
-    if (!isFrozen && !isLoggedIn && !isAuthenticating && !hasAttemptedAutoLogin) {
-      setHasAttemptedAutoLogin(true);
-      localAutoLogin().catch((err) => {
-        console.warn("Local auto login failed:", err);
-      });
-    }
-  }, [isFrozen, isLoggedIn, isAuthenticating, localAutoLogin, hasAttemptedAutoLogin]);
+    let timer: any = null;
 
-  // Keep focus on the root View to ensure keypresses are always captured globally
-  useEffect(() => {
-    const focusRoot = () => {
-      try {
-        rootRef.current?.focus();
-      } catch (err) {}
+    const attemptAutoLogin = () => {
+      const state = useAuthStore.getState();
+      if (!isFrozen && !state.isLoggedIn && !state.isAuthenticating) {
+        localAutoLogin().catch((err) => {
+          console.warn("Local auto login failed, retrying in 2.5s...", err);
+        });
+      }
     };
-    focusRoot();
-    const interval = setInterval(focusRoot, 1000); // Focus heartbeat fallback
-    return () => clearInterval(interval);
-  }, []);
+
+    if (!isFrozen && !isLoggedIn) {
+      attemptAutoLogin();
+      timer = setInterval(attemptAutoLogin, 2500);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isFrozen, isLoggedIn, localAutoLogin]);
 
   // Listen to showKeyboardHelp event
   useEffect(() => {
@@ -264,15 +264,16 @@ function AppContent() {
 
   return (
     <View
-      ref={rootRef}
-      focusable={true}
-      onKeyDown={handleGlobalKeyDown}
-      onPointerDown={() => {
-        try { rootRef.current?.focus(); } catch (err) {}
-      }}
+      focusable={false}
       style={{ flex: 1 }}
+      {...({
+        onKeyDown: handleGlobalKeyDown
+      } as any)}
     >
       {renderContentTree()}
+
+      {/* Cloud Auto-Update Checker Modal */}
+      <UpdateModal checkOnMount={true} />
 
       {/* Global Keyboard Shortcuts Help Guide */}
       <Modal

@@ -141,13 +141,131 @@ class IndustrialExcelWriter:
 # =============================================================
 
 import threading as _threading
+import queue as _queue
 
 _playwright_lock = _threading.Lock()
-_playwright_instance = None   # sync_playwright() context manager
-_playwright_browser = None    # persistent Browser object
 _playwright_browsers_path = ""
 _cached_logo_svg = None
 _cached_header_bg = None
+
+# =============================================================
+# Single dedicated Playwright daemon thread
+# Playwright Sync API must always run on the SAME thread that
+# created the browser. anyio's thread pool recycles threads, so
+# we use one permanent daemon thread with a job queue instead.
+# =============================================================
+
+_pw_job_queue: "_queue.Queue[tuple]" = _queue.Queue()
+_pw_thread_started = False
+_pw_thread_lock = _threading.Lock()
+
+
+def _playwright_worker():
+    """
+    Runs forever on a single daemon thread.
+    Receives (fn, result_holder, event) tuples and executes them
+    in the same thread that owns the Playwright browser.
+    """
+    import asyncio
+    try:
+        asyncio.set_event_loop(None)
+    except Exception:
+        pass
+
+    pw_instance = None
+    pw_browser = None
+
+    browsers_path = _resolve_browsers_path()
+    if browsers_path:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
+
+    from playwright.sync_api import sync_playwright
+
+    while True:
+        job = _pw_job_queue.get()
+        if job is None:
+            break
+
+        html_content, pdf_path, landscape, search_query, result_holder, done_event = job
+
+        try:
+            # (Re)launch browser if not alive
+            if pw_browser is None or not pw_browser.is_connected():
+                try:
+                    if pw_browser is not None:
+                        pw_browser.close()
+                except Exception:
+                    pass
+                try:
+                    if pw_instance is not None:
+                        pw_instance.__exit__(None, None, None)
+                except Exception:
+                    pass
+                pw_instance = sync_playwright().start()
+                pw_browser = pw_instance.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-gpu",
+                        "--disable-dev-shm-usage",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--disable-extensions",
+                    ],
+                )
+
+            page = pw_browser.new_page()
+            try:
+                page.set_content(html_content, wait_until="domcontentloaded")
+                if search_query:
+                    highlight_script = f"""
+                    () => {{
+                        const search = "{search_query}".replace(/[-\/\\^$*+?.()|[\\]{{}}]/g, '\\$&');
+                        if (!search) return;
+                        const regex = new RegExp("(" + search + ")", "gi");
+                        function walk(node) {{
+                            if (node.nodeType === 3) {{
+                                const matches = node.nodeValue.match(regex);
+                                if (matches) {{
+                                    const span = document.createElement("span");
+                                    span.innerHTML = node.nodeValue.replace(regex, '<mark style="background-color: #FACC15; color: #000000; font-weight: bold; padding: 1px 2px; border-radius: 2px;">$1</mark>');
+                                    node.parentNode.replaceChild(span, node);
+                                }}
+                            }} else if (node.nodeType === 1 && node.nodeName !== "SCRIPT" && node.nodeName !== "STYLE") {{
+                                for (let i = node.childNodes.length - 1; i >= 0; i--) {{
+                                    walk(node.childNodes[i]);
+                                }}
+                            }}
+                        }}
+                        walk(document.body);
+                    }}
+                    """
+                    page.evaluate(highlight_script)
+                page.pdf(
+                    path=pdf_path,
+                    format="A4",
+                    print_background=True,
+                    margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+                    scale=0.95,
+                    landscape=landscape,
+                )
+                result_holder["error"] = None
+            finally:
+                page.close()
+        except Exception as e:
+            result_holder["error"] = e
+        finally:
+            done_event.set()
+
+
+def _ensure_pw_thread():
+    global _pw_thread_started
+    with _pw_thread_lock:
+        if not _pw_thread_started:
+            t = _threading.Thread(target=_playwright_worker, daemon=True, name="playwright-pdf-worker")
+            t.start()
+            _pw_thread_started = True
 
 
 def _resolve_browsers_path() -> str:
@@ -157,11 +275,9 @@ def _resolve_browsers_path() -> str:
 
     if is_frozen:
         base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-        # Check for bundled ms-playwright browser folder first
         embedded_ms = os.path.join(base, "ms-playwright")
         if os.path.isdir(embedded_ms):
             return embedded_ms
-            
         embedded = os.path.join(base, "playwright", "driver", "package", ".local-chromium")
         if os.path.isdir(embedded):
             return os.path.join(base, "playwright", "driver", "package")
@@ -175,114 +291,18 @@ def _resolve_browsers_path() -> str:
     return ""
 
 
-def _get_or_create_browser():
-    """
-    Return the persistent Playwright Browser, launching it on first call.
-    Thread-safe. Chromium starts once and stays alive until the process exits.
-    """
-    global _playwright_instance, _playwright_browser, _playwright_browsers_path
-
-    with _playwright_lock:
-        # Fast path — browser already alive
-        try:
-            if _playwright_browser is not None and _playwright_browser.is_connected():
-                return _playwright_browser
-        except Exception:
-            pass  # browser died; fall through to relaunch
-
-        # Clean up any stale state
-        try:
-            if _playwright_browser is not None:
-                _playwright_browser.close()
-        except Exception:
-            pass
-        try:
-            if _playwright_instance is not None:
-                _playwright_instance.__exit__(None, None, None)
-        except Exception:
-            pass
-
-        # Set browsers path env var before launching
-        _playwright_browsers_path = _resolve_browsers_path()
-        if _playwright_browsers_path:
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _playwright_browsers_path
-
-        # Workaround: Disable event loop detection in thread so Playwright Sync API works cleanly
-        import asyncio
-        try:
-            asyncio.set_event_loop(None)
-        except Exception:
-            pass
-
-        # pyrefly: ignore [missing-import]
-        from playwright.sync_api import sync_playwright
-        pw = sync_playwright().start()
-        _playwright_instance = pw
-        _playwright_browser = pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-extensions",
-            ],
-        )
-        return _playwright_browser
-
-
 def _render_pdf_sync(html_content: str, pdf_path: str, landscape: bool = False, search_query: Optional[str] = None) -> None:
     """
-    Runs in a background thread (via anyio.to_thread.run_sync).
-    Gets the persistent browser, opens a page, renders, saves PDF, closes page.
-    Browser itself stays alive — only the Page is created/destroyed per request.
+    Sends a PDF render job to the single permanent Playwright thread and waits for completion.
+    This guarantees Playwright always runs on the same thread that owns the browser.
     """
-    import asyncio
-    try:
-        asyncio.set_event_loop(None)
-    except Exception:
-        pass
-    browser = _get_or_create_browser()
-    page = browser.new_page()
-    try:
-        page.set_content(html_content, wait_until="domcontentloaded")
-        if search_query:
-            highlight_script = f"""
-            () => {{
-                const search = "{search_query}".replace(/[-\/\\^$*+?.()|[\]{{}}]/g, '\\$&');
-                if (!search) return;
-                const regex = new RegExp("(" + search + ")", "gi");
-                
-                function walk(node) {{
-                    if (node.nodeType === 3) {{
-                        const matches = node.nodeValue.match(regex);
-                        if (matches) {{
-                            const span = document.createElement("span");
-                            span.innerHTML = node.nodeValue.replace(regex, '<mark style="background-color: #FACC15; color: #000000; font-weight: bold; padding: 1px 2px; border-radius: 2px;">$1</mark>');
-                            node.parentNode.replaceChild(span, node);
-                        }}
-                    }} else if (node.nodeType === 1 && node.nodeName !== "SCRIPT" && node.nodeName !== "STYLE") {{
-                        for (let i = node.childNodes.length - 1; i >= 0; i--) {{
-                            walk(node.childNodes[i]);
-                        }}
-                    }}
-                }}
-                walk(document.body);
-            }}
-            """
-            page.evaluate(highlight_script)
-        page.pdf(
-            path=pdf_path,
-            format="A4",
-            print_background=True,
-            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.95,
-            landscape=landscape,
-        )
-    finally:
-        page.close()
+    _ensure_pw_thread()
+    result_holder: dict = {"error": None}
+    done_event = _threading.Event()
+    _pw_job_queue.put((html_content, pdf_path, landscape, search_query, result_holder, done_event))
+    done_event.wait()
+    if result_holder["error"] is not None:
+        raise result_holder["error"]
 
 
 async def _generate_pdf_async(html_content: str, landscape: bool = False, search_query: Optional[str] = None) -> bytes:

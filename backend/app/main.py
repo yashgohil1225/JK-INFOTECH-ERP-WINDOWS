@@ -67,8 +67,20 @@ async def startup_event():
 
     # Industrial Protocol: Ensure all table schemas are synchronized
     print("JK ERP: Synchronizing Database Schema...")
-    Base.metadata.create_all(bind=sync_engine)
-    print("JK ERP: Schema Synchronization Complete.")
+    import time
+    max_retries = 25
+    for attempt in range(1, max_retries + 1):
+        try:
+            with sync_engine.connect() as conn:
+                pass
+            Base.metadata.create_all(bind=sync_engine)
+            print("JK ERP: Schema Synchronization Complete.")
+            break
+        except Exception as e:
+            if attempt == max_retries:
+                raise e
+            print(f"JK ERP: Database system is starting up... retrying connection ({attempt}/{max_retries})")
+            time.sleep(2)
 
     # ── Self-Healing Column Migration (Async) ───────────────────
     # Detects columns that exist in ORM models but are missing from

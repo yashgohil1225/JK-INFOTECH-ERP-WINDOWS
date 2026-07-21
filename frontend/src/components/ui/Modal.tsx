@@ -107,6 +107,7 @@ export function Modal({
 
   return (
     <View 
+      focusable={false}
       style={[
         styles.overlayWrapper,
         {
@@ -117,11 +118,13 @@ export function Modal({
       {/* Dimmed Backdrop area to catch clicks outside the modal card */}
       <Pressable
         onPress={onClose}
+        focusable={false}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 }}
       />
 
       {/* Spring Animated Card */}
       <Animated.View
+        focusable={false}
         style={[
           styles.modalCard,
           {
@@ -144,6 +147,7 @@ export function Modal({
       >
         {/* Header — subtle background tint, no heavy border */}
         <View
+          focusable={false}
           style={[
             styles.header,
             { backgroundColor: colors.headerBg, borderBottomColor: colors.divider },
@@ -171,6 +175,7 @@ export function Modal({
         {/* Scrollable Content */}
         {scrollEnabled ? (
           <ScrollView 
+            focusable={false}
             style={styles.contentBody} 
             contentContainerStyle={[
               { paddingHorizontal: 20, paddingVertical: 16 },
@@ -183,6 +188,7 @@ export function Modal({
           </ScrollView>
         ) : (
           <View 
+            focusable={false}
             style={[
               styles.contentBody,
               { paddingHorizontal: 20, paddingVertical: 16 },

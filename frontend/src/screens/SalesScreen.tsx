@@ -47,7 +47,10 @@ function toUIDate(isoDateStr: string): string {
   const clean = isoDateStr.split("T")[0];
   const parts = clean.split("-");
   if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    if (parts[2].length === 4) return clean; // Already DD-MM-YYYY
+    if (parts[0].length === 4) {
+      return `${parts[2].padStart(2, "0")}-${parts[1].padStart(2, "0")}-${parts[0]}`;
+    }
   }
   return isoDateStr;
 }
@@ -56,7 +59,10 @@ function toISODate(uiDateStr: string): string {
   if (!uiDateStr) return "";
   const parts = uiDateStr.split("-");
   if (parts.length === 3) {
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    if (parts[0].length === 4) return uiDateStr; // Already YYYY-MM-DD
+    if (parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
   }
   return uiDateStr;
 }
@@ -1733,6 +1739,13 @@ export default function SalesScreen() {
                         }
                       }}
                       placeholder="Select Product..."
+                      onAddNew={(searchQuery) => {
+                        setQuickAddLineIndex(idx);
+                        setQuickAddProductName(searchQuery);
+                        setQuickAddProductRate("");
+                        setIsQuickAddProductModalOpen(true);
+                      }}
+                      addNewLabel="Quick Add Product"
                       onSubmitEditing={() => {
                         qtyRefs.current[idx]?.focus();
                       }}
@@ -2294,6 +2307,7 @@ export default function SalesScreen() {
             value={quickAddProductName}
             onChangeText={setQuickAddProductName}
             placeholder="e.g. sk-1212"
+            onSubmitEditing={() => quickAddRateRef.current?.focus()}
           />
 
           <Input

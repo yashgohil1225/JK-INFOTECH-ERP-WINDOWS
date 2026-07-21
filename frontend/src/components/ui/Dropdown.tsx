@@ -27,6 +27,8 @@ interface DropdownProps {
   autoFocus?: boolean;
   inputRefProp?: React.RefObject<any> | any;
   onSubmitEditing?: () => void;
+  onAddNew?: (searchQuery: string) => void;
+  addNewLabel?: string;
 }
 
 export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dropdown({
@@ -37,7 +39,9 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
   disabled = false,
   autoFocus = false,
   inputRefProp,
-  onSubmitEditing
+  onSubmitEditing,
+  onAddNew,
+  addNewLabel
 }, forwardedRef) {
   const { isDarkMode } = useUIStore();
   const [isOpen, setIsOpen] = useState(false);
@@ -161,14 +165,6 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
           },
           isHovered && !disabled && { opacity: 0.95 }
         ]}
-        {...({
-          onKeyDown: (e: any) => {
-            const key = e.nativeEvent.key;
-            if (key === "Enter" || key === " " || key === "ArrowDown") {
-              setIsOpen(true);
-            }
-          }
-        } as any)}
       >
         <Text
           numberOfLines={1}
@@ -208,20 +204,33 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
               onChangeText={setSearch}
               placeholder="Search..."
               placeholderTextColor={colors.textSecondary}
-              {...({
-                onKeyDown: (e: any) => {
-                  const key = e.nativeEvent.key;
-                  if (key === "Escape") {
+              onKeyPress={(e: any) => {
+                const key = e.nativeEvent?.key;
+                if (key === "Escape") {
+                  setIsOpen(false);
+                } else if (key === "ArrowDown") {
+                  setHighlightedIndex(i => Math.min(i + 1, filteredOptions.length - 1));
+                } else if (key === "ArrowUp") {
+                  setHighlightedIndex(i => Math.max(i - 1, 0));
+                } else if (key === "Enter") {
+                  if (filteredOptions.length > 0) {
+                    handleSelect(filteredOptions[highlightedIndex || 0]);
+                  } else if (onAddNew && search.trim().length > 0) {
+                    const q = search.trim();
                     setIsOpen(false);
-                  } else if (key === "ArrowDown") {
-                    setHighlightedIndex(i => Math.min(i + 1, filteredOptions.length - 1));
-                  } else if (key === "ArrowUp") {
-                    setHighlightedIndex(i => Math.max(i - 1, 0));
-                  } else if (key === "Enter" && filteredOptions.length > 0) {
-                    handleSelect(filteredOptions[highlightedIndex]);
+                    onAddNew(q);
                   }
                 }
-              } as any)}
+              }}
+              onSubmitEditing={() => {
+                if (filteredOptions.length > 0) {
+                  handleSelect(filteredOptions[highlightedIndex || 0]);
+                } else if (onAddNew && search.trim().length > 0) {
+                  const q = search.trim();
+                  setIsOpen(false);
+                  onAddNew(q);
+                }
+              }}
             />
           </View>
 
@@ -238,45 +247,83 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
                 <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                   No matching options
                 </Text>
-              </View>
-            ) : (
-              filteredOptions.map((opt, optIdx) => {
-                const isSelected = opt.value === value;
-                const isHighlighted = optIdx === highlightedIndex;
-                return (
+                {onAddNew && (
                   <Pressable
-                    key={opt.value}
-                    onPress={() => handleSelect(opt)}
-                    onHoverIn={() => { setHoveredItemId(opt.value); setHighlightedIndex(optIdx); }}
-                    onHoverOut={() => setHoveredItemId(null)}
-                    style={[
-                      styles.listItem,
-                      { borderBottomColor: colors.divider },
-                      isSelected && { backgroundColor: colors.activeBg },
-                      isHighlighted && !isSelected && { backgroundColor: colors.hoverBg },
+                    onPress={() => {
+                      const q = search.trim();
+                      setIsOpen(false);
+                      onAddNew(q);
+                    }}
+                    style={({ hovered }: any) => [
+                      styles.addNewBtn,
+                      { backgroundColor: colors.activeBg, borderColor: colors.accent },
+                      hovered && { opacity: 0.85 }
                     ]}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          styles.itemLabel,
-                          {
-                            color: isSelected ? colors.accent : isHighlighted ? colors.accent : colors.textPrimary,
-                            fontWeight: isSelected || isHighlighted ? "700" : "400"
-                          }
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
-                      {opt.sublabel && (
-                        <Text style={[styles.itemSublabel, { color: colors.textSecondary }]}>
-                          {opt.sublabel}
-                        </Text>
-                      )}
-                    </View>
+                    <Text style={[styles.addNewText, { color: colors.accent }]}>
+                      + {addNewLabel || "Quick Add"} {search.trim() ? `"${search.trim()}"` : ""}
+                    </Text>
                   </Pressable>
-                );
-              })
+                )}
+              </View>
+            ) : (
+              <>
+                {filteredOptions.map((opt, optIdx) => {
+                  const isSelected = opt.value === value;
+                  const isHighlighted = optIdx === highlightedIndex;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => handleSelect(opt)}
+                      onHoverIn={() => { setHoveredItemId(opt.value); setHighlightedIndex(optIdx); }}
+                      onHoverOut={() => setHoveredItemId(null)}
+                      style={[
+                        styles.listItem,
+                        { borderBottomColor: colors.divider },
+                        isSelected && { backgroundColor: colors.activeBg },
+                        isHighlighted && !isSelected && { backgroundColor: colors.hoverBg },
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.itemLabel,
+                            {
+                              color: isSelected ? colors.accent : isHighlighted ? colors.accent : colors.textPrimary,
+                              fontWeight: isSelected || isHighlighted ? "700" : "400"
+                            }
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        {opt.sublabel && (
+                          <Text style={[styles.itemSublabel, { color: colors.textSecondary }]}>
+                            {opt.sublabel}
+                          </Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+                {onAddNew && (
+                  <Pressable
+                    onPress={() => {
+                      const q = search.trim();
+                      setIsOpen(false);
+                      onAddNew(q);
+                    }}
+                    style={({ hovered }: any) => [
+                      styles.addNewBtn,
+                      { backgroundColor: colors.activeBg, borderColor: colors.accent },
+                      hovered && { opacity: 0.85 }
+                    ]}
+                  >
+                    <Text style={[styles.addNewText, { color: colors.accent }]}>
+                      + {addNewLabel || "Quick Add"} {search.trim() ? `"${search.trim()}"` : ""}
+                    </Text>
+                  </Pressable>
+                )}
+              </>
             )}
           </ScrollView>
         </View>
@@ -374,6 +421,20 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 15,
+    fontFamily: "Segoe UI Variable Text",
+  },
+  addNewBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addNewText: {
+    fontSize: 15,
+    fontWeight: "700",
     fontFamily: "Segoe UI Variable Text",
   },
 });

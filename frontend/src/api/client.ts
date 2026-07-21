@@ -121,7 +121,7 @@ apiClient.interceptors.response.use(
         }
 
         const { data } = await axios.post(
-          `${apiClient.defaults.baseURL}/api/auth/refresh`,
+          `${apiClient.defaults.baseURL}/api/v1/auth/refresh`,
           { refresh_token: storedRefreshToken }
         );
 

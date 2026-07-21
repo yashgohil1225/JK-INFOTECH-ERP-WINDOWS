@@ -14,7 +14,8 @@ import {
   ActivityIndicator,
   Alert,
   NativeModules,
-  Image
+  Image,
+  DeviceEventEmitter
 } from "react-native";
 import { useUIStore } from "../../store/uiStore";
 import apiClient from "../../api/client";
@@ -272,49 +273,139 @@ export function PdfPreviewModal({
     scrollToPage(targetPage);
   };
 
-  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const workspaceRef = useRef<any>(null);
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [panX, setPanX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const isDraggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startPanXRef = useRef(0);
 
   const handleKeyDown = (e: any) => {
-    if (e.nativeEvent && (e.nativeEvent.key === "Control" || e.nativeEvent.ctrlKey)) {
+    if (!e || !e.nativeEvent) return;
+    const key = e.nativeEvent.key;
+
+    if (key === "Control" || e.nativeEvent.ctrlKey) {
       setIsCtrlPressed(true);
+    }
+    if (key === "Shift" || e.nativeEvent.shiftKey) {
+      setIsShiftPressed(true);
+    }
+
+    // Keyboard Arrow Keys for Left/Right Panning when zoomed
+    if (zoomScale > 1.0) {
+      if (key === "ArrowLeft") {
+        setPanX((prev) => Math.min(2000, prev + 80));
+      } else if (key === "ArrowRight") {
+        setPanX((prev) => Math.max(-2000, prev - 80));
+      }
     }
   };
 
   const handleKeyUp = (e: any) => {
-    if (e.nativeEvent && (e.nativeEvent.key === "Control" || !e.nativeEvent.ctrlKey)) {
+    if (!e || !e.nativeEvent) return;
+    const key = e.nativeEvent.key;
+    if (key === "Control" || !e.nativeEvent.ctrlKey) {
       setIsCtrlPressed(false);
     }
+    if (key === "Shift" || !e.nativeEvent.shiftKey) {
+      setIsShiftPressed(false);
+    }
   };
+
+  // Drag-to-Pan (Hand Tool) handlers
+  const handlePointerDown = (e: any) => {
+    if (zoomScale <= 1.0) return;
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    startXRef.current = e.nativeEvent.pageX || e.nativeEvent.clientX || 0;
+    startPanXRef.current = panX;
+  };
+
+  const handlePointerMove = (e: any) => {
+    if (!isDraggingRef.current || zoomScale <= 1.0) return;
+    const currentX = e.nativeEvent.pageX || e.nativeEvent.clientX || 0;
+    const deltaX = currentX - startXRef.current;
+    setPanX(startPanXRef.current + deltaX);
+  };
+
+  const handlePointerUp = () => {
+    isDraggingRef.current = false;
+    setIsDragging(false);
+  };
+
+  // Reset panX horizontal scroll when zoom changes to <= 1.0 or preview resets
+  useEffect(() => {
+    if (zoomScale <= 1.0) {
+      setPanX(0);
+    }
+  }, [zoomScale]);
+
+  // Native C++ CoreWindow PointerWheelChanged listener for instant, smooth Ctrl+wheel, trackpad pinch zoom, and horizontal trackpad swipe
+  useEffect(() => {
+    if (!isOpen) return;
+    const zoomSub = DeviceEventEmitter.addListener("OnPdfZoomWheel", (evt: { delta: number }) => {
+      if (!evt || typeof evt.delta !== "number") return;
+      const rawDelta = evt.delta;
+      if (rawDelta !== 0) {
+        const absDelta = Math.abs(rawDelta);
+        const zoomStep = absDelta >= 100
+          ? (rawDelta > 0 ? 0.08 : -0.08)
+          : (rawDelta * 0.0012);
+        setZoomScale((z) => Math.min(3.0, Math.max(0.4, z + zoomStep)));
+      }
+    });
+
+    const scrollSub = DeviceEventEmitter.addListener("OnPdfHorizontalScroll", (evt: { delta: number }) => {
+      if (!evt || typeof evt.delta !== "number") return;
+      const delta = evt.delta;
+      setPanX((prev) => {
+        const next = prev + delta * 1.5;
+        return Math.min(2000, Math.max(-2000, next));
+      });
+    });
+
+    return () => {
+      zoomSub.remove();
+      scrollSub.remove();
+    };
+  }, [isOpen]);
 
   const handleZoomWheel = (e: any) => {
     if (!e || !e.nativeEvent) return;
 
-    // Detect Ctrl key: either tracked state, ctrlKey boolean, or UWP modifierKeys bitmask (Control key is bit 2)
-    const isCtrl = isCtrlPressed || 
-                   e.nativeEvent.ctrlKey || 
-                   (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
+    // Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
+    const isCtrl = isCtrlPressed ||
+      e.nativeEvent.ctrlKey ||
+      (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
 
-    if (isCtrl) {
-      if (e.preventDefault) e.preventDefault();
-      if (e.stopPropagation) e.stopPropagation();
+    if (!isCtrl) return; // Normal scroll mode — let ScrollView handle vertical scrolling
 
-      let direction = 0;
-      if (e.nativeEvent.deltaY !== undefined) {
-        direction = e.nativeEvent.deltaY > 0 ? -1 : 1;
-      } else if (e.nativeEvent.wheelDeltaY !== undefined) {
-        direction = e.nativeEvent.wheelDeltaY > 0 ? 1 : -1;
-      } else if (e.nativeEvent.wheelDelta !== undefined) {
-        direction = e.nativeEvent.wheelDelta > 0 ? 1 : -1;
-      }
+    if (e.preventDefault) e.preventDefault();
+    if (e.stopPropagation) e.stopPropagation();
 
-      if (direction !== 0) {
-        const zoomIntensity = 0.06;
-        setZoomScale((z) => {
-          const nextZoom = z + direction * zoomIntensity;
-          return Math.min(2.0, Math.max(0.5, nextZoom));
-        });
-      }
+    let rawDelta = 0;
+    if (e.nativeEvent.deltaY !== undefined) {
+      rawDelta = -e.nativeEvent.deltaY;
+    } else if (e.nativeEvent.wheelDeltaY !== undefined) {
+      rawDelta = e.nativeEvent.wheelDeltaY;
+    } else if (e.nativeEvent.wheelDelta !== undefined) {
+      rawDelta = e.nativeEvent.wheelDelta;
+    }
+
+    if (rawDelta !== 0) {
+      // Calculate smooth zoom step (supports both physical mouse wheel detents and continuous trackpad pinch gestures)
+      const absDelta = Math.abs(rawDelta);
+      const zoomStep = absDelta >= 100
+        ? (rawDelta > 0 ? 0.08 : -0.08)
+        : (rawDelta * 0.0012);
+
+      setZoomScale((z) => {
+        const next = z + zoomStep;
+        return Math.min(3.0, Math.max(0.4, next));
+      });
     }
   };
 
@@ -336,7 +427,7 @@ export function PdfPreviewModal({
       if (!pdfModule || !pdfModule.RenderPdfWithToken) {
         throw new Error("Native PdfRenderer.RenderPdfWithToken module not registered in Windows project");
       }
-      
+
       const url = getPdfUrl(orientation as any, searchQuery, theme, copyType);
       const token = storage.getItemSync("access_token") || "";
 
@@ -422,7 +513,7 @@ export function PdfPreviewModal({
   useEffect(() => {
     if (!isOpen) return;
     // Silent loading for search query (less distracting), full indicator for other settings changes
-    const isSearchOnly = (pdfSearchQuery !== ""); 
+    const isSearchOnly = (pdfSearchQuery !== "");
     regeneratePreview(printOrientation, pdfSearchQuery, isSearchOnly, printTheme, printCopyType);
   }, [printOrientation, pdfSearchQuery, printTheme, printCopyType]);
 
@@ -434,6 +525,8 @@ export function PdfPreviewModal({
       subtitle={subtitle}
       breadcrumb={breadcrumb}
       scrollEnabled={false}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleKeyUp}
       headerActions={
         <CenteredSearchBar
           value={pdfSearchQuery}
@@ -780,20 +873,19 @@ export function PdfPreviewModal({
         </View>
 
         {/* Right Scrollable Preview Workspace */}
-        <WindowsView 
+        <WindowsView
           ref={workspaceRef}
           focusable={true}
           onMouseEnter={() => {
-            try { workspaceRef.current?.focus(); } catch(e){}
+            try { workspaceRef.current?.focus(); } catch (e) { }
           }}
           onPointerDown={() => {
-            try { workspaceRef.current?.focus(); } catch(e){}
+            try { workspaceRef.current?.focus(); } catch (e) { }
           }}
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
-          onBlur={() => setIsCtrlPressed(false)}
+          onBlur={() => { setIsCtrlPressed(false); }}
           style={{ flex: 1, backgroundColor: isDarkMode ? "#0B0F19" : "#F3F4F6" }}
-          onWheel={handleZoomWheel}
         >
           {isPdfLoading ? (
             <View style={styles.centerBox}>
@@ -804,42 +896,62 @@ export function PdfPreviewModal({
             <WindowsScrollView
               ref={scrollViewRef}
               style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 20, gap: 16, alignItems: "center" }}
+              contentContainerStyle={{
+                padding: 20,
+                alignItems: "center",
+                minWidth: "100%",
+                minHeight: "100%"
+              }}
               nestedScrollEnabled={true}
-              scrollEnabled={!isCtrlPressed}
-              onWheel={handleZoomWheel}
+              scrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+              showsHorizontalScrollIndicator={true}
+              pinchGestureEnabled={true}
+              minimumZoomScale={0.4}
+              maximumZoomScale={3.0}
+              zoomScale={zoomScale}
             >
-              {previewPages.map((pagePath, index) => {
-                const w = baseWidth * zoomScale;
-                const h = baseHeight * zoomScale;
-                return (
-                  <WindowsView
-                    key={index}
-                    style={{
-                      width: w,
-                      height: h,
-                      backgroundColor: "#FFFFFF",
-                      borderWidth: 1,
-                      borderColor: colors.divider,
-                      borderRadius: 4,
-                      elevation: 4,
-                      shadowColor: "#000",
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.15,
-                      shadowRadius: 6,
-                      overflow: "hidden"
-                    }}
-                    onWheel={handleZoomWheel}
-                    onPointerWheel={handleZoomWheel}
-                  >
-                    <Image
-                      source={{ uri: pagePath }}
-                      style={{ width: "100%", height: "100%" }}
-                      resizeMode="contain"
-                    />
-                  </WindowsView>
-                );
-              })}
+              <View
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                style={{
+                  gap: 16,
+                  alignItems: "center",
+                  width: Math.max(baseWidth * zoomScale, 100),
+                  transform: [{ translateX: panX }]
+                }}
+              >
+                {previewPages.map((pagePath, index) => {
+                  const w = baseWidth * zoomScale;
+                  const h = baseHeight * zoomScale;
+                  return (
+                    <WindowsView
+                      key={index}
+                      style={{
+                        width: w,
+                        height: h,
+                        backgroundColor: "#FFFFFF",
+                        borderWidth: 1,
+                        borderColor: colors.divider,
+                        borderRadius: 4,
+                        elevation: 4,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.15,
+                        shadowRadius: 6,
+                        overflow: "hidden"
+                      }}
+                    >
+                      <Image
+                        source={{ uri: pagePath }}
+                        style={{ width: "100%", height: "100%" }}
+                        resizeMode="contain"
+                      />
+                    </WindowsView>
+                  );
+                })}
+              </View>
             </WindowsScrollView>
           )}
         </WindowsView>
