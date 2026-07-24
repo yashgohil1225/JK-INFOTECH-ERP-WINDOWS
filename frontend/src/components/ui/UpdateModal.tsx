@@ -50,7 +50,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ checkOnMount = true })
   if (!isVisible || !updateInfo) return null;
 
   return (
-    <Modal visible={isVisible} onClose={() => setIsVisible(false)} title="New Version Available">
+    <Modal isOpen={isVisible} onClose={() => setIsVisible(false)} title="New Version Available">
       <View style={styles.container}>
         <View style={styles.badgeRow}>
           <Text style={styles.appTitle}>JK INFOTECH ERP</Text>
