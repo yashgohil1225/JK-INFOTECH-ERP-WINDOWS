@@ -46,7 +46,7 @@ import { UpdateModal } from "./src/components/ui/UpdateModal";
 function AppContent() {
   const { isLoggedIn, company, localAutoLogin, isAuthenticating } = useAuthStore();
   const { activeScreen, isDarkMode } = useUIStore();
-  const { isFrozen, checkLicenseStatus, checking } = useLicenseStore();
+  const { isFrozen, checkLicenseStatus, checking, licenseChecked } = useLicenseStore();
 
   const rootRef = useRef<any>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -55,19 +55,20 @@ function AppContent() {
     checkLicenseStatus().catch(() => {});
   }, []);
 
+  // Only attempt auto-login AFTER license check has completed and system is NOT frozen
   useEffect(() => {
     let timer: any = null;
 
     const attemptAutoLogin = () => {
       const state = useAuthStore.getState();
-      if (!isFrozen && !state.isLoggedIn && !state.isAuthenticating) {
+      if (!isFrozen && licenseChecked && !state.isLoggedIn && !state.isAuthenticating) {
         localAutoLogin().catch((err) => {
           console.warn("Local auto login failed, retrying in 2.5s...", err);
         });
       }
     };
 
-    if (!isFrozen && !isLoggedIn) {
+    if (licenseChecked && !isFrozen && !isLoggedIn) {
       attemptAutoLogin();
       timer = setInterval(attemptAutoLogin, 2500);
     }
@@ -75,7 +76,7 @@ function AppContent() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isFrozen, isLoggedIn, localAutoLogin]);
+  }, [isFrozen, isLoggedIn, localAutoLogin, licenseChecked]);
 
   // Listen to showKeyboardHelp event
   useEffect(() => {

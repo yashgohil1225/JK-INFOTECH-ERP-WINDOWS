@@ -28,6 +28,40 @@ interface DataTableProps<T> {
   loaderMessage?: string;
 }
 
+function naturalCompare(aStr: string, bStr: string): number {
+  const ax: (string | number)[] = [];
+  const bx: (string | number)[] = [];
+
+  aStr.replace(/(\d+)|(\D+)/g, (_, $1, $2) => {
+    ax.push($1 ? parseInt($1, 10) : $2.toLowerCase());
+    return "";
+  });
+
+  bStr.replace(/(\d+)|(\D+)/g, (_, $1, $2) => {
+    bx.push($1 ? parseInt($1, 10) : $2.toLowerCase());
+    return "";
+  });
+
+  const maxLen = Math.max(ax.length, bx.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (ax[i] === undefined) return -1;
+    if (bx[i] === undefined) return 1;
+
+    const valA = ax[i];
+    const valB = bx[i];
+
+    if (typeof valA === "number" && typeof valB === "number") {
+      if (valA !== valB) return valA - valB;
+    } else if (typeof valA === "string" && typeof valB === "string") {
+      if (valA !== valB) return valA < valB ? -1 : 1;
+    } else {
+      return typeof valA === "number" ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
 export function DataTable<T extends { id?: string | number }>({
   data,
   columns,
@@ -73,9 +107,7 @@ export function DataTable<T extends { id?: string | number }>({
       if (typeof valA === "number" && typeof valB === "number") {
         result = valA - valB;
       } else {
-        const strA = String(valA);
-        const strB = String(valB);
-        result = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: "base" });
+        result = naturalCompare(String(valA), String(valB));
       }
 
       return sortDirection === "asc" ? result : -result;
@@ -134,7 +166,7 @@ export function DataTable<T extends { id?: string | number }>({
   };
 
   const renderHeader = () => (
-    <View style={[styles.headerRow, { backgroundColor: colors.tableHeaderBg, borderBottomColor: colors.divider }]}>
+    <View style={[styles.headerRow, { backgroundColor: colors.tableHeaderBg, borderBottomColor: colors.divider, paddingLeft: 16, paddingRight: 32 }]}>
       {columns.map((col, idx) => {
         const isSortable = col.accessorKey || col.accessorFn || col.header === "#";
         const isCurrentSortCol = sortColumn === (col.accessorKey ?? col.header);
@@ -191,6 +223,7 @@ export function DataTable<T extends { id?: string | number }>({
             flexDirection: "row",
             flex: contentCols.reduce((acc, col) => acc + (col.flex ?? 1), 0),
             paddingLeft: 16,
+            paddingRight: actionCols.length > 0 ? 8 : 24,
             paddingVertical: 8,
             alignItems: "center"
           }}
@@ -226,7 +259,7 @@ export function DataTable<T extends { id?: string | number }>({
               {
                 flex: col.flex ?? 1,
                 alignItems: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start",
-                paddingRight: 16,
+                paddingRight: 24,
                 paddingVertical: 8,
                 justifyContent: "center"
               }
@@ -272,6 +305,7 @@ export function DataTable<T extends { id?: string | number }>({
           renderItem={renderRow}
           keyExtractor={(item, index) => (item.id !== undefined ? item.id.toString() : index.toString())}
           showsVerticalScrollIndicator={true}
+          contentContainerStyle={{ paddingRight: 12 }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{emptyMessage}</Text>

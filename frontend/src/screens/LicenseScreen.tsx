@@ -30,17 +30,12 @@ export default function LicenseScreen() {
     clearError,
   } = useLicenseStore();
 
-  const [activationKey, setActivationKey] = useState("");
   const [copied, setCopied] = useState(false);
-  const [showMasterPanel, setShowMasterPanel] = useState(false);
   const [masterKeyInput, setMasterKeyInput] = useState("");
   const [masterDuration, setMasterDuration] = useState("12"); // "1", "3", "6", "12", "lifetime", "5min"
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Poll/check status on component mount
-    checkLicenseStatus().catch(() => {});
-  }, []);
+  // License status is already checked by App.tsx — no need to re-check on mount
 
   const handleCopyHwid = () => {
     if (hwid) {
@@ -48,11 +43,6 @@ export default function LicenseScreen() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
-
-  const handleActivateStandard = async () => {
-    if (!activationKey.trim()) return;
-    await activateLicense(activationKey.trim());
   };
 
   const handleActivateMaster = async () => {
@@ -165,31 +155,62 @@ export default function LicenseScreen() {
           </Pressable>
         </View>
 
-        {/* Standard Key Input */}
+        {/* Activation Key Input */}
         <View style={styles.section}>
-          <Text style={[styles.fieldLabel, { color: colors.textPrimary }]}>Enter Activation Key</Text>
+          <Text style={[styles.fieldLabel, { color: colors.textPrimary }]}>Activation Key</Text>
           <TextInput
             style={[
               styles.input,
               { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }
             ]}
-            value={activationKey}
-            onChangeText={setActivationKey}
-            placeholder="Paste your signed cryptographic license key string here..."
+            value={masterKeyInput}
+            onChangeText={setMasterKeyInput}
+            placeholder="Enter your activation key..."
             placeholderTextColor={colors.textSecondary}
-            multiline
-            numberOfLines={4}
+            secureTextEntry
           />
-          
+
           {error && (
             <Pressable onPress={clearError} style={styles.errorContainer}>
               <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
             </Pressable>
           )}
 
+          <Text style={[styles.fieldLabel, { color: colors.textPrimary, marginTop: 8 }]}>Duration</Text>
+          <View style={styles.durationRow}>
+            {[
+              { label: "5 Min", value: "5min" },
+              { label: "1 Mon", value: "1" },
+              { label: "3 Mon", value: "3" },
+              { label: "6 Mon", value: "6" },
+              { label: "12 Mon", value: "12" },
+              { label: "Lifetime", value: "lifetime" },
+            ].map((dur) => {
+              const isSel = masterDuration === dur.value;
+              return (
+                <Pressable
+                  key={dur.value}
+                  onPress={() => setMasterDuration(dur.value)}
+                  style={({ hovered }: any) => [
+                    styles.durBtn,
+                    {
+                      backgroundColor: isSel ? colors.accentLight : colors.inputBg,
+                      borderColor: isSel ? colors.accent : colors.inputBorder
+                    },
+                    hovered && !isSel && { backgroundColor: colors.btnBg }
+                  ]}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: isSel ? colors.accent : colors.textSecondary }}>
+                    {dur.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <Pressable
             disabled={activating || checking}
-            onPress={handleActivateStandard}
+            onPress={handleActivateMaster}
             onHoverIn={() => setHoveredBtn("activate")}
             onHoverOut={() => setHoveredBtn(null)}
             style={({ pressed }: any) => [
@@ -206,86 +227,6 @@ export default function LicenseScreen() {
             )}
           </Pressable>
         </View>
-
-        {/* Master Key Bypass Panel */}
-        <View style={[styles.divider, { borderBottomColor: colors.inputBorder }]} />
-        
-        <Pressable
-          onPress={() => setShowMasterPanel(!showMasterPanel)}
-          style={styles.expandHeader}
-        >
-          <Text style={[styles.expandTitle, { color: colors.textSecondary }]}>
-            Technician / Emergency Activation
-          </Text>
-          <Text style={[styles.expandIcon, { fontFamily: "Segoe MDL2 Assets", color: colors.textSecondary }]}>
-            {showMasterPanel ? "\uE70E" : "\uE70D"}
-          </Text>
-        </Pressable>
-
-        {showMasterPanel && (
-          <View style={styles.masterPanel}>
-            <Text style={[styles.fieldLabel, { color: colors.textPrimary }]}>Master Access Key</Text>
-            <TextInput
-              style={[
-                styles.input,
-                { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }
-              ]}
-              value={masterKeyInput}
-              onChangeText={setMasterKeyInput}
-              placeholder="Enter master signing token..."
-              placeholderTextColor={colors.textSecondary}
-              secureTextEntry
-            />
-
-            <Text style={[styles.fieldLabel, { color: colors.textPrimary, marginTop: 8 }]}>Duration</Text>
-            <View style={styles.durationRow}>
-              {[
-                { label: "5 Min", value: "5min" },
-                { label: "1 Mon", value: "1" },
-                { label: "3 Mon", value: "3" },
-                { label: "6 Mon", value: "6" },
-                { label: "12 Mon", value: "12" },
-                { label: "Lifetime", value: "lifetime" },
-              ].map((dur) => {
-                const isSel = masterDuration === dur.value;
-                return (
-                  <Pressable
-                    key={dur.value}
-                    onPress={() => setMasterDuration(dur.value)}
-                    style={({ hovered }: any) => [
-                      styles.durBtn,
-                      {
-                        backgroundColor: isSel ? colors.accentLight : colors.inputBg,
-                        borderColor: isSel ? colors.accent : colors.inputBorder
-                      },
-                      hovered && !isSel && { backgroundColor: colors.btnBg }
-                    ]}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "700", color: isSel ? colors.accent : colors.textSecondary }}>
-                      {dur.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <Pressable
-              disabled={activating}
-              onPress={handleActivateMaster}
-              onHoverIn={() => setHoveredBtn("master")}
-              onHoverOut={() => setHoveredBtn(null)}
-              style={({ pressed }: any) => [
-                styles.masterSubmitBtn,
-                { borderColor: colors.accent, backgroundColor: hoveredBtn === "master" ? colors.accentLight : "transparent" },
-                pressed && { transform: [{ scale: 0.99 }] }
-              ]}
-            >
-              <Text style={[styles.masterSubmitBtnText, { color: colors.accent }]}>
-                {activating ? "ACTIVATING..." : "RUN MASTER ACTIVATION"}
-              </Text>
-            </Pressable>
-          </View>
-        )}
       </View>
     </View>
   );

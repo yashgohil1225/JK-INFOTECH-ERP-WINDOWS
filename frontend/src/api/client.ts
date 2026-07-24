@@ -7,8 +7,8 @@ import axios from "axios";
 import { storage } from "../utils/storage";
 import { sanitizePayload } from "../utils/serialization";
 
-// For native Windows App SDK, localhost works directly as it runs on the host machine.
-const DEFAULT_API_URL = "http://localhost:8000";
+// For native Windows App SDK, 127.0.0.1 works directly as it runs on the host machine.
+const DEFAULT_API_URL = "http://127.0.0.1:8000";
 const apiClient = axios.create({
   baseURL: DEFAULT_API_URL,
   timeout: 30000,

@@ -15,12 +15,12 @@ export interface LicenseStatus {
 
 export const licenseApi = {
   getStatus: async (): Promise<LicenseStatus> => {
-    const response = await apiClient.get<LicenseStatus>("/api/license/status");
+    const response = await apiClient.get<LicenseStatus>("/api/v1/license/status");
     return response.data;
   },
 
   activate: async (key: string, durationMonths?: string): Promise<{ message: string; success: boolean }> => {
-    const response = await apiClient.post<{ message: string; success: boolean }>("/api/license/activate", {
+    const response = await apiClient.post<{ message: string; success: boolean }>("/api/v1/license/activate", {
       key,
       duration_months: durationMonths,
     });

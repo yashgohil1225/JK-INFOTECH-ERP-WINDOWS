@@ -9,15 +9,20 @@ router = APIRouter(
     tags=["Security"],
 )
 
+from app.core.limiter import limiter
+
 @router.get(
     "/status",
     summary="Get current license and system integrity status",
 )
+@limiter.exempt
 async def get_license_status(request: Request):
     """
     Returns the current security status of the application.
     If 'frozen' is true, the UI should show the activation screen.
     """
+    from app.middleware.security_guard import check_system_integrity
+    await check_system_integrity(request.app)
     return {
         "frozen": getattr(request.app.state, "frozen", False),
         "reason": getattr(request.app.state, "freeze_reason", ""),
@@ -30,6 +35,7 @@ async def get_license_status(request: Request):
     "/activate",
     summary="Activate application with a license key",
 )
+@limiter.exempt
 async def activate_license(request: Request, data: dict):
     """
     Saves an encrypted license payload to disk and re-checks integrity.

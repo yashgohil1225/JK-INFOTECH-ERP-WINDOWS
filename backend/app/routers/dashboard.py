@@ -9,6 +9,8 @@ from app.database import get_db
 from app.middleware.auth import get_current_company
 from app.models import Product, Invoice, Payment, Account, Company
 
+from app.core.redis import cache_manager
+
 router = APIRouter(prefix="/api/v1/dashboard", tags=["Dashboard"])
 
 @router.get("/summary")
@@ -16,6 +18,11 @@ async def get_summary(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"dashboard:summary:company:{company.id}"
+    cached_data = await cache_manager.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     # Count products
     product_count = await db.scalar(
         select(func.count(Product.id)).where(Product.company_id == company.id)
@@ -41,9 +48,11 @@ async def get_summary(
         .filter(Account.name.ilike("%bank%"))
     ) or 0
     
-    return {
+    res = {
         "product_count": product_count or 0,
         "total_sales": float(total_sales or 0),
         "total_collections": float(total_collections or 0),
         "bank_balance": float(bank_balance or 0)
     }
+    await cache_manager.set(cache_key, res, ttl_seconds=300)
+    return res

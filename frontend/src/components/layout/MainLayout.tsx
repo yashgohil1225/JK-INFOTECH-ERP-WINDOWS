@@ -11,6 +11,8 @@ import { useAuthStore } from "../../store/authStore";
 import { Modal } from "../ui/Modal";
 import { CalendarPicker } from "../ui/DatePicker";
 
+import { getCurrentAppVersion } from "../../services/CloudUpdateService";
+
 interface MainLayoutProps {
   children: React.ReactNode;
 }
@@ -84,7 +86,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 : "GST: Unregistered"}
             </Text>
             <View style={styles.statusDivider} />
-            <Text style={[styles.statusText, { color: colors.statusBarText, fontWeight: "600" }]}>V2.1</Text>
+            <Text style={[styles.statusText, { color: colors.statusBarText, fontWeight: "600" }]}>
+              v{getCurrentAppVersion()}
+            </Text>
           </View>
         </View>
       )}

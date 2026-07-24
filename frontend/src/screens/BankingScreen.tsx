@@ -256,7 +256,7 @@ export default function BankingScreen() {
         {isLoadingAccounts ? (
           <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: 16 }} />
         ) : (
-          <ScrollView style={styles.accountsScroll} showsVerticalScrollIndicator={true}>
+          <ScrollView style={styles.accountsScroll} showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingRight: 14 }}>
             <View style={styles.accountsGrid}>
               {accounts.map(acc => {
                 const isBank = acc.account_type === "BANK" || acc.account_subtype?.toUpperCase() === "BANK";

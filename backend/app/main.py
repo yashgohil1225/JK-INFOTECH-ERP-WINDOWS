@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.database import sync_engine
 from app.models import Base
 from fastapi.exceptions import RequestValidationError, ResponseValidationError  # pyrefly: ignore [missing-import]
-from app.routers import auth, license, inventory, sales, purchase, banking, dashboard, analytics, parties, companies, sequences, audit, support, barcode, reports, search, backup
+from app.routers import auth, license, inventory, sales, purchase, banking, dashboard, analytics, parties, companies, sequences, audit, support, barcode, reports, search, backup, reports_share
 from app.routers.companies import utils_router as companies_utils_router
 
 from fastapi.openapi.docs import get_swagger_ui_html  # pyrefly: ignore [missing-import]
@@ -65,22 +65,25 @@ async def startup_event():
     import threading
     threading.Thread(target=install_browsers, daemon=True).start()
 
-    # Industrial Protocol: Ensure all table schemas are synchronized
+    # Industrial Protocol: Ensure all table schemas are synchronized in a background thread
     print("JK ERP: Synchronizing Database Schema...")
-    import time
-    max_retries = 25
-    for attempt in range(1, max_retries + 1):
-        try:
-            with sync_engine.connect() as conn:
-                pass
-            Base.metadata.create_all(bind=sync_engine)
-            print("JK ERP: Schema Synchronization Complete.")
-            break
-        except Exception as e:
-            if attempt == max_retries:
-                raise e
-            print(f"JK ERP: Database system is starting up... retrying connection ({attempt}/{max_retries})")
-            time.sleep(2)
+    def run_sync_db_setup():
+        import time
+        max_retries = 25
+        for attempt in range(1, max_retries + 1):
+            try:
+                with sync_engine.connect() as conn:
+                    pass
+                Base.metadata.create_all(bind=sync_engine)
+                print("JK ERP: Schema Synchronization Complete.")
+                break
+            except Exception as e:
+                if attempt == max_retries:
+                    raise e
+                print(f"JK ERP: Database system is starting up... retrying connection ({attempt}/{max_retries})")
+                time.sleep(2)
+
+    await asyncio.to_thread(run_sync_db_setup)
 
     # ── Self-Healing Column Migration (Async) ───────────────────
     # Detects columns that exist in ORM models but are missing from
@@ -159,12 +162,11 @@ async def startup_event():
 
 
 # --- Security: Rate Limiting ---
-from slowapi import Limiter, _rate_limit_exceeded_handler  # pyrefly: ignore [missing-import]
-from slowapi.util import get_remote_address  # pyrefly: ignore [missing-import]
+from slowapi import _rate_limit_exceeded_handler  # pyrefly: ignore [missing-import]
 from slowapi.errors import RateLimitExceeded  # pyrefly: ignore [missing-import]
 from slowapi.middleware import SlowAPIMiddleware  # pyrefly: ignore [missing-import]
+from app.core.limiter import limiter
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -219,7 +221,7 @@ async def security_guard_middleware(request: Request, call_next):
     
     # Allow license check, activation, docs, and root endpoints through
     path = request.url.path
-    if frozen and path.startswith("/api/") and not path.startswith("/api/v1/license"):
+    if frozen and path.startswith("/api/") and not (path.startswith("/api/v1/license") or path.startswith("/api/license")):
         return JSONResponse(
             status_code=451,
             content={
@@ -302,6 +304,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         headers=get_cors_headers(request)
     )
 
+from fastapi.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -383,6 +389,7 @@ app.include_router(sequences.router)
 app.include_router(audit.router)
 app.include_router(support.router)
 app.include_router(reports.router)
+app.include_router(reports_share.router)
 app.include_router(search.router)
 app.include_router(backup.router)
 

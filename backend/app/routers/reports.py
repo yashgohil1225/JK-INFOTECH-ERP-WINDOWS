@@ -856,6 +856,17 @@ async def get_outstanding_summary(
     service = ReportService(db, company.id)
     return await service.get_outstanding_summary()
 
+@router.get("/outstanding/pdf")
+async def get_outstanding_pdf(
+    orientation: Optional[str] = "portrait",
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    company: Company = Depends(get_current_company)
+):
+    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    pdf_bytes = await service.generate_outstanding_pdf()
+    return make_pdf_response(pdf_bytes, f"Outstanding_Summary_{date.today().strftime('%Y%m%d')}.pdf", service)
+
 # =============================================================
 # 25. GET /api/reports/sales-by-customer
 # =============================================================

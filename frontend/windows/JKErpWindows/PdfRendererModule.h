@@ -66,11 +66,16 @@ struct PdfRenderer {
                              winrt::Windows::System::VirtualKeyModifiers::
                                  Control) !=
                             winrt::Windows::System::VirtualKeyModifiers::None;
+                        bool isShift =
+                            (keys &
+                             winrt::Windows::System::VirtualKeyModifiers::
+                                 Shift) !=
+                            winrt::Windows::System::VirtualKeyModifiers::None;
                         auto props = args.CurrentPoint().Properties();
                         bool isHorizontal = props.IsHorizontalMouseWheel();
                         int delta = props.MouseWheelDelta();
 
-                        if (isHorizontal && m_reactContext) {
+                        if ((isHorizontal || (isShift && !isCtrl)) && m_reactContext) {
                           m_reactContext.EmitJSEvent(
                               L"RCTDeviceEventEmitter",
                               L"emit",
@@ -107,6 +112,11 @@ struct PdfRenderer {
                      ReactPromise<std::vector<std::string>> promise) noexcept {
     RenderPdfAsync(std::move(url), std::move(invoiceId), std::move(authToken),
                    std::move(promise));
+  }
+
+  REACT_METHOD(CleanupTempFiles)
+  void CleanupTempFiles(ReactPromise<bool> promise) noexcept {
+    CleanupTempFilesAsync(std::move(promise));
   }
 
 private:
@@ -222,6 +232,32 @@ private:
       promise.Reject(("Std Error: " + std::string(ex.what())).c_str());
     } catch (...) {
       promise.Reject("Unknown Native Error during rendering");
+    }
+  }
+
+  IAsyncAction CleanupTempFilesAsync(ReactPromise<bool> promise) {
+    try {
+      StorageFolder tempFolder = ApplicationData::Current().TemporaryFolder();
+      auto files = co_await tempFolder.GetFilesAsync();
+      std::vector<StorageFile> filesToDelete;
+      for (auto const &file : files) {
+        std::wstring name{file.Name()};
+        if (name.find(L"_page_") != std::wstring::npos ||
+            name.find(L"DirectPrint_") != std::wstring::npos ||
+            name.find(L"PrintPage_") != std::wstring::npos) {
+          filesToDelete.push_back(file);
+        }
+      }
+      for (auto const &file : filesToDelete) {
+        try {
+          co_await file.DeleteAsync();
+        } catch (...) {}
+      }
+      m_cachedPdfBuffer = nullptr;
+      m_cachedPdfUrl = "";
+      promise.Resolve(true);
+    } catch (...) {
+      promise.Resolve(false);
     }
   }
 

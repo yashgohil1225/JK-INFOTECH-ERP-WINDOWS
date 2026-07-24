@@ -126,6 +126,8 @@ export function Button({
     >
       {loading ? (
         <ActivityIndicator color={variant === "secondary" ? colors.secondaryText : "#FFFFFF"} size="small" />
+      ) : typeof children === "string" ? (
+        <Text style={getTextStyle()}>{children}</Text>
       ) : children ? (
         children
       ) : (

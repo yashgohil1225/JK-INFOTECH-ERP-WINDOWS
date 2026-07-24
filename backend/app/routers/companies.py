@@ -52,6 +52,10 @@ async def update_my_company_profile(
     for field, value in update_data.items():
         setattr(company, field, value)
     
+    if "settings" in update_data:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(company, "settings")
+
     await db.commit()
     await db.refresh(company)
     return company

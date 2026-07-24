@@ -25,8 +25,9 @@ import { sequencesApi, type Sequence } from "../api/sequences";
 import { fiscalYearsApi, type FiscalYear } from "../api/fiscalYears";
 import { DatePicker } from "../components/ui/DatePicker";
 
-type TabType = "business" | "interface" | "advanced" | "sequences" | "fiscal_years" | "diagnostics";
+type TabType = "business" | "communication" | "interface" | "advanced" | "sequences" | "fiscal_years" | "diagnostics";
 
+// System Settings Screen for JK Infotech ERP
 export default function SettingsScreen() {
   const { isDarkMode, toggleTheme } = useUIStore();
   const { company, user, setCompany, loadMe } = useAuthStore();
@@ -108,6 +109,22 @@ export default function SettingsScreen() {
   const [diagLatency, setDiagLatency] = useState<number | null>(null);
   const [diagCheckTime, setDiagCheckTime] = useState<string | null>(null);
   const [diagChecking, setDiagChecking] = useState(false);
+
+  // Communication & CA States
+  const [caName, setCaName] = useState("");
+  const [caEmail, setCaEmail] = useState("");
+  const [caPhone, setCaPhone] = useState("");
+
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("587");
+  const [smtpUsername, setSmtpUsername] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpFromEmail, setSmtpFromEmail] = useState("");
+  const [smtpUseTls, setSmtpUseTls] = useState(true);
+
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState("");
+  const [waAccessToken, setWaAccessToken] = useState("");
+  const [waBusinessAccountId, setWaBusinessAccountId] = useState("");
 
   // Document sequences states
   const [sequences, setSequences] = useState<Sequence[]>([]);
@@ -488,6 +505,26 @@ export default function SettingsScreen() {
       setHsnCode(company.default_hsn_sac_code || "");
       setIsGstRegistered(company.is_gst_applicable ?? true);
       setHsnSacType(company.hsn_sac_type || "Goods");
+
+      const settings = company.settings || {};
+      const caConfig = settings.ca || {};
+      const smtpConfig = settings.smtp || {};
+      const waConfig = settings.whatsapp || {};
+
+      setCaName(caConfig.ca_name || "");
+      setCaEmail(caConfig.ca_email || "");
+      setCaPhone(caConfig.ca_phone || "");
+
+      setSmtpHost(smtpConfig.smtp_host || "");
+      setSmtpPort(smtpConfig.smtp_port ? String(smtpConfig.smtp_port) : "587");
+      setSmtpUsername(smtpConfig.smtp_username || "");
+      setSmtpPassword(smtpConfig.smtp_password || "");
+      setSmtpFromEmail(smtpConfig.smtp_from_email || "");
+      setSmtpUseTls(smtpConfig.smtp_use_tls ?? true);
+
+      setWaPhoneNumberId(waConfig.wa_phone_number_id || "");
+      setWaAccessToken(waConfig.wa_access_token || "");
+      setWaBusinessAccountId(waConfig.wa_business_account_id || "");
     }
     if (user) {
       setPinEnabled(user.pin_login_enabled);
@@ -539,6 +576,43 @@ export default function SettingsScreen() {
       setMessage({ type: "success", text: "Business profile saved successfully!" });
     } catch (err: any) {
       setMessage({ type: "error", text: err.response?.data?.detail || "Failed to update profile." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveCommunicationSettings = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const currentSettings = company?.settings || {};
+      const updatedSettings = {
+        ...currentSettings,
+        ca: {
+          ca_name: caName.trim(),
+          ca_email: caEmail.trim(),
+          ca_phone: caPhone.trim()
+        },
+        smtp: {
+          smtp_host: smtpHost.trim(),
+          smtp_port: parseInt(smtpPort) || 587,
+          smtp_username: smtpUsername.trim(),
+          smtp_password: smtpPassword.trim(),
+          smtp_from_email: smtpFromEmail.trim(),
+          smtp_use_tls: smtpUseTls
+        },
+        whatsapp: {
+          wa_phone_number_id: waPhoneNumberId.trim(),
+          wa_access_token: waAccessToken.trim(),
+          wa_business_account_id: waBusinessAccountId.trim()
+        }
+      };
+
+      const updated = await authApi.updateCompanyProfile({ settings: updatedSettings });
+      setCompany(updated);
+      setMessage({ type: "success", text: "Communication & CA Settings saved successfully!" });
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.response?.data?.detail || "Failed to save communication settings." });
     } finally {
       setLoading(false);
     }
@@ -634,7 +708,13 @@ export default function SettingsScreen() {
             <Pressable
               onHoverIn={() => setHoveredBtn("save")}
               onHoverOut={() => setHoveredBtn(null)}
-              onPress={handleSaveCompany}
+              onPress={() => {
+                if (activeTab === "communication") {
+                  handleSaveCommunicationSettings();
+                } else {
+                  handleSaveCompany();
+                }
+              }}
               disabled={loading}
               style={[
                 styles.saveBtn,
@@ -677,11 +757,12 @@ export default function SettingsScreen() {
       <View style={styles.contentContainer}>
         {/* Left Tab Bar Column */}
         <View style={[styles.tabSelector, { borderColor: colors.cardBorder }]}>
-          {(["business", "interface", "advanced", "sequences", "fiscal_years", "diagnostics"] as TabType[]).map((tab) => {
+          {(["business", "communication", "interface", "advanced", "sequences", "fiscal_years", "diagnostics"] as TabType[]).map((tab) => {
             const isActive = activeTab === tab;
             const isHovered = hoveredTab === tab;
             const tabLabels = {
               business: "🏢  Business Profile",
+              communication: "💬  CA & Communication",
               interface: "🎨  User & Interface",
               advanced: "⚙️  Advanced Config",
               sequences: "🔢  Document Numbering",
@@ -716,6 +797,190 @@ export default function SettingsScreen() {
 
         {/* Right Settings Form panel */}
         <ScrollView style={styles.formPanel} contentContainerStyle={styles.formScrollContent}>
+          {activeTab === "communication" && (
+            <View style={{ gap: 20 }}>
+              {/* CA Contact Card */}
+              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Chartered Accountant (CA) Contact Details</Text>
+                <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+                  Specify your CA or tax consultant details for quick report dispatching.
+                </Text>
+                <View style={styles.formGrid}>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>CA / FIRM NAME</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={caName}
+                      onChangeText={setCaName}
+                      placeholder="e.g. M/s Mehta & Associates"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>CA EMAIL ADDRESS</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={caEmail}
+                      onChangeText={setCaEmail}
+                      placeholder="ca.reports@auditfirm.com"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>CA WHATSAPP PHONE NUMBER</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={caPhone}
+                      onChangeText={setCaPhone}
+                      placeholder="+91 98765 43210"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* SMTP Configuration Card */}
+              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>SMTP Email Gateway Setup</Text>
+                <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+                  Configure your business email SMTP server to send report attachments directly.
+                </Text>
+                <View style={styles.formGrid}>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SMTP HOST</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={smtpHost}
+                      onChangeText={setSmtpHost}
+                      placeholder="smtp.gmail.com or smtp.office365.com"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SMTP PORT</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={smtpPort}
+                      onChangeText={setSmtpPort}
+                      placeholder="587 or 465"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SMTP USERNAME (EMAIL)</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={smtpUsername}
+                      onChangeText={setSmtpUsername}
+                      placeholder="billing@yourdomain.com"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SMTP APP PASSWORD</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={smtpPassword}
+                      onChangeText={setSmtpPassword}
+                      secureTextEntry={true}
+                      placeholder="••••••••••••••••"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SENDER FROM EMAIL</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={smtpFromEmail}
+                      onChangeText={setSmtpFromEmail}
+                      placeholder="accounts@yourdomain.com"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                </View>
+                <View style={{ marginTop: 12, alignItems: "flex-start" }}>
+                  <Button
+                    title="Send Test Email"
+                    variant="secondary"
+                    onPress={async () => {
+                      if (!smtpHost || !smtpUsername || !smtpPassword) {
+                        Alert.alert("Validation", "Please fill in SMTP Host, Username, and Password first.");
+                        return;
+                      }
+                      setLoading(true);
+                      try {
+                        await apiClient.post("/api/reports/test-smtp", {
+                          test_email: smtpUsername.trim(),
+                          smtp_host: smtpHost.trim(),
+                          smtp_port: parseInt(smtpPort) || 587,
+                          smtp_username: smtpUsername.trim(),
+                          smtp_password: smtpPassword.trim(),
+                          smtp_from_email: smtpFromEmail.trim(),
+                          smtp_use_tls: smtpUseTls
+                        });
+                        Alert.alert("Success", `Test email sent to ${smtpUsername}! Connection verified.`);
+                      } catch (err: any) {
+                        Alert.alert("SMTP Error", err.response?.data?.detail || "SMTP test failed.");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  />
+                </View>
+              </View>
+
+              {/* Meta WhatsApp Cloud API Setup Card */}
+              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Meta WhatsApp Business API Setup</Text>
+                <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+                  Enter Meta Developer Portal WhatsApp Cloud API credentials for automated document dispatch.
+                </Text>
+                <View style={styles.formGrid}>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>PHONE NUMBER ID</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={waPhoneNumberId}
+                      onChangeText={setWaPhoneNumberId}
+                      placeholder="e.g. 109283746501928"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.inputField}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>BUSINESS ACCOUNT ID</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={waBusinessAccountId}
+                      onChangeText={setWaBusinessAccountId}
+                      placeholder="e.g. 192837465019283"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={[styles.inputField, { width: "100%" }]}>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>SYSTEM USER ACCESS TOKEN</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
+                      value={waAccessToken}
+                      onChangeText={setWaAccessToken}
+                      secureTextEntry={true}
+                      placeholder="EAAG..."
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <View style={{ alignItems: "flex-end", marginTop: 8 }}>
+                <Button
+                  title="Save Communication Settings"
+                  variant="primary"
+                  onPress={handleSaveCommunicationSettings}
+                  disabled={loading}
+                />
+              </View>
+            </View>
+          )}
+
           {activeTab === "business" && (
             <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
               <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Company Information</Text>
@@ -1886,6 +2151,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   formScrollContent: {
+    paddingRight: 16,
     paddingBottom: 36,
   },
   tabWrapper: {

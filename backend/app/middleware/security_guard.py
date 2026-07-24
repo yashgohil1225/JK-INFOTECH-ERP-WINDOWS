@@ -35,7 +35,7 @@ def get_trusted_time() -> datetime:
     # 1. Try to get time from World Time API
     try:
         req = urllib.request.Request("http://worldtimeapi.org/api/timezone/Etc/UTC", headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3) as response:
+        with urllib.request.urlopen(req, timeout=1) as response:
             data = json.loads(response.read())
             online_time = datetime.fromisoformat(data["utc_datetime"]).replace(tzinfo=timezone.utc)
             _update_high_water_mark(online_time.timestamp())

@@ -11,6 +11,8 @@ from app.middleware.auth import get_current_company
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from app.core.redis import cache_manager
+
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
 
 @router.get("/kpis")
@@ -18,6 +20,11 @@ async def get_kpis(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"analytics:kpis:company:{company.id}"
+    cached_data = await cache_manager.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     # Real Total Sales (Invoices)
     total_sales = await db.scalar(
         select(func.sum(Invoice.total)).where(Invoice.company_id == company.id)
@@ -38,7 +45,7 @@ async def get_kpis(
         select(func.count(Customer.id)).where(Customer.company_id == company.id).where(Customer.is_active == True)
     ) or 0
     
-    return {
+    res = {
         "total_sales": float(total_sales),
         "total_receivable": float(total_receivable),
         "total_payable": float(total_payable),
@@ -46,18 +53,24 @@ async def get_kpis(
         "monthly_growth": 0.0,
         "active_customers": int(active_customers)
     }
+    await cache_manager.set(cache_key, res, ttl_seconds=300)
+    return res
 
 @router.get("/sales-trend")
 async def get_sales_trend(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"analytics:sales_trend:company:{company.id}"
+    cached_data = await cache_manager.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     # Real trend for last 12 months
     today = datetime.now()
     trend = []
     
     for i in range(11, -1, -1):
-        # This is a simplified query. In production, we'd use a single group-by query.
         start_date = (today.replace(day=1) - timedelta(days=i*30)).replace(day=1)
         end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
         
@@ -83,6 +96,7 @@ async def get_sales_trend(
             "purchase": float(purchases)
         })
         
+    await cache_manager.set(cache_key, trend, ttl_seconds=300)
     return trend
 
 @router.get("/liquidity")
@@ -90,6 +104,11 @@ async def get_liquidity(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"analytics:liquidity:company:{company.id}"
+    cached_data = await cache_manager.get(cache_key)
+    if cached_data is not None:
+        return cached_data
+
     # Fetch real balances from Bank/Cash accounts
     accounts = await db.execute(
         select(Account)
@@ -145,4 +164,5 @@ async def get_liquidity(
             "type": "bank" if is_bank else "cash"
         })
         
+    await cache_manager.set(cache_key, results, ttl_seconds=300)
     return results

@@ -37,7 +37,8 @@ echo [2/3] STARTING REDIS CACHE ENGINE...
 echo ========================================================
 set REDIS_DIR=%~dp0redis
 if exist "!REDIS_DIR!\redis-server.exe" (
-    start /B "" "!REDIS_DIR!\redis-server.exe" --port 6379
+    powershell -ExecutionPolicy Bypass -File "%~dp0scripts\tune-redis.ps1" -RedisDir "!REDIS_DIR!" >nul 2>&1
+    start /B "" "!REDIS_DIR!\redis-server.exe" "!REDIS_DIR!\redis.windows.conf" --port 6379
 ) else (
     echo [WARNING] Embedded redis-server.exe not found. Ensuring service port 6379 is accessible.
 )
@@ -57,9 +58,8 @@ if exist "!BACKEND_DIR!\run.exe" (
 echo ========================================================
 echo ALL SERVICES INITIATED! Launching UWP Client App...
 echo ========================================================
-:: Launch the React Native Windows build/launch process in a separate minimized terminal
-cd /d "%~dp0frontend"
-start "Metro & UWP Client" cmd /k "set CI=true && npm run windows"
+:: Launch installed UWP Client App via registered protocol
+start "" "jkerpwindows:"
 
 echo Startup sequence finished. Keep this window open to maintain database services.
 echo To shut down database services safely, close this window.

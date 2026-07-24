@@ -12,6 +12,7 @@ interface LicenseState {
   hwid: string;
   expiresAt: string | null;
   checking: boolean;
+  licenseChecked: boolean;
   activating: boolean;
   error: string | null;
 
@@ -26,26 +27,46 @@ export const useLicenseStore = create<LicenseState>((set) => ({
   hwid: "",
   expiresAt: null,
   checking: false,
+  licenseChecked: false,
   activating: false,
   error: null,
 
-  checkLicenseStatus: async () => {
+  checkLicenseStatus: async (retries = 2) => {
     set({ checking: true, error: null });
-    try {
-      const status = await licenseApi.getStatus();
-      set({
-        isFrozen: status.frozen,
-        freezeReason: status.reason || "",
-        hwid: status.hwid || "",
-        expiresAt: status.expires_at,
-        checking: false,
-      });
-      return status;
-    } catch (err: any) {
-      console.warn("Failed to check license status:", err);
-      set({ checking: false });
-      throw err;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const status = await licenseApi.getStatus();
+        set({
+          isFrozen: status.frozen,
+          freezeReason: status.reason || "",
+          hwid: status.hwid || "",
+          expiresAt: status.expires_at,
+          checking: false,
+          licenseChecked: true,
+        });
+        return status;
+      } catch (err: any) {
+        const resData = err.response?.data;
+        if (err.response?.status === 451 || resData?.reason) {
+          set({
+            isFrozen: true,
+            freezeReason: resData?.reason || "SYSTEM_UNREGISTERED",
+            checking: false,
+            licenseChecked: true,
+          });
+          throw err;
+        }
+        if (i < retries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } else {
+          console.warn("Failed to check license status after retries:", err);
+          set({ checking: false, licenseChecked: true });
+          throw err;
+        }
+      }
     }
+    set({ checking: false, licenseChecked: true });
+    throw new Error("License check timeout");
   },
 
   activateLicense: async (key: string, durationMonths?: string) => {

@@ -82,6 +82,9 @@ if ($AppPackage) {
     } catch {
         Write-Host "      Updating previous installation registration..." -ForegroundColor Yellow
         $existing = Get-AppxPackage -Name "9428b0f2-9cad-4953-a4b8-da3e6a84d40a" -ErrorAction SilentlyContinue
+        if (-not $existing) {
+            $existing = Get-AppxPackage *JKErpWindows* -ErrorAction SilentlyContinue
+        }
         if ($existing) {
             Remove-AppxPackage -Package $existing.PackageFullName -ErrorAction SilentlyContinue
         }

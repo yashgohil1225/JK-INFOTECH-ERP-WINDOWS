@@ -82,3 +82,11 @@ error.log
 graphify-out/
 .agents/
 privacy 🔏/
+
+# Debug Symbol Files & Scratch Scripts
+*.pdb
+backend/test_conn.py
+
+# Heavy Compiled Release Binaries (Uploaded to GitHub Release Assets)
+Output/
+updates/*.zip

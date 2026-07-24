@@ -282,7 +282,7 @@ export default function SalesScreen() {
       }
     });
     return () => sub.remove();
-  }, [isCreatingInvoice, form, lines, totals]);
+  }, [isCreatingInvoice, form, lines]);
 
   // quick add product states
   const [isQuickAddProductModalOpen, setIsQuickAddProductModalOpen] = useState(false);

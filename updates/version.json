@@ -1,6 +1,6 @@
 {
-  "version": "1.0.3",
-  "releaseNotes": "1. Natural alphanumeric table header sorting (INV/1, INV/2, INV/10).\n2. PDF printing and container scaling fixes.\n3. Native trackpad 2D panning and keyboard arrow navigation.",
+  "version": "1.0.6",
+  "releaseNotes": "1. Integrated high-performance Redis cache engine with dynamic hardware auto-tuning (256MB-2GB RAM scaling).\n2. Resolved database and backend auto-start reliability in launcher and installer scripts.\n3. Updated system installer and updater package to version 1.0.6.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/latest"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.6/JK_Infotech_ERP_v1.0.6.zip"
 }

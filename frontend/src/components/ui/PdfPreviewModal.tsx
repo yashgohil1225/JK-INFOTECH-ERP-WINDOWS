@@ -15,13 +15,15 @@ import {
   Alert,
   NativeModules,
   Image,
-  DeviceEventEmitter
+  DeviceEventEmitter,
+  PanResponder
 } from "react-native";
 import { useUIStore } from "../../store/uiStore";
 import apiClient from "../../api/client";
 import { storage } from "../../utils/storage";
 import { FullScreenModal } from "./FullScreenModal";
 import { Button } from "./Button";
+import { ShareReportModal } from "./ShareReportModal";
 
 const WindowsView = View as any;
 const WindowsScrollView = ScrollView as any;
@@ -243,8 +245,8 @@ export function PdfPreviewModal({
     return 0;
   };
 
-  const baseWidth = printOrientation === 'landscape' ? 820 : 580;
-  const baseHeight = printOrientation === 'landscape' ? 580 : 820;
+  const baseWidth = printOrientation === 'landscape' ? 1018 : 720;
+  const baseHeight = printOrientation === 'landscape' ? 720 : 1018;
 
   const scrollToPage = (pageIdx: number) => {
     const offsetY = 20 + pageIdx * (baseHeight * zoomScale + 16);
@@ -278,10 +280,29 @@ export function PdfPreviewModal({
   const [isShiftPressed, setIsShiftPressed] = useState(false);
   const [panX, setPanX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [workspaceWidth, setWorkspaceWidth] = useState(750);
+  const scrollbarDragRef = useRef<{ startX: number; startPanX: number } | null>(null);
 
   const isDraggingRef = useRef(false);
   const startXRef = useRef(0);
   const startPanXRef = useRef(0);
+
+  // Compute max horizontal pan based on content vs viewport
+  const contentWidth = baseWidth * zoomScale;
+  const maxPan = Math.max(0, (contentWidth - workspaceWidth + 40) / 2);
+
+  const panXRef = useRef(panX);
+  panXRef.current = panX;
+
+  const maxPanRef = useRef(maxPan);
+  maxPanRef.current = maxPan;
+
+  const workspaceWidthRef = useRef(workspaceWidth);
+  workspaceWidthRef.current = workspaceWidth;
+
+  const contentWidthRef = useRef(contentWidth);
+  contentWidthRef.current = contentWidth;
 
   const handleKeyDown = (e: any) => {
     if (!e || !e.nativeEvent) return;
@@ -315,33 +336,38 @@ export function PdfPreviewModal({
     }
   };
 
-  // Drag-to-Pan (Hand Tool) handlers
-  const handlePointerDown = (e: any) => {
-    if (zoomScale <= 1.0) return;
-    isDraggingRef.current = true;
-    setIsDragging(true);
-    startXRef.current = e.nativeEvent.pageX || e.nativeEvent.clientX || 0;
-    startPanXRef.current = panX;
-  };
+  // Drag-to-Pan (Hand Tool) PanResponder for React Native Windows
+  const contentPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => maxPanRef.current > 0,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 3 && maxPanRef.current > 0,
+      onPanResponderGrant: () => {
+        startPanXRef.current = panXRef.current;
+        setIsDragging(true);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const currentMaxPan = maxPanRef.current;
+        if (currentMaxPan <= 0) return;
+        const newPan = startPanXRef.current + gestureState.dx;
+        setPanX(Math.min(currentMaxPan, Math.max(-currentMaxPan, newPan)));
+      },
+      onPanResponderRelease: () => {
+        setIsDragging(false);
+      },
+      onPanResponderTerminate: () => {
+        setIsDragging(false);
+      }
+    })
+  ).current;
 
-  const handlePointerMove = (e: any) => {
-    if (!isDraggingRef.current || zoomScale <= 1.0) return;
-    const currentX = e.nativeEvent.pageX || e.nativeEvent.clientX || 0;
-    const deltaX = currentX - startXRef.current;
-    setPanX(startPanXRef.current + deltaX);
-  };
-
-  const handlePointerUp = () => {
-    isDraggingRef.current = false;
-    setIsDragging(false);
-  };
-
-  // Reset panX horizontal scroll when zoom changes to <= 1.0 or preview resets
+  // Reset/clamp panX horizontal scroll when maxPan changes
   useEffect(() => {
-    if (zoomScale <= 1.0) {
+    if (maxPan <= 0) {
       setPanX(0);
+    } else {
+      setPanX((prev) => Math.min(maxPan, Math.max(-maxPan, prev)));
     }
-  }, [zoomScale]);
+  }, [maxPan]);
 
   // Native C++ CoreWindow PointerWheelChanged listener for instant, smooth Ctrl+wheel, trackpad pinch zoom, and horizontal trackpad swipe
   useEffect(() => {
@@ -362,8 +388,9 @@ export function PdfPreviewModal({
       if (!evt || typeof evt.delta !== "number") return;
       const delta = evt.delta;
       setPanX((prev) => {
+        const mxPan = maxPanRef.current;
         const next = prev + delta * 1.5;
-        return Math.min(2000, Math.max(-2000, next));
+        return Math.min(mxPan, Math.max(-mxPan, next));
       });
     });
 
@@ -373,15 +400,79 @@ export function PdfPreviewModal({
     };
   }, [isOpen]);
 
+
+
+  const scrollbarPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const currentMaxPan = maxPanRef.current;
+        const currentWorkspaceW = workspaceWidthRef.current;
+        const currentContentW = contentWidthRef.current;
+        if (currentMaxPan <= 0 || currentWorkspaceW <= 0) return;
+
+        const clickX = evt.nativeEvent.locationX || 0;
+        const trackWidth = currentWorkspaceW - 60;
+        const thumbW = Math.max(40, (currentWorkspaceW / currentContentW) * trackWidth);
+        const scrollableRange = Math.max(1, trackWidth - thumbW);
+
+        const targetProgress = Math.min(1.0, Math.max(0.0, (clickX - thumbW / 2) / scrollableRange));
+        const newPanX = (0.5 - targetProgress) * (2 * currentMaxPan);
+        const clampedPanX = Math.min(currentMaxPan, Math.max(-currentMaxPan, newPanX));
+
+        setPanX(clampedPanX);
+        scrollbarDragRef.current = { startX: clickX, startPanX: clampedPanX };
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const currentMaxPan = maxPanRef.current;
+        const currentWorkspaceW = workspaceWidthRef.current;
+        const currentContentW = contentWidthRef.current;
+        if (currentMaxPan <= 0 || currentWorkspaceW <= 0 || !scrollbarDragRef.current) return;
+
+        const dx = gestureState.dx;
+        const trackWidth = currentWorkspaceW - 60;
+        const thumbW = Math.max(40, (currentWorkspaceW / currentContentW) * trackWidth);
+        const scrollableRange = Math.max(1, trackWidth - thumbW);
+
+        const panDelta = -(dx / scrollableRange) * (2 * currentMaxPan);
+        const newPanX = scrollbarDragRef.current.startPanX + panDelta;
+        setPanX(Math.min(currentMaxPan, Math.max(-currentMaxPan, newPanX)));
+      },
+      onPanResponderRelease: () => {
+        scrollbarDragRef.current = null;
+      },
+      onPanResponderTerminate: () => {
+        scrollbarDragRef.current = null;
+      }
+    })
+  ).current;
+
   const handleZoomWheel = (e: any) => {
     if (!e || !e.nativeEvent) return;
 
-    // Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
+    const deltaX = e.nativeEvent.deltaX || 0;
+    const deltaY = e.nativeEvent.deltaY || 0;
+    const isShift = isShiftPressed || e.nativeEvent.shiftKey || false;
+
+    // 1. Detect two-finger horizontal trackpad swipe / horizontal scroll wheel / Shift+wheel
+    if ((Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 0.5) || (isShift && !isCtrlPressed && Math.abs(deltaY) > 0.5)) {
+      if (e.preventDefault) e.preventDefault();
+      const hDelta = Math.abs(deltaX) > 0.5 ? deltaX : deltaY;
+      setPanX((prev) => {
+        const mxPan = maxPanRef.current;
+        const next = prev - hDelta * 1.5;
+        return Math.min(mxPan, Math.max(-mxPan, next));
+      });
+      return;
+    }
+
+    // 2. Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
     const isCtrl = isCtrlPressed ||
       e.nativeEvent.ctrlKey ||
       (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
 
-    if (!isCtrl) return; // Normal scroll mode — let ScrollView handle vertical scrolling
+    if (!isCtrl) return; // Normal vertical scroll mode — let ScrollView handle vertical scrolling
 
     if (e.preventDefault) e.preventDefault();
     if (e.stopPropagation) e.stopPropagation();
@@ -506,6 +597,12 @@ export function PdfPreviewModal({
       initLoad();
     } else {
       setPreviewPages([]);
+      try {
+        const { PdfRenderer: pdfModule } = NativeModules;
+        if (pdfModule && pdfModule.CleanupTempFiles) {
+          pdfModule.CleanupTempFiles().catch(() => { });
+        }
+      } catch (e) { }
     }
   }, [isOpen, reportKey, showThemeSelector, showCopySelector]);
 
@@ -649,6 +746,14 @@ export function PdfPreviewModal({
               }}
               variant="secondary"
               style={{ borderColor: colors.accent, minWidth: 130 }}
+              textStyle={{ color: colors.accent }}
+            />
+
+            <Button
+              title="Send to CA / Share"
+              onPress={() => setIsShareModalOpen(true)}
+              variant="secondary"
+              style={{ borderColor: colors.accent, minWidth: 150 }}
               textStyle={{ color: colors.accent }}
             />
 
@@ -885,6 +990,8 @@ export function PdfPreviewModal({
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           onBlur={() => { setIsCtrlPressed(false); }}
+          onWheel={handleZoomWheel}
+          onLayout={(e: any) => { setWorkspaceWidth(e.nativeEvent.layout.width); }}
           style={{ flex: 1, backgroundColor: isDarkMode ? "#0B0F19" : "#F3F4F6" }}
         >
           {isPdfLoading ? (
@@ -906,15 +1013,15 @@ export function PdfPreviewModal({
               scrollEnabled={true}
               showsVerticalScrollIndicator={true}
               showsHorizontalScrollIndicator={true}
+              persistentScrollbar={true}
               pinchGestureEnabled={true}
               minimumZoomScale={0.4}
               maximumZoomScale={3.0}
               zoomScale={zoomScale}
+              onWheel={handleZoomWheel}
             >
               <View
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
+                {...contentPanResponder.panHandlers}
                 style={{
                   gap: 16,
                   alignItems: "center",
@@ -954,8 +1061,52 @@ export function PdfPreviewModal({
               </View>
             </WindowsScrollView>
           )}
+
+          {/* Bottom Horizontal Scrollbar when content exceeds viewport */}
+          {maxPan > 0 && (
+            <View
+              {...scrollbarPanResponder.panHandlers}
+              style={{
+                height: 16,
+                backgroundColor: isDarkMode ? "#1E293B" : "#E2E8F0",
+                width: "100%",
+                justifyContent: "center",
+                paddingHorizontal: 20,
+                borderTopWidth: 1,
+                borderTopColor: colors.divider
+              }}
+            >
+              <View
+                style={{
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: isDarkMode ? "#475569" : "#94A3B8",
+                  width: Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)),
+                  transform: [
+                    {
+                      translateX: Math.max(
+                        0,
+                        Math.min(
+                          (workspaceWidth - 40) - Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)),
+                          (0.5 - panX / (2 * maxPan)) * ((workspaceWidth - 40) - Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)))
+                        )
+                      )
+                    }
+                  ]
+                }}
+              />
+            </View>
+          )}
         </WindowsView>
       </View>
+
+      <ShareReportModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        reportTitle={title}
+        pdfUrl={getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType)}
+        defaultFilename={`${title.replace(/[\/\s]/g, "_")}.pdf`}
+      />
     </FullScreenModal>
   );
 }

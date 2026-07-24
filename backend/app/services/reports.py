@@ -426,13 +426,12 @@ class ReportService:
         self.jinja_env = Environment(loader=FileSystemLoader(template_dir))
         self.jinja_env.filters["indian_format"] = self._indian_amount_format
 
-    async def get_day_book(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> list:
-        """Fetch chronological transaction log for a company within a date range."""
-        from app.models import JournalEntry, JournalEntryLine, Company
-        # pyrefly: ignore [missing-import]
+    async def get_day_book(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> dict:
+        """Fetch chronological transaction log for a company within a date range across all accounting modules."""
+        from app.models import JournalEntry, JournalEntryLine, Company, Invoice, PurchaseBill, Payment, Customer, Supplier
         from sqlalchemy import select, and_
-        # pyrefly: ignore [missing-import]
         from sqlalchemy.orm import selectinload
+        from datetime import datetime, date
 
         # Fetch Company Info (for PDF rendering context)
         comp_res = await self.db.execute(select(Company).where(Company.id == self.company_id))
@@ -445,13 +444,12 @@ class ReportService:
             "gst_number": company.gst_number if company and company.gst_number else ""
         }
 
-        query = select(JournalEntry).where(
-            JournalEntry.company_id == self.company_id
-        )
-        
+        daybook = []
+
+        # 1. Fetch Manual / System Journal Entries
+        query = select(JournalEntry).where(JournalEntry.company_id == self.company_id)
         if start_date and end_date:
             query = query.where(JournalEntry.entry_date.between(start_date, end_date))
-        
         query = query.options(
             selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account)
         ).order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc())
@@ -459,28 +457,199 @@ class ReportService:
         result = await self.db.execute(query)
         entries = result.scalars().all()
 
-        daybook = []
         for entry in entries:
+            d_str = entry.entry_date.strftime("%Y-%m-%d") if isinstance(entry.entry_date, (date, datetime)) else str(entry.entry_date)
             daybook.append({
-                "id": entry.id,
+                "id": str(entry.id),
                 "entry_number": entry.entry_number,
-                "entry_date": entry.entry_date,
-                "description": entry.description,
-                "reference_type": entry.reference_type,
-                "total_debit": entry.total_debit,
-                "total_credit": entry.total_credit,
+                "voucher_no": entry.entry_number,
+                "entry_date": d_str,
+                "date": d_str,
+                "description": entry.description or "Journal Entry",
+                "narration": entry.description or "Journal Entry",
+                "reference_type": entry.reference_type or "Journal",
+                "total_debit": float(entry.total_debit or 0.0),
+                "total_credit": float(entry.total_credit or 0.0),
+                "debit": float(entry.total_debit or 0.0),
+                "credit": float(entry.total_credit or 0.0),
                 "lines": [
                     {
-                        "account_name": line.account.name,
-                        "account_type": line.account.account_type,
-                        "debit": line.debit,
-                        "credit": line.credit,
-                        "description": line.description
+                        "account_name": line.account.name if line.account else "Account",
+                        "account_type": line.account.account_type if line.account else "GENERAL",
+                        "debit": float(line.debit or 0.0),
+                        "credit": float(line.credit or 0.0),
+                        "description": line.description or ""
                     }
                     for line in entry.lines
                 ]
             })
-            
+
+        # 2. Fetch Sales Invoices
+        inv_query = select(Invoice).options(selectinload(Invoice.customer)).where(
+            Invoice.company_id == self.company_id,
+            Invoice.status != "CANCELLED"
+        )
+        if start_date and end_date:
+            inv_query = inv_query.where(Invoice.invoice_date.between(start_date, end_date))
+        inv_res = await self.db.execute(inv_query)
+        invoices = inv_res.scalars().all()
+
+        for inv in invoices:
+            cust_name = inv.customer.name if inv.customer else "Customer"
+            d_str = inv.invoice_date.strftime("%Y-%m-%d") if isinstance(inv.invoice_date, (date, datetime)) else str(inv.invoice_date)
+            subt = float(inv.subtotal or inv.total or 0.0)
+            tax_val = float(inv.tax_amount or 0.0)
+            tot_val = float(inv.total or 0.0)
+
+            lines = [
+                {
+                    "account_name": cust_name,
+                    "account_type": "ASSET",
+                    "debit": tot_val,
+                    "credit": 0.0,
+                    "description": f"Customer Receivable ({inv.invoice_number})"
+                },
+                {
+                    "account_name": "Sales Account",
+                    "account_type": "INCOME",
+                    "debit": 0.0,
+                    "credit": subt,
+                    "description": "Sales Revenue"
+                }
+            ]
+            if tax_val > 0:
+                lines.append({
+                    "account_name": "GST Output Tax",
+                    "account_type": "LIABILITY",
+                    "debit": 0.0,
+                    "credit": tax_val,
+                    "description": "Output GST"
+                })
+
+            daybook.append({
+                "id": str(inv.id),
+                "entry_number": inv.invoice_number,
+                "voucher_no": inv.invoice_number,
+                "entry_date": d_str,
+                "date": d_str,
+                "description": f"Sales Invoice to {cust_name}",
+                "narration": f"Sales Invoice to {cust_name}",
+                "reference_type": "Sales Invoice",
+                "total_debit": tot_val,
+                "total_credit": tot_val,
+                "debit": tot_val,
+                "credit": tot_val,
+                "lines": lines
+            })
+
+        # 3. Fetch Purchase Bills
+        bill_query = select(PurchaseBill).options(selectinload(PurchaseBill.supplier)).where(
+            PurchaseBill.company_id == self.company_id,
+            PurchaseBill.status != "CANCELLED"
+        )
+        if start_date and end_date:
+            bill_query = bill_query.where(PurchaseBill.bill_date.between(start_date, end_date))
+        bill_res = await self.db.execute(bill_query)
+        bills = bill_res.scalars().all()
+
+        for bill in bills:
+            sup_name = bill.supplier.name if bill.supplier else "Supplier"
+            d_str = bill.bill_date.strftime("%Y-%m-%d") if isinstance(bill.bill_date, (date, datetime)) else str(bill.bill_date)
+            subt = float(bill.subtotal or bill.total or 0.0)
+            tax_val = float(bill.tax_amount or 0.0)
+            tot_val = float(bill.total or 0.0)
+
+            lines = [
+                {
+                    "account_name": "Purchase Account",
+                    "account_type": "EXPENSE",
+                    "debit": subt,
+                    "credit": 0.0,
+                    "description": f"Purchase Expense ({bill.bill_number})"
+                }
+            ]
+            if tax_val > 0:
+                lines.append({
+                    "account_name": "GST Input Tax Credit",
+                    "account_type": "ASSET",
+                    "debit": tax_val,
+                    "credit": 0.0,
+                    "description": "Input GST"
+                })
+            lines.append({
+                "account_name": sup_name,
+                "account_type": "LIABILITY",
+                "debit": 0.0,
+                "credit": tot_val,
+                "description": "Supplier Payable"
+            })
+
+            daybook.append({
+                "id": str(bill.id),
+                "entry_number": bill.bill_number,
+                "voucher_no": bill.bill_number,
+                "entry_date": d_str,
+                "date": d_str,
+                "description": f"Purchase Bill from {sup_name}",
+                "narration": f"Purchase Bill from {sup_name}",
+                "reference_type": "Purchase Bill",
+                "total_debit": tot_val,
+                "total_credit": tot_val,
+                "debit": tot_val,
+                "credit": tot_val,
+                "lines": lines
+            })
+
+        # 4. Fetch Payments / Receipts
+        pay_query = select(Payment).where(Payment.company_id == self.company_id)
+        if start_date and end_date:
+            pay_query = pay_query.where(Payment.payment_date.between(datetime.combine(start_date, datetime.min.time()), datetime.combine(end_date, datetime.max.time())))
+        pay_res = await self.db.execute(pay_query)
+        payments = pay_res.scalars().all()
+
+        for pay in payments:
+            d_obj = pay.payment_date.date() if isinstance(pay.payment_date, datetime) else pay.payment_date
+            d_str = d_obj.strftime("%Y-%m-%d") if isinstance(d_obj, (date, datetime)) else str(d_obj)
+            amt = float(pay.amount or 0.0)
+            v_no = pay.reference_number or f"PAY-{str(pay.id)[:8]}"
+            is_rcpt = pay.payment_type.upper() == "RECEIPT"
+
+            lines = [
+                {
+                    "account_name": f"Bank / Cash ({pay.payment_method})",
+                    "account_type": "BANK",
+                    "debit": amt if is_rcpt else 0.0,
+                    "credit": 0.0 if is_rcpt else amt,
+                    "description": pay.notes or "Cash/Bank Account"
+                },
+                {
+                    "account_name": "Party Account",
+                    "account_type": "PARTY",
+                    "debit": 0.0 if is_rcpt else amt,
+                    "credit": amt if is_rcpt else 0.0,
+                    "description": pay.reference_type or "Party Settlement"
+                }
+            ]
+
+            daybook.append({
+                "id": str(pay.id),
+                "entry_number": v_no,
+                "voucher_no": v_no,
+                "entry_date": d_str,
+                "date": d_str,
+                "description": pay.notes or f"Payment ({pay.payment_type}) via {pay.payment_method}",
+                "narration": pay.notes or f"Payment ({pay.payment_type}) via {pay.payment_method}",
+                "reference_type": f"Payment ({pay.payment_type})",
+                "total_debit": amt,
+                "total_credit": amt,
+                "debit": amt,
+                "credit": amt,
+                "lines": lines
+            })
+
+        # Sort chronologically by entry_date descending
+        daybook.sort(key=lambda x: x["entry_date"], reverse=True)
+
         return {
             "companyInfo": comp_info,
             "period": {"startDate": str(start_date) if start_date else "", "endDate": str(end_date) if end_date else ""},
@@ -1460,11 +1629,19 @@ class ReportService:
 
     async def get_party_ledger(self, party_id: uuid.UUID, party_type: str, start_date: date, end_date: date) -> Optional[dict]:
         """Fetch transaction ledger for a specific customer or supplier."""
-        from app.models import Customer, Supplier, Invoice, Payment
-        # pyrefly: ignore [missing-import]
-        from sqlalchemy import and_, or_
-        
-        # 1. Fetch Party
+        from app.models import Customer, Supplier, Invoice, Payment, PurchaseBill, Company
+        from sqlalchemy import select, func
+        from datetime import datetime, date
+
+        # 1. Fetch Party & Company Info
+        comp_res = await self.db.execute(select(Company).where(Company.id == self.company_id))
+        company = comp_res.scalar_one_or_none()
+        comp_info = {
+            "name": company.name if company else "Company",
+            "gst_number": company.gst_number if company and company.gst_number else "",
+            "address": company.office_address_1 if company else ""
+        }
+
         if party_type == "customer":
             party_stmt = select(Customer).where(Customer.id == party_id, Customer.company_id == self.company_id)
             party_res = await self.db.execute(party_stmt)
@@ -1477,9 +1654,6 @@ class ReportService:
             if not party: return None
 
         # 2. Calculate Opening Balance (Transactions before start_date)
-        # For Customers: Invoices are Debit (+), Payments are Credit (-)
-        # For Suppliers: Bills are Credit (+), Payments are Debit (-)
-        
         opening_bal = Decimal("0.00")
         
         if party_type == "customer":
@@ -1494,12 +1668,31 @@ class ReportService:
             opening_bal += Decimal(str(inv_res.scalar() or 0))
             
             # Payments before start_date
-            # NOTE: Payment uses party_id and party_type
             pay_stmt = select(func.sum(Payment.amount)).where(
                 Payment.party_id == party_id,
                 Payment.party_type == "customer",
                 Payment.company_id == self.company_id,
-                Payment.payment_date < start_date
+                Payment.payment_date < datetime.combine(start_date, datetime.min.time())
+            )
+            pay_res = await self.db.execute(pay_stmt)
+            opening_bal -= Decimal(str(pay_res.scalar() or 0))
+        else:
+            # Purchase Bills before start_date
+            bill_stmt = select(func.sum(PurchaseBill.total)).where(
+                PurchaseBill.supplier_id == party_id,
+                PurchaseBill.company_id == self.company_id,
+                PurchaseBill.bill_date < start_date,
+                PurchaseBill.status != "CANCELLED"
+            )
+            bill_res = await self.db.execute(bill_stmt)
+            opening_bal += Decimal(str(bill_res.scalar() or 0))
+
+            # Payments before start_date
+            pay_stmt = select(func.sum(Payment.amount)).where(
+                Payment.party_id == party_id,
+                Payment.party_type == "supplier",
+                Payment.company_id == self.company_id,
+                Payment.payment_date < datetime.combine(start_date, datetime.min.time())
             )
             pay_res = await self.db.execute(pay_stmt)
             opening_bal -= Decimal(str(pay_res.scalar() or 0))
@@ -1517,13 +1710,18 @@ class ReportService:
             )
             inv_res = await self.db.execute(inv_stmt)
             for inv in inv_res.scalars().all():
+                d_val = inv.invoice_date.date() if isinstance(inv.invoice_date, datetime) else inv.invoice_date
                 transactions.append({
-                    "date": inv.invoice_date,
+                    "date": d_val,
+                    "entry_date": str(d_val),
                     "ref": inv.invoice_number,
+                    "voucher_no": inv.invoice_number,
                     "description": f"Sales Invoice - {inv.invoice_number}",
-                    "debit": inv.total,
-                    "credit": Decimal("0.00"),
-                    "type": "INVOICE"
+                    "narration": f"Sales Invoice - {inv.invoice_number}",
+                    "debit": float(inv.total or 0.0),
+                    "credit": 0.0,
+                    "type": "INVOICE",
+                    "reference_type": "Sales Invoice"
                 })
                 
             # Payments
@@ -1531,34 +1729,96 @@ class ReportService:
                 Payment.party_id == party_id,
                 Payment.party_type == "customer",
                 Payment.company_id == self.company_id,
-                Payment.payment_date.between(start_date, end_date)
+                Payment.payment_date.between(
+                    datetime.combine(start_date, datetime.min.time()),
+                    datetime.combine(end_date, datetime.max.time())
+                )
             )
             pay_res = await self.db.execute(pay_stmt)
             for pay in pay_res.scalars().all():
+                d_val = pay.payment_date.date() if isinstance(pay.payment_date, datetime) else pay.payment_date
+                v_no = pay.reference_number or f"PAY-{str(pay.id)[:8]}"
                 transactions.append({
-                    "date": pay.payment_date,
-                    "ref": pay.reference_number or "PAY",
-                    "description": f"Payment Received - {pay.payment_method}",
-                    "debit": Decimal("0.00"),
-                    "credit": pay.amount,
-                    "type": "PAYMENT"
+                    "date": d_val,
+                    "entry_date": str(d_val),
+                    "ref": v_no,
+                    "voucher_no": v_no,
+                    "description": pay.notes or f"Payment Received - {pay.payment_method}",
+                    "narration": pay.notes or f"Payment Received - {pay.payment_method}",
+                    "debit": 0.0,
+                    "credit": float(pay.amount or 0.0),
+                    "type": "PAYMENT",
+                    "reference_type": "Payment Receipt"
+                })
+        else:
+            # Purchase Bills
+            bill_stmt = select(PurchaseBill).where(
+                PurchaseBill.supplier_id == party_id,
+                PurchaseBill.company_id == self.company_id,
+                PurchaseBill.bill_date.between(start_date, end_date),
+                PurchaseBill.status != "CANCELLED"
+            )
+            bill_res = await self.db.execute(bill_stmt)
+            for bill in bill_res.scalars().all():
+                d_val = bill.bill_date.date() if isinstance(bill.bill_date, datetime) else bill.bill_date
+                transactions.append({
+                    "date": d_val,
+                    "entry_date": str(d_val),
+                    "ref": bill.bill_number,
+                    "voucher_no": bill.bill_number,
+                    "description": f"Purchase Bill - {bill.bill_number}",
+                    "narration": f"Purchase Bill - {bill.bill_number}",
+                    "debit": 0.0,
+                    "credit": float(bill.total or 0.0),
+                    "type": "BILL",
+                    "reference_type": "Purchase Bill"
+                })
+
+            # Payments
+            pay_stmt = select(Payment).where(
+                Payment.party_id == party_id,
+                Payment.party_type == "supplier",
+                Payment.company_id == self.company_id,
+                Payment.payment_date.between(
+                    datetime.combine(start_date, datetime.min.time()),
+                    datetime.combine(end_date, datetime.max.time())
+                )
+            )
+            pay_res = await self.db.execute(pay_stmt)
+            for pay in pay_res.scalars().all():
+                d_val = pay.payment_date.date() if isinstance(pay.payment_date, datetime) else pay.payment_date
+                v_no = pay.reference_number or f"PAY-{str(pay.id)[:8]}"
+                transactions.append({
+                    "date": d_val,
+                    "entry_date": str(d_val),
+                    "ref": v_no,
+                    "voucher_no": v_no,
+                    "description": pay.notes or f"Payment Made - {pay.payment_method}",
+                    "narration": pay.notes or f"Payment Made - {pay.payment_method}",
+                    "debit": float(pay.amount or 0.0),
+                    "credit": 0.0,
+                    "type": "PAYMENT",
+                    "reference_type": "Payment Voucher"
                 })
 
         # 4. Sort and calculate running balance
         transactions.sort(key=lambda x: x["date"])
         
-        running_bal = opening_bal
+        running_bal = float(opening_bal)
         for t in transactions:
             if party_type == "customer":
                 running_bal += (t["debit"] - t["credit"])
             else:
                 running_bal += (t["credit"] - t["debit"])
             t["balance"] = running_bal
+            t["running_balance"] = running_bal
+            t["date"] = str(t["date"])
             
         return {
+            "company": comp_info,
             "party_name": party.name,
-            "period": {"start": start_date, "end": end_date},
-            "opening_balance": opening_bal,
+            "period": {"start": str(start_date), "end": str(end_date)},
+            "opening_balance": float(opening_bal),
             "closing_balance": running_bal,
             "transactions": transactions
         }
@@ -2406,10 +2666,11 @@ class ReportService:
         return await self._generate_pdf(html_out)
 
     async def get_account_ledger(self, account_id: uuid.UUID, start_date: date, end_date: date) -> dict:
-        """Fetch transaction lines and running balance for a specific account."""
-        from app.models import Account, JournalEntry, JournalEntryLine, Company
-        # pyrefly: ignore [missing-import]
+        """Fetch transaction lines and running balance for a specific account across all accounting modules."""
+        from app.models import Account, JournalEntry, JournalEntryLine, Company, Payment, Invoice, PurchaseBill, Customer, Supplier
         from sqlalchemy import select, and_
+        from sqlalchemy.orm import selectinload
+        from datetime import datetime, date
 
         # 1. Fetch Account Info
         acc_stmt = select(Account).where(Account.id == account_id, Account.company_id == self.company_id)
@@ -2427,7 +2688,9 @@ class ReportService:
             "address": company.office_address_1 if company else ""
         }
 
-        # 3. Main Query for transactions
+        all_txns = []
+
+        # 3A. Journal Entries
         stmt = (
             select(JournalEntryLine, JournalEntry)
             .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
@@ -2441,29 +2704,160 @@ class ReportService:
         res = await self.db.execute(stmt)
         lines = res.all()
 
-        # 4. Normal Balance Rule
-        is_debit_normal = account.account_type.upper() in ["ASSET", "EXPENSE"]
-        running_balance = account.opening_balance
-        
-        statement_lines = []
         for line, entry in lines:
-            movement = (line.debit - line.credit) if is_debit_normal else (line.credit - line.debit)
-            running_balance += movement
-            
-            statement_lines.append({
-                "date": entry.entry_date,
+            d_str = entry.entry_date.strftime("%Y-%m-%d") if isinstance(entry.entry_date, (date, datetime)) else str(entry.entry_date)
+            all_txns.append({
+                "date": d_str,
+                "entry_date": d_str,
                 "ref": entry.entry_number,
-                "description": line.description or entry.description,
-                "debit": line.debit,
-                "credit": line.credit,
-                "balance": running_balance
+                "voucher_no": entry.entry_number,
+                "description": line.description or entry.description or "Journal Entry",
+                "narration": line.description or entry.description or "Journal Entry",
+                "reference_type": entry.reference_type or "Journal",
+                "debit": float(line.debit or 0.0),
+                "credit": float(line.credit or 0.0)
+            })
+
+        # 3B. Bank / Cash Payments
+        acc_type_upper = (account.account_type or "").upper()
+        acc_subtype_upper = (account.account_subtype or "").upper()
+        acc_name_lower = (account.name or "").lower().strip()
+
+        is_cash_or_bank = (
+            acc_type_upper in ["BANK", "CASH"] or 
+            acc_subtype_upper in ["BANK", "CASH"] or 
+            "cash" in acc_name_lower or 
+            "bank" in acc_name_lower
+        )
+
+        if is_cash_or_bank:
+            pay_stmt = select(Payment).where(
+                Payment.company_id == self.company_id,
+                Payment.payment_date.between(
+                    datetime.combine(start_date, datetime.min.time()),
+                    datetime.combine(end_date, datetime.max.time())
+                )
+            )
+            pay_res = await self.db.execute(pay_stmt)
+            payments = pay_res.scalars().all()
+
+            for p in payments:
+                is_match = False
+                if acc_type_upper == "CASH" or "cash" in acc_name_lower:
+                    if p.payment_method.upper() == "CASH":
+                        is_match = True
+                else:
+                    if p.bank_account and p.bank_account.lower().strip() == acc_name_lower:
+                        is_match = True
+                    elif (not p.bank_account or p.bank_account == "None") and p.payment_method.upper() != "CASH":
+                        is_match = True
+
+                if is_match:
+                    d_obj = p.payment_date.date() if isinstance(p.payment_date, datetime) else p.payment_date
+                    d_str = d_obj.strftime("%Y-%m-%d") if isinstance(d_obj, (date, datetime)) else str(d_obj)
+                    amt = float(p.amount or 0.0)
+                    is_rcpt = p.payment_type.upper() == "RECEIPT"
+                    v_no = p.reference_number or f"PAY-{str(p.id)[:8]}"
+
+                    all_txns.append({
+                        "date": d_str,
+                        "entry_date": d_str,
+                        "ref": v_no,
+                        "voucher_no": v_no,
+                        "description": p.notes or f"Payment ({p.payment_type}) via {p.payment_method}",
+                        "narration": p.notes or f"Payment ({p.payment_type}) via {p.payment_method}",
+                        "reference_type": f"Payment ({p.payment_type})",
+                        "debit": amt if is_rcpt else 0.0,
+                        "credit": 0.0 if is_rcpt else amt
+                    })
+
+        # 3C. Sales Income Account
+        if "sales" in acc_name_lower or acc_type_upper == "INCOME":
+            inv_stmt = select(Invoice).options(selectinload(Invoice.customer)).where(
+                Invoice.company_id == self.company_id,
+                Invoice.invoice_date.between(start_date, end_date),
+                Invoice.status != "CANCELLED"
+            )
+            inv_res = await self.db.execute(inv_stmt)
+            invoices = inv_res.scalars().all()
+
+            for inv in invoices:
+                d_str = inv.invoice_date.strftime("%Y-%m-%d") if isinstance(inv.invoice_date, (date, datetime)) else str(inv.invoice_date)
+                amt = float(inv.subtotal or inv.total or 0.0)
+                cust_name = inv.customer.name if inv.customer else "Customer"
+
+                all_txns.append({
+                    "date": d_str,
+                    "entry_date": d_str,
+                    "ref": inv.invoice_number,
+                    "voucher_no": inv.invoice_number,
+                    "description": f"Sales Invoice — {cust_name}",
+                    "narration": f"Sales Invoice — {cust_name}",
+                    "reference_type": "Sales Invoice",
+                    "debit": 0.0,
+                    "credit": amt
+                })
+
+        # 3D. Purchase Expense Account
+        if "purchase" in acc_name_lower or acc_type_upper == "EXPENSE":
+            bill_stmt = select(PurchaseBill).options(selectinload(PurchaseBill.supplier)).where(
+                PurchaseBill.company_id == self.company_id,
+                PurchaseBill.bill_date.between(start_date, end_date),
+                PurchaseBill.status != "CANCELLED"
+            )
+            bill_res = await self.db.execute(bill_stmt)
+            bills = bill_res.scalars().all()
+
+            for bill in bills:
+                d_str = bill.bill_date.strftime("%Y-%m-%d") if isinstance(bill.bill_date, (date, datetime)) else str(bill.bill_date)
+                amt = float(bill.subtotal or bill.total or 0.0)
+                sup_name = bill.supplier.name if bill.supplier else "Supplier"
+
+                all_txns.append({
+                    "date": d_str,
+                    "entry_date": d_str,
+                    "ref": bill.bill_number,
+                    "voucher_no": bill.bill_number,
+                    "description": f"Purchase Bill — {sup_name}",
+                    "narration": f"Purchase Bill — {sup_name}",
+                    "reference_type": "Purchase Bill",
+                    "debit": amt,
+                    "credit": 0.0
+                })
+
+        # 4. Sort chronologically & compute running balance
+        all_txns.sort(key=lambda x: x["date"])
+
+        is_debit_normal = acc_type_upper in ["ASSET", "EXPENSE", "BANK", "CASH"]
+        opening_bal = float(account.opening_balance or 0.0)
+        running_balance = opening_bal
+
+        statement_lines = []
+        for tx in all_txns:
+            dr = tx["debit"]
+            cr = tx["credit"]
+            movement = (dr - cr) if is_debit_normal else (cr - dr)
+            running_balance += movement
+
+            statement_lines.append({
+                "date": tx["date"],
+                "entry_date": tx["date"],
+                "ref": tx["ref"],
+                "voucher_no": tx["ref"],
+                "description": tx["description"],
+                "narration": tx["narration"],
+                "reference_type": tx["reference_type"],
+                "debit": dr,
+                "credit": cr,
+                "balance": running_balance,
+                "running_balance": running_balance
             })
 
         return {
             "company": comp_info,
             "account_name": account.name,
             "period": {"start": start_date.strftime("%d-%b-%Y"), "end": end_date.strftime("%d-%b-%Y")},
-            "opening_balance": account.opening_balance,
+            "opening_balance": opening_bal,
             "closing_balance": running_balance,
             "transactions": statement_lines
         }
@@ -2475,7 +2869,7 @@ class ReportService:
         """
         from app.models import Invoice, PurchaseBill, Customer, Supplier
         # pyrefly: ignore [missing-import]
-        from sqlalchemy import select, func
+        from sqlalchemy import select, func, case
         from datetime import date
 
         today = date.today()
@@ -2486,7 +2880,7 @@ class ReportService:
                 Customer.id,
                 Customer.name,
                 func.sum(Invoice.balance_due).label("total_due"),
-                func.sum(func.case((Invoice.due_date < today, Invoice.balance_due), else_=0)).label("overdue")
+                func.sum(case((Invoice.due_date < today, Invoice.balance_due), else_=0)).label("overdue")
             )
             .join(Invoice, Invoice.customer_id == Customer.id)
             .where(Invoice.company_id == self.company_id, Invoice.status != "CANCELLED", Invoice.balance_due > 0)
@@ -2509,7 +2903,7 @@ class ReportService:
                 Supplier.id,
                 Supplier.name,
                 func.sum(PurchaseBill.balance_due).label("total_due"),
-                func.sum(func.case((PurchaseBill.due_date < today, PurchaseBill.balance_due), else_=0)).label("overdue")
+                func.sum(case((PurchaseBill.due_date < today, PurchaseBill.balance_due), else_=0)).label("overdue")
             )
             .join(PurchaseBill, PurchaseBill.supplier_id == Supplier.id)
             .where(PurchaseBill.company_id == self.company_id, PurchaseBill.status != "CANCELLED", PurchaseBill.balance_due > 0)
@@ -2539,6 +2933,40 @@ class ReportService:
             },
             "timestamp": today.strftime("%d-%b-%Y")
         }
+
+    async def generate_outstanding_pdf(self) -> bytes:
+        """Generates Outstanding Receivables & Payables Summary PDF."""
+        # pyrefly: ignore [missing-import]
+        from fastapi.encoders import jsonable_encoder
+        import json
+        from app.models import Company
+
+        data = await self.get_outstanding_summary()
+        comp_res = await self.db.execute(select(Company).where(Company.id == self.company_id))
+        company = comp_res.scalar_one_or_none()
+        comp_info = {
+            "name": company.name if company else "Company",
+            "gst_number": company.gst_number if company and company.gst_number else "",
+            "address": company.office_address_1 if company else "",
+            "contact": company.phone if company else "",
+            "email": company.email if company else ""
+        }
+        data["companyInfo"] = comp_info
+        data["company"] = comp_info
+
+        try:
+            template = self.jinja_env.get_template("outstanding_summary.html")
+        except Exception:
+            template = self.jinja_env.get_template("day_book.html")
+
+        html_out = template.render(
+            db_data_json=json.dumps(jsonable_encoder(data)),
+            title="Outstanding Summary",
+            company=comp_info,
+            data=data,
+            now=datetime.now()
+        )
+        return await self._generate_pdf(html_out)
 
     async def generate_account_ledger_excel(self, account_id: uuid.UUID, start_date: date, end_date: date, auto_open: bool = False) -> bytes:
         """Generates a professional industrial Account Ledger Excel."""
@@ -2585,20 +3013,16 @@ class ReportService:
 
     async def generate_account_ledger_pdf(self, account_id: uuid.UUID, start_date: date, end_date: date) -> bytes:
         """Generates a professional industrial Account Ledger PDF."""
+        # pyrefly: ignore [missing-import]
+        from fastapi.encoders import jsonable_encoder
+        import json
+
         data = await self.get_account_ledger(account_id, start_date, end_date)
         if not data: return b""
-        
-        template = self.jinja_env.get_template("cdn_register.html") # We'll repurpose the logic or create a new one
-        # Actually let's create a dedicated account_ledger.html for better UI
-        template = self.jinja_env.get_template("day_book.html") # Day book is very similar to a ledger
-        
-        # But wait, let's just use a clean dedicated one for the BEST result
-        try:
-             template = self.jinja_env.get_template("account_ledger.html")
-        except:
-             template = self.jinja_env.get_template("day_book.html")
 
+        template = self.jinja_env.get_template("account_ledger.html")
         html_out = template.render(
+            db_data_json=json.dumps(jsonable_encoder(data)),
             title=f"Account Ledger: {data['account_name']}",
             company=data["company"],
             period=data["period"],
@@ -2681,11 +3105,11 @@ class ReportService:
         # 3. Process T-Account semi-rows
         left_rows = []  # Debits
         right_rows = [] # Credits
-        total_debit = Decimal("0.00")
-        total_credit = Decimal("0.00")
+        total_debit = 0.0
+        total_credit = 0.0
         
         # opening balance row
-        op_bal = ledger_data["opening_balance"]
+        op_bal = float(ledger_data["opening_balance"] or 0.0)
         if op_bal > 0:
             left_rows.append({"date": start_date.strftime("%d-%b-%y"), "desc": "To Opening Balance", "amount": op_bal})
             total_debit += op_bal
@@ -2694,17 +3118,26 @@ class ReportService:
             total_credit += abs(op_bal)
             
         for tx in ledger_data["transactions"]:
+            d_val = tx["date"]
+            if isinstance(d_val, str):
+                try:
+                    d_val = datetime.strptime(d_val, "%Y-%m-%d").date()
+                except Exception:
+                    pass
+            d_fmt = d_val.strftime("%d-%b-%y") if hasattr(d_val, "strftime") else str(d_val)
+            dr_amt = float(tx["debit"] or 0.0)
+            cr_amt = float(tx["credit"] or 0.0)
             row = {
-                "date": tx["date"].strftime("%d-%b-%y"),
+                "date": d_fmt,
                 "desc": tx["description"],
-                "amount": tx["debit"] if tx["debit"] > 0 else tx["credit"]
+                "amount": dr_amt if dr_amt > 0 else cr_amt
             }
-            if tx["debit"] > 0:
+            if dr_amt > 0:
                 left_rows.append(row)
-                total_debit += tx["debit"]
+                total_debit += dr_amt
             else:
                 right_rows.append(row)
-                total_credit += tx["credit"]
+                total_credit += cr_amt
                 
         # 4. Fill to align (T-Account style)
         max_rows = max(len(left_rows), len(right_rows))
@@ -3101,15 +3534,15 @@ class ReportService:
         
         data = await self.get_outstanding_summary()
         company_result = await self.db.execute(select(Company).where(Company.id == self.company_id))
-        company = company_result.scalar_one()
+        company = company_result.scalar_one_or_none()
         
         report_data = {
             "companyInfo": {
-                "name": company.name,
-                "address": company.address,
-                "gst_number": company.gst_number,
-                "contact": company.phone,
-                "email": company.email
+                "name": company.name if company else "Company",
+                "address": company.office_address_1 if company else "",
+                "gst_number": company.gst_number if company and company.gst_number else "",
+                "contact": (company.phone or company.mobile_no or "") if company else "",
+                "email": company.email if company else ""
             },
             "timestamp": date.today().strftime("%d %b %Y"),
             "receivables": data["receivables"],
@@ -3120,7 +3553,7 @@ class ReportService:
         html_out = template.render(
             db_data_json=json.dumps(jsonable_encoder(report_data))
         )
-        return await self.pdf_service.generate_pdf(html_out)
+        return await self._generate_pdf(html_out)
 
     async def generate_gstr1_pdf(self, start_date: date, end_date: date) -> bytes:
         """Generates a professional GSTR-1 Report PDF."""
@@ -3528,7 +3961,7 @@ class ReportService:
 
     async def get_gstr2_data(self, start_date: date, end_date: date) -> dict:
         """Fetch and aggregate GSTR2 (Inward Supplies) data for a period."""
-        from app.models import PurchaseBill, Supplier, Company
+        from app.models import PurchaseBill, Supplier, Company, PurchaseBillItem, PurchaseOrder, PurchaseOrderItem, Product
         # pyrefly: ignore [missing-import]
         from sqlalchemy import select, func
         # pyrefly: ignore [missing-import]
@@ -3549,9 +3982,10 @@ class ReportService:
         bill_stmt = (
             select(PurchaseBill)
             .options(
-                selectinload(PurchaseBill.supplier)
+                selectinload(PurchaseBill.supplier),
+                selectinload(PurchaseBill.items).selectinload(PurchaseBillItem.product),
+                selectinload(PurchaseBill.purchase_order).selectinload(PurchaseOrder.items).selectinload(PurchaseOrderItem.product)
             )
-
             .where(
                 PurchaseBill.company_id == self.company_id,
                 PurchaseBill.bill_date.between(start_date, end_date),
@@ -4040,7 +4474,7 @@ class ReportService:
             "name": company.name if company else "Company",
             "gst_number": company.gst_number if company and company.gst_number else "",
             "address": company.office_address_1 if company else "",
-            "contact": company.phone_number if company else "",
+            "contact": (company.phone or company.mobile_no or "") if company else "",
             "email": company.email if company else ""
         }
 
@@ -4125,7 +4559,7 @@ class ReportService:
             "name": company.name if company else "Company",
             "gst_number": company.gst_number if company and company.gst_number else "",
             "address": company.office_address_1 if company else "",
-            "contact": company.phone_number if company else "",
+            "contact": (company.phone or company.mobile_no or "") if company else "",
             "email": company.email if company else ""
         }
 
