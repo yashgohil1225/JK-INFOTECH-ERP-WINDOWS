@@ -1,6 +1,6 @@
 {
-  "version": "1.0.6",
-  "releaseNotes": "1. Integrated high-performance Redis cache engine with dynamic hardware auto-tuning (256MB-2GB RAM scaling).\n2. Resolved database and backend auto-start reliability in launcher and installer scripts.\n3. Updated system installer and updater package to version 1.0.6.",
+  "version": "1.0.7",
+  "releaseNotes": "1. Cloud Auto-Update v1.0.7 testing release.\n2. Performance and UI updates.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.6/JK_Infotech_ERP_v1.0.6.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.7/JK_Infotech_ERP_v1.0.7.zip"
 }
