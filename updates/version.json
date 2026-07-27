@@ -1,6 +1,6 @@
 {
-  "version": "1.0.8",
-  "releaseNotes": "1. Release v1.0.8.\n2. Performance and UI updates.",
+  "version": "1.0.9",
+  "releaseNotes": "1. Release v1.0.9.\n2. Spotlight Global Search (Ctrl+K).\n3. Full-screen module & setup help guides.\n4. Basic terminology standardization.\n5. High-density enterprise performance enhancements.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.8/JK_Infotech_ERP_v1.0.8.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.9/JK_Infotech_ERP_v1.0.9.zip"
 }
