@@ -284,12 +284,29 @@ async def adjust_stock_route(
     company: Company = Depends(get_current_company)
 ):
     # Verify product ownership
-    prod_check = await db.execute(select(Product.id).filter(Product.id == product_id, Product.company_id == company.id))
-    if not prod_check.scalar():
-        raise HTTPException(status_code=404, detail="Target asset not found.")
+    prod_res = await db.execute(select(Product).filter(Product.id == product_id, Product.company_id == company.id))
+    product = prod_res.scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Target product asset not found.")
+
+    entry_data = adjustment.model_dump()
+    etype = (entry_data.get("entry_type") or "").upper()
+    qty = Decimal(str(entry_data.get("quantity", 0)))
+
+    # Automatically set quantity direction: positive (+) for INWARD/OPENING, negative (-) for OUTWARD/DAMAGE/EXPIRY
+    if any(k in etype for k in ["OUT", "DAMAGE", "EXPIRY", "THEFT", "LOSS", "SHORTAGE"]):
+        qty = -abs(qty)
+    elif any(k in etype for k in ["IN", "OPENING", "REC", "ADD", "EXCESS"]):
+        qty = abs(qty)
+    # If etype is generic "ADJUSTMENT", retain sign passed by payload
+
+    entry_data["quantity"] = qty
+    entry_data["product_id"] = product.id
+    if not entry_data.get("entry_type"):
+        entry_data["entry_type"] = "INWARD" if qty >= 0 else "OUTWARD"
 
     new_entry = StockEntry(
-        **adjustment.model_dump(),
+        **entry_data,
         company_id=company.id,
         created_by=current_user.id
     )

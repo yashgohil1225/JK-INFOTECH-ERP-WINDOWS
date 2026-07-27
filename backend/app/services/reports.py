@@ -179,6 +179,7 @@ def _playwright_worker():
     if browsers_path:
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
 
+    # pyrefly: ignore [missing-import]
     from playwright.sync_api import sync_playwright
 
     while True:
@@ -221,7 +222,7 @@ def _playwright_worker():
                 if search_query:
                     highlight_script = f"""
                     () => {{
-                        const search = "{search_query}".replace(/[-\/\\^$*+?.()|[\\]{{}}]/g, '\\$&');
+                        const search = "{search_query}".replace(/[-/\\^$*+?.()|[\\]{{}}]/g, '\\$&');
                         if (!search) return;
                         const regex = new RegExp("(" + search + ")", "gi");
                         function walk(node) {{
@@ -426,6 +427,34 @@ class ReportService:
         self.jinja_env = Environment(loader=FileSystemLoader(template_dir))
         self.jinja_env.filters["indian_format"] = self._indian_amount_format
 
+    def _get_company_dict(self, company) -> dict:
+        if not company:
+            return {
+                "name": "Company",
+                "address": "",
+                "contact": "",
+                "email": "",
+                "gst_number": "",
+                "pan_number": "",
+                "state": ""
+            }
+        addr_parts = [p for p in [company.office_address_1, company.office_address_2, company.city, company.state, company.pin_code] if p]
+        address_str = ", ".join(addr_parts) if addr_parts else (company.office_address_1 or "")
+        gst = company.gst_number or ""
+        pan = company.pan_number or ""
+        if not pan and len(gst) >= 12:
+            pan = gst[2:12]
+
+        return {
+            "name": company.name or "Company",
+            "address": address_str,
+            "contact": company.phone or "",
+            "email": company.email or "",
+            "gst_number": gst,
+            "pan_number": pan,
+            "state": company.registered_state or company.state or ""
+        }
+
     async def get_day_book(self, start_date: Optional[date] = None, end_date: Optional[date] = None) -> dict:
         """Fetch chronological transaction log for a company within a date range across all accounting modules."""
         from app.models import JournalEntry, JournalEntryLine, Company, Invoice, PurchaseBill, Payment, Customer, Supplier
@@ -436,13 +465,7 @@ class ReportService:
         # Fetch Company Info (for PDF rendering context)
         comp_res = await self.db.execute(select(Company).where(Company.id == self.company_id))
         company = comp_res.scalar_one_or_none()
-        comp_info = {
-            "name": company.name if company else "Company",
-            "address": company.office_address_1 if company else "",
-            "contact": company.phone if company else "",
-            "email": company.email if company else "",
-            "gst_number": company.gst_number if company and company.gst_number else ""
-        }
+        comp_info = self._get_company_dict(company)
 
         daybook = []
 
@@ -2429,9 +2452,11 @@ class ReportService:
         return output.getvalue()
 
 
-    async def generate_purchase_bill_pdf(self, bill_id: uuid.UUID, company_id: uuid.UUID) -> bytes:
+    async def generate_purchase_bill_pdf(self, bill_id: uuid.UUID, company_id: uuid.UUID, theme: str = "theme1") -> bytes:
         """
         Generates a professional Purchase Bill / Voucher PDF using Playwright.
+        Theme 1: Modern Executive Industrial Standard
+        Theme 2: Classic ERP Purchase Voucher
         """
         # pyrefly: ignore [missing-import]
         from num2words import num2words
@@ -2522,8 +2547,9 @@ class ReportService:
         except:
             amount_in_words = self.indian_number_to_words(int(total_rounded))
 
-        # 5. Render HTML
-        template = self.jinja_env.get_template("purchase_bill.html")
+        # 5. Render HTML (Select Theme template)
+        template_name = "purchase_bill_theme1.html" if theme == "theme1" else "purchase_bill.html"
+        template = self.jinja_env.get_template(template_name)
         html_out = template.render(
             bill=bill,
             company=company,

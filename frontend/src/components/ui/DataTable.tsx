@@ -319,6 +319,56 @@ export function DataTable<T extends { id?: string | number }>({
   return renderContent();
 }
 
+// ─── Reusable Status Badge Component ─────────────────────────────
+export interface StatusBadgeProps {
+  status: string;
+  type?: "invoice" | "purchase" | "stock" | "party" | "order" | "generic";
+}
+
+export function StatusBadge({ status }: StatusBadgeProps) {
+  const { isDarkMode } = useUIStore();
+  const s = (status || "").toUpperCase();
+
+  let bg = isDarkMode ? "#334155" : "#F1F5F9";
+  let text = isDarkMode ? "#94A3B8" : "#64748B";
+
+  if (["PAID", "ACTIVE", "COMPLETED", "DELIVERED", "ACCEPTED", "IN STOCK"].includes(s)) {
+    bg = isDarkMode ? "#14532D" : "#DCFCE7";
+    text = isDarkMode ? "#4ADE80" : "#16A34A";
+  } else if (["PARTIAL", "PARTIALLY PAID", "PENDING", "LOW STOCK"].includes(s)) {
+    bg = isDarkMode ? "#713F12" : "#FEF9C3";
+    text = isDarkMode ? "#FACC15" : "#A16207";
+  } else if (["UNPAID", "OVERDUE", "INACTIVE", "CANCELLED", "OUT OF STOCK", "REJECTED"].includes(s)) {
+    bg = isDarkMode ? "#7F1D1D" : "#FEE2E2";
+    text = isDarkMode ? "#FCA5A5" : "#DC2626";
+  } else if (["DRAFT", "OPEN", "ISSUED"].includes(s)) {
+    bg = isDarkMode ? "#1E293B" : "#F1F5F9";
+    text = isDarkMode ? "#94A3B8" : "#475569";
+  }
+
+  return (
+    <View style={{
+      backgroundColor: bg,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      alignSelf: "center",
+      justifyContent: "center",
+      alignItems: "center"
+    }}>
+      <Text style={{
+        fontSize: 11.5,
+        fontWeight: "800",
+        fontFamily: "Segoe UI Variable Text",
+        letterSpacing: 0.5,
+        color: text
+      }}>
+        {s}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   tableContainer: {
     flex: 1,
@@ -328,14 +378,15 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: "row",
-    height: 40,
+    height: 44,
     alignItems: "center",
     borderBottomWidth: 1,
     paddingHorizontal: 16,
   },
   headerText: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 14.5,
+    fontWeight: "800",
+    letterSpacing: 0.6,
     fontFamily: "Segoe UI Variable Text",
   },
   row: {

@@ -20,6 +20,7 @@ router = APIRouter(
     tags=["Backup"],
 )
 
+@router.get("/create")
 @router.post("/create")
 async def create_backup(
     current_user: User = Depends(get_current_user)

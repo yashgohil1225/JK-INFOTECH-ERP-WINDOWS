@@ -171,7 +171,7 @@ async def deactivate_company(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deactivates a company."""
+    """Deactivates a company (soft delete)."""
     import uuid
     try:
         company_uuid = uuid.UUID(id)
@@ -179,10 +179,13 @@ async def deactivate_company(
         raise HTTPException(status_code=400, detail="Invalid company ID format")
 
     admin_check = await db.execute(
-        select(User).where(User.email == current_user.email, User.company_id == company_uuid, User.is_superadmin == True)
+        select(User).where(
+            (User.email == current_user.email) | (User.phone == current_user.phone),
+            User.company_id == company_uuid
+        )
     )
-    if not admin_check.scalars().first():
-        raise HTTPException(status_code=403, detail="You must be an admin of this company to deactivate it.")
+    if not current_user.is_superadmin and not admin_check.scalars().first():
+        raise HTTPException(status_code=403, detail="You must be an authorized admin of this company to deactivate it.")
 
     result = await db.execute(select(Company).where(Company.id == company_uuid))
     company = result.scalars().first()

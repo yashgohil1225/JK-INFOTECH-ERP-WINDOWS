@@ -5,6 +5,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <!-- Enabled parallel project builds for faster compilation -->
     <BuildInParallel>true</BuildInParallel>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>

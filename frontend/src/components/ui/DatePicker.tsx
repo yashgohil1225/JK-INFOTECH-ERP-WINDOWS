@@ -13,6 +13,7 @@ interface DatePickerProps {
   onChange: (value: string) => void;
   label?: string;
   style?: any;
+  onSubmitEditing?: () => void;
 }
 
 interface CalendarPickerProps {
@@ -96,9 +97,22 @@ export const parseAnyDate = (val: string) => {
   return { day, month, year };
 };
 
-export function DatePicker({ value, onChange, label, style }: DatePickerProps) {
+export const DatePicker = React.forwardRef<TextInput, DatePickerProps>(function DatePicker({
+  value,
+  onChange,
+  label,
+  style,
+  onSubmitEditing,
+}, ref) {
   const { isDarkMode, setActiveDatePicker } = useUIStore();
-  const [inputVal, setInputVal] = useState("");
+  const [inputVal, setInputVal] = useState(() => {
+    if (!value) return "";
+    const parsed = parseAnyDate(value);
+    const mStr = String(parsed.month + 1).padStart(2, "0");
+    const dStr = String(parsed.day).padStart(2, "0");
+    const yStr = String(parsed.year).padStart(4, "0");
+    return `${dStr}/${mStr}/${yStr}`;
+  });
 
   useEffect(() => {
     if (!value) {
@@ -178,10 +192,12 @@ export function DatePicker({ value, onChange, label, style }: DatePickerProps) {
         ]}
       >
         <TextInput
+          ref={ref}
           style={[styles.input, { color: colors.textPrimary }]}
           value={inputVal}
           onChangeText={handleTextChange}
           onBlur={handleBlur}
+          onSubmitEditing={onSubmitEditing}
           placeholder="DD/MM/YYYY"
           placeholderTextColor={colors.textSecondary}
           keyboardType="numeric"
@@ -201,7 +217,7 @@ export function DatePicker({ value, onChange, label, style }: DatePickerProps) {
       </View>
     </View>
   );
-}
+});
 
 export function CalendarPicker({ value, onChange }: CalendarPickerProps) {
   const { isDarkMode } = useUIStore();

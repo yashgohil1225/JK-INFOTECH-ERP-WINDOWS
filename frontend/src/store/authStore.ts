@@ -67,6 +67,7 @@ interface AuthState {
   sendOtp: (login_id: string) => Promise<void>;
   switchActiveCompany: (company_id: string) => Promise<void>;
   loadAvailableCompanies: () => Promise<void>;
+  deleteCompany: (company_id: string) => Promise<void>;
   setCompany: (company: Company) => void;
   setLocked: (locked: boolean) => void;
   setLockMode: (mode: 'pin' | 'otp') => void;
@@ -166,6 +167,10 @@ export const useAuthStore = create<AuthState>()(
 
           const cos = await authApi.getMyCompanies().catch(() => [] as Company[]);
 
+          const userPinEnabled = !!response.user.pin_login_enabled;
+          const sessionVerified = get().sessionVerified;
+          const shouldLock = userPinEnabled && !sessionVerified;
+
           set({
             user: response.user,
             company: response.company,
@@ -176,8 +181,8 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             isAuthenticating: false,
             isLoggedIn: true,
-            isLocked: response.user.pin_login_enabled && !get().sessionVerified,
-            sessionVerified: true
+            isLocked: shouldLock,
+            sessionVerified: sessionVerified && !shouldLock
           });
         } catch (err: any) {
           console.warn("[authStore] localAutoLogin failed:", err);
@@ -377,6 +382,22 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      deleteCompany: async (company_id: string) => {
+        try {
+          await authApi.deleteCompany(company_id);
+          const cos = await authApi.getMyCompanies().catch(() => []);
+          const currentCo = get().company;
+          const nextCo = currentCo?.id === company_id ? (cos.length > 0 ? cos[0] : null) : currentCo;
+          set({
+            company: nextCo,
+            availableCompanies: cos
+          });
+        } catch (error: any) {
+          console.error("Failed to delete company", error);
+          throw error;
+        }
+      },
+
       setCompany: (company: Company) => set({ company }),
 
       setLocked: (locked: boolean) => {
@@ -386,6 +407,7 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ 
           isLocked: locked,
+          sessionVerified: !locked,
           lockMode: locked ? get().lockMode : 'pin',
           isOtpSent: locked ? get().isOtpSent : false
         });

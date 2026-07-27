@@ -14,6 +14,7 @@ interface ButtonProps {
   size?: "small" | "medium" | "large";
   disabled?: boolean;
   loading?: boolean;
+  loadingText?: string;
   style?: any;
   textStyle?: any;
   icon?: React.ReactNode;
@@ -28,6 +29,7 @@ export function Button({
   size = "medium",
   disabled = false,
   loading = false,
+  loadingText,
   style,
   textStyle,
   icon,
@@ -93,7 +95,9 @@ export function Button({
       baseStyle.push({ opacity: 0.8, transform: [{ scale: 0.96 }] });
     }
 
-    if (disabled) {
+    if (loading) {
+      baseStyle.push({ opacity: 0.85 });
+    } else if (disabled) {
       baseStyle.push(styles.btnDisabled);
     }
 
@@ -116,6 +120,10 @@ export function Button({
     return [baseText, textStyle];
   };
 
+  const displayText = loading && loadingText ? loadingText : (
+    typeof children === "string" ? children : (title || "")
+  );
+
   return (
     <Pressable
       onPress={!disabled && !loading ? onPress : undefined}
@@ -124,18 +132,22 @@ export function Button({
       style={({ pressed }: any) => getButtonStyle(pressed)}
       disabled={disabled || loading}
     >
-      {loading ? (
-        <ActivityIndicator color={variant === "secondary" ? colors.secondaryText : "#FFFFFF"} size="small" />
-      ) : typeof children === "string" ? (
-        <Text style={getTextStyle()}>{children}</Text>
-      ) : children ? (
-        children
-      ) : (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          {icon}
-          {title ? <Text style={getTextStyle()}>{title}</Text> : null}
-        </View>
-      )}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {loading ? (
+          <ActivityIndicator
+            color={variant === "secondary" ? colors.secondaryText : "#FFFFFF"}
+            size="small"
+            style={{ width: 18, height: 18 }}
+          />
+        ) : (
+          icon
+        )}
+        {displayText ? (
+          <Text style={getTextStyle()}>{displayText}</Text>
+        ) : children ? (
+          children
+        ) : null}
+      </View>
     </Pressable>
   );
 }

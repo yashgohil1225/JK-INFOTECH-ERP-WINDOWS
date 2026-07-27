@@ -8,8 +8,7 @@ if ($cert) {
     try { Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople -ErrorAction SilentlyContinue } catch {}
 }
 
-# Remove any existing version
-Get-AppxPackage *9428b0f2-9cad-4953-a4b8-da3e6a84d40a* -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue
+# Perform in-place update of UWP package to preserve LocalState & user sessions
 
 # Install dependency packages individually first (skip errors if already installed)
 $depsPath = Join-Path $ClientPath "Dependencies\x64"

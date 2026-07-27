@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     DATABASE_PORT: int  = 5432
     DATABASE_NAME: str  = "jk_erp"
     DATABASE_USER: str  = "postgres"
-    DATABASE_PASSWORD: str = "password"
+    DATABASE_PASSWORD: str = "jkerp_password_2026"
     DB_ECHO: bool       = False           # set True to log SQL queries
 
     @property

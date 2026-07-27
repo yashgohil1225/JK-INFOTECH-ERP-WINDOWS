@@ -15,6 +15,8 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
+import { Button } from "../components/ui/Button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
@@ -135,6 +137,9 @@ export default function BankingScreen() {
         badgePayment: "#FEE2E2"
       };
 
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpModalCategory, setHelpModalCategory] = useState<HelpCategory>("BANKING_GUIDE");
+
   // --- Fetch Queries ---
   // 1. Fetch only Bank/Cash Accounts
   const { data: accounts = [], isLoading: isLoadingAccounts } = useQuery<Account[]>({
@@ -245,7 +250,18 @@ export default function BankingScreen() {
         {/* Header Block */}
         <View style={styles.header}>
           <Text style={[styles.breadcrumb, { color: colors.accent }]}>FINANCE / BANKING</Text>
-          <Text style={[styles.title, { color: colors.textPrimary }]}>Banking & Treasury</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Banking & Treasury</Text>
+            <Button
+              title="❓ Help & Guide"
+              onPress={() => {
+                setHelpModalCategory("BANKING_GUIDE");
+                setIsHelpModalOpen(true);
+              }}
+              variant="secondary"
+              size="medium"
+            />
+          </View>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Manage bank connections, cash boxes and internal equity capital.
           </Text>
@@ -541,11 +557,10 @@ export default function BankingScreen() {
               onPress={handleTransferCapital}
               disabled={transferCapitalMutation.isPending}
             >
-              {transferCapitalMutation.isPending ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {transferCapitalMutation.isPending && <ActivityIndicator color="#FFFFFF" size="small" style={{ width: 18, height: 18 }} />}
                 <Text style={styles.submitBtnText}>Post Capital Injection</Text>
-              )}
+              </View>
             </Pressable>
           </ScrollView>
         )}
@@ -623,15 +638,19 @@ export default function BankingScreen() {
               onPress={handleCreateAccount}
               disabled={createAccountMutation.isPending}
             >
-              {createAccountMutation.isPending ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {createAccountMutation.isPending && <ActivityIndicator color="#FFFFFF" size="small" style={{ width: 18, height: 18 }} />}
                 <Text style={styles.submitBtnText}>Initialize Treasury Account</Text>
-              )}
+              </View>
             </Pressable>
           </ScrollView>
         )}
       </View>
+      <ModuleHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        initialCategory={helpModalCategory}
+      />
     </View>
   );
 }

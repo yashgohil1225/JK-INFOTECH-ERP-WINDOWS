@@ -980,7 +980,7 @@
               company.office_address_2 }}{% endif %}{% if company.office_address_3 %}, {{ company.office_address_3 }}{%
               endif %}{% if company.pincode %} - {{ company.pincode }}{% endif %}</span></span>
           <span><span class="label">PAN:</span>
-            <span data-field="company_pan">{{ company.pan_number | default('—') }}</span></span>
+            <span data-field="company_pan">{% if company.pan_number %}{{ company.pan_number }}{% elif company.gst_number and company.gst_number|length >= 12 %}{{ company.gst_number[2:12] }}{% else %}—{% endif %}</span></span>
           <span><span class="label">GSTIN:</span>
             <span data-field="company_gstin">{{ company.gst_number | default('—') }}</span></span>
           <span><span class="label">Tel:</span>

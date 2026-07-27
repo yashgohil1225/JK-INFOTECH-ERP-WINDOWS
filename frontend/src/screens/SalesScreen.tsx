@@ -23,6 +23,7 @@ import {
   DeviceEventEmitter
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
@@ -35,6 +36,7 @@ import { Dropdown, DropdownRef } from "../components/ui/Dropdown";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { DatePicker } from "../components/ui/DatePicker";
+import { PrinterIcon } from "../components/ui/Icons";
 import { storage } from "../utils/storage";
 import { sequencesApi } from "../api/sequences";
 
@@ -245,9 +247,12 @@ export default function SalesScreen() {
 
   const [selectedInv, setSelectedInv] = useState<Invoice | null>(null);
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpModalCategory, setHelpModalCategory] = useState<HelpCategory>("SALES_GUIDE");
 
   // form state
   const [form, setForm] = useState(blankForm());
@@ -274,11 +279,16 @@ export default function SalesScreen() {
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("globalKeyDown", (e) => {
       if (!e) return;
-      const { key, ctrlKey } = e;
+      const { key, ctrlKey, altKey } = e;
       
       // Ctrl + S triggers handleSave if the invoice form is open!
       if (isCreatingInvoice && ctrlKey && (key === "s" || key === "S")) {
         handleSave();
+      }
+
+      // Alt + A opens Create Invoice form on Sales screen
+      if (altKey && (key === "a" || key === "A")) {
+        setIsCreatingInvoice(true);
       }
     });
     return () => sub.remove();
@@ -302,6 +312,21 @@ export default function SalesScreen() {
   const dupConfirmBtnRef = useRef<any>(null);
   const dupHiddenInputRef = useRef<TextInput>(null);
 
+  // ── Payment Receipt Keyboard Flow Refs ──
+  const paymentAmountRef = useRef<TextInput>(null);
+  const paymentDateRef = useRef<TextInput>(null);
+  const paymentBankRef = useRef<DropdownRef>(null);
+  const paymentRefNoRef = useRef<TextInput>(null);
+  const paymentNotesRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (isPaymentModalOpen) {
+      setTimeout(() => {
+        paymentAmountRef.current?.focus();
+      }, 250);
+    }
+  }, [isPaymentModalOpen]);
+
   useEffect(() => {
     if (formStep === 2) {
       setTimeout(() => {
@@ -314,9 +339,9 @@ export default function SalesScreen() {
     if (isCreatingInvoice && formStep === 1) {
       setTimeout(() => {
         invoiceCustomerRef.current?.open();
-      }, 300);
+      }, 200);
     }
-  }, [isCreatingInvoice]);
+  }, [isCreatingInvoice, formStep]);
 
   useEffect(() => {
     if (isQuickAddProductModalOpen) {
@@ -637,7 +662,6 @@ export default function SalesScreen() {
   };
 
   // ── Payment Receipt states ──
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     amount: "",
     tds_amount: "0",
@@ -706,6 +730,43 @@ export default function SalesScreen() {
       Alert.alert("Error", err?.response?.data?.detail || "Failed to save payment.");
     }
   });
+
+  const handleRecordReceiptSubmit = () => {
+    const amt = parseFloat(paymentForm.amount) || 0;
+    const out = Number(paymentInvoice?.balance_due || 0);
+    const tds = paymentForm.apply_remaining_as_tds ? Math.max(0, out - amt) : 0;
+    if (amt < 0) {
+      Alert.alert("Validation", "Amount cannot be negative.");
+      return;
+    }
+    const totalDeducted = amt + tds;
+    if (totalDeducted <= 0) {
+      Alert.alert("Validation", "Please enter a valid positive amount.");
+      return;
+    }
+    if (totalDeducted > out) {
+      Alert.alert("Validation", `Total transaction (₹${totalDeducted.toFixed(2)}) cannot exceed the remaining balance due (₹${out.toFixed(2)}).`);
+      return;
+    }
+    if (paymentForm.payment_method !== "CASH" && !paymentForm.bank_account) {
+      Alert.alert("Validation", "Please select a bank account.");
+      return;
+    }
+
+    const payload = {
+      amount: amt,
+      tds_amount: tds,
+      payment_date: toISODate(paymentForm.payment_date) + "T" + new Date().toTimeString().split(" ")[0],
+      payment_method: paymentForm.payment_method,
+      bank_account: paymentForm.payment_method === "CASH" ? "Cash In Hand" : paymentForm.bank_account,
+      reference_number: paymentForm.reference_number || null,
+      notes: paymentForm.notes || null,
+      reference_type: "invoice",
+      reference_id: paymentInvoice?.id
+    };
+
+    receivePaymentMutation.mutate(payload);
+  };
 
   // Delete payment mutation
   const deletePaymentMutation = useMutation({
@@ -783,13 +844,19 @@ export default function SalesScreen() {
     };
   }, [lines, form.rate_difference_amount, form.discount_percentage, form.other_additions, form.other_deductions, form.freight_forwarding_amount, form.rounding_method, form.round_off_amount, defaultTaxRate]);
 
-  // ── Filtered invoice list ──
+  // ── Multi-field Effective Search ──
   const filteredInvoices = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
     return invoices.filter(inv => {
       const matchSearch =
-        !searchQuery ||
-        inv.invoice_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        inv.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        inv.invoice_number?.toLowerCase().includes(q) ||
+        inv.customer?.name?.toLowerCase().includes(q) ||
+        inv.customer?.phone?.toLowerCase().includes(q) ||
+        inv.customer?.gst_number?.toLowerCase().includes(q) ||
+        inv.customer?.city?.toLowerCase().includes(q) ||
+        inv.total?.toString().includes(q) ||
+        inv.status?.toLowerCase().includes(q);
       const matchStatus =
         statusFilter === "ALL" || inv.status === statusFilter;
       return matchSearch && matchStatus;
@@ -989,22 +1056,36 @@ export default function SalesScreen() {
           <Text style={[styles.breadcrumb, { color: C.accent }]}>SALES / INVOICES</Text>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: C.textPrimary }]}>Sales Invoices</Text>
-            <Pressable
-              onPress={() => {
-                setForm(blankForm());
-                setLines([blankLine()]);
-                setFormStep(1);
-                setIsCreatingInvoice(true);
-                setSelectedInv(null);
-              }}
-              style={({ hovered, pressed }: any) => [
-                styles.newBtn,
-                { backgroundColor: hovered ? C.btnPrimaryHover : C.btnPrimary },
-                pressed && { transform: [{ scale: 0.98 }] }
-              ]}
-            >
-              <Text style={styles.newBtnText}>+ New Invoice</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={() => {
+                  setHelpModalCategory("SALES_GUIDE");
+                  setIsHelpModalOpen(true);
+                }}
+                style={({ hovered }: any) => [
+                  styles.newBtn,
+                  { backgroundColor: hovered ? (isDarkMode ? "#334155" : "#E2E8F0") : C.card, borderColor: C.border, borderWidth: 1 },
+                ]}
+              >
+                <Text style={[styles.newBtnText, { color: C.textPrimary }]}>❓ Help & Guide</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setForm(blankForm());
+                  setLines([blankLine()]);
+                  setFormStep(1);
+                  setIsCreatingInvoice(true);
+                  setSelectedInv(null);
+                }}
+                style={({ hovered, pressed }: any) => [
+                  styles.newBtn,
+                  { backgroundColor: hovered ? C.btnPrimaryHover : C.btnPrimary },
+                  pressed && { transform: [{ scale: 0.98 }] }
+                ]}
+              >
+                <Text style={styles.newBtnText}>+ New Invoice</Text>
+              </Pressable>
+            </View>
           </View>
           <Text style={[styles.subtitle, { color: C.textSecondary }]}>
             Create and track customer invoices, manage payments, and view invoice status.
@@ -1508,6 +1589,7 @@ export default function SalesScreen() {
                     variant="primary"
                     size="large"
                     loading={editingInvoiceId ? updateMutation.isPending : createMutation.isPending}
+                    loadingText={editingInvoiceId ? "Updating Invoice..." : "Saving Invoice..."}
                     style={{ minWidth: 145 }}
                   />
                 </View>
@@ -1953,275 +2035,327 @@ export default function SalesScreen() {
       </FullScreenModal>
 
 
-      {/* RECEIVE PAYMENT MODAL */}
-      <Modal
+      {/* RECEIVE PAYMENT FULL SCREEN MODAL */}
+      <FullScreenModal
         isOpen={isPaymentModalOpen}
         onClose={() => { setIsPaymentModalOpen(false); setPaymentInvoice(null); }}
+        onKeyDown={(e: any) => {
+          const key = e.nativeEvent?.key || e.key;
+          if (key === "Escape") {
+            setIsPaymentModalOpen(false);
+            setPaymentInvoice(null);
+          } else if (key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            handleRecordReceiptSubmit();
+          }
+        }}
         title="Receive Invoice Payment"
-        width={650}
+        subtitle={paymentInvoice ? `Invoice #${paymentInvoice.invoice_number} • Customer: ${paymentInvoice.customer?.name || "N/A"}` : "Record payment settlement for customer invoice"}
+        breadcrumb="sales / invoices / receive payment"
         footerActions={
-          <View style={{ flexDirection: "row", gap: 10, flex: 1 }}>
-            <Button
-              title="Cancel"
-              onPress={() => { setIsPaymentModalOpen(false); setPaymentInvoice(null); }}
-              variant="secondary"
-              style={{ minWidth: 110 }}
-            />
-            <Button
-              title="Record Receipt"
-              onPress={() => {
-                const amt = parseFloat(paymentForm.amount) || 0;
-                const out = Number(paymentInvoice?.balance_due || 0);
-                const tds = paymentForm.apply_remaining_as_tds ? Math.max(0, out - amt) : 0;
-                if (amt < 0) {
-                  Alert.alert("Validation", "Amount cannot be negative.");
-                  return;
-                }
-                const totalDeducted = amt + tds;
-                if (totalDeducted <= 0) {
-                  Alert.alert("Validation", "Please enter a valid positive amount.");
-                  return;
-                }
-                if (totalDeducted > out) {
-                  Alert.alert("Validation", `Total transaction (₹${totalDeducted.toFixed(2)}) cannot exceed the remaining balance due (₹${out.toFixed(2)}).`);
-                  return;
-                }
-                if (paymentForm.payment_method !== "CASH" && !paymentForm.bank_account) {
-                  Alert.alert("Validation", "Please select a bank account.");
-                  return;
-                }
+          <View style={{ flexDirection: "row", gap: 20, flex: 1, justifyContent: "space-between", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+              <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: isDarkMode ? "#1E293B" : "#F1F5F9", borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text", letterSpacing: 0.5 }}>NET RECEIPT AMOUNT</Text>
+                <Text style={{ fontSize: 22, fontWeight: "900", color: "#10B981", fontFamily: "Segoe UI Variable Display" }}>
+                  ₹{(parseFloat(paymentForm.amount) || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: isDarkMode ? "#1E293B" : "#F1F5F9", borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text", letterSpacing: 0.5 }}>PAYMENT METHOD</Text>
+                <Text style={{ fontSize: 18, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display" }}>
+                  {paymentForm.payment_method.replace("_", " ")}
+                </Text>
+              </View>
+            </View>
 
-                const payload = {
-                  amount: amt,
-                  tds_amount: tds,
-                  payment_date: toISODate(paymentForm.payment_date) + "T" + new Date().toTimeString().split(" ")[0],
-                  payment_method: paymentForm.payment_method,
-                  bank_account: paymentForm.payment_method === "CASH" ? "Cash In Hand" : paymentForm.bank_account,
-                  reference_number: paymentForm.reference_number || null,
-                  notes: paymentForm.notes || null,
-                  reference_type: "invoice",
-                  reference_id: paymentInvoice?.id
-                };
-
-                receivePaymentMutation.mutate(payload);
-              }}
-              variant="primary"
-              loading={receivePaymentMutation.isPending}
-              style={{ minWidth: 150 }}
-            />
+            <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
+              <Button
+                title="Cancel"
+                onPress={() => { setIsPaymentModalOpen(false); setPaymentInvoice(null); }}
+                variant="secondary"
+                style={{ minWidth: 140, height: 48 }}
+              />
+              <Button
+                title="Record Receipt"
+                onPress={handleRecordReceiptSubmit}
+                variant="primary"
+                loading={receivePaymentMutation.isPending}
+                loadingText="Recording Receipt..."
+                style={{ minWidth: 190, height: 48 }}
+              />
+            </View>
           </View>
         }
       >
-        <View style={{ gap: 16, paddingBottom: 10 }}>
+        <View style={{ gap: 24, paddingVertical: 12 }}>
+          {/* Two-Column Grid Layout */}
+          <View style={{ flexDirection: "row", gap: 28, flexWrap: "wrap" }}>
+            
+            {/* LEFT COLUMN: Invoice Information & Financial Settlement Summary */}
+            <View style={{ flex: 1, minWidth: 380, gap: 20 }}>
+              
+              {/* Invoice Meta Card */}
+              <View style={{ padding: 24, borderRadius: 12, backgroundColor: isDarkMode ? "#1E293B" : "#FFFFFF", borderWidth: 1, borderColor: C.border, gap: 16 }}>
+                <Text style={{ fontSize: 18, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display", letterSpacing: 0.8 }}>INVOICE OVERVIEW</Text>
+                
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>Invoice Number:</Text>
+                  <Text style={{ fontSize: 19, fontWeight: "800", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>#{paymentInvoice?.invoice_number || "N/A"}</Text>
+                </View>
 
-          {/* Visual Breakdown Card */}
-          {(() => {
-            const out = Number(paymentInvoice?.balance_due || 0);
-            const rec = parseFloat(paymentForm.amount) || 0;
-            const tds = paymentForm.apply_remaining_as_tds ? Math.max(0, out - rec) : 0;
-            const netExpected = Math.max(0, out - tds);
-            const remaining = Math.max(0, out - tds - rec);
-            return (
-              <View style={[styles.modalMathCard, { backgroundColor: isDarkMode ? "#1E293B" : "#F1F5F9", borderColor: C.border }]}>
-                <View style={styles.modalMathRow}>
-                  <Text style={[styles.modalMathLabel, { color: C.textSecondary }]}>Total Outstanding:</Text>
-                  <Text style={[styles.modalMathValue, { color: C.textPrimary, fontWeight: "700" }]}>
-                    ₹{out.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                  </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>Customer:</Text>
+                  <Text style={{ fontSize: 19, fontWeight: "800", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>{paymentInvoice?.customer?.name || "N/A"}</Text>
                 </View>
-                <View style={styles.modalMathRow}>
-                  <Text style={[styles.modalMathLabel, { color: C.textSecondary }]}>TDS Deducted (-):</Text>
-                  <Text style={[styles.modalMathValue, { color: "#EF4444", fontWeight: "700" }]}>
-                    ₹{tds.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                  </Text>
+
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>Invoice Date:</Text>
+                  <Text style={{ fontSize: 17, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{paymentInvoice?.invoice_date || "N/A"}</Text>
                 </View>
-                <View style={[styles.modalMathRow, { borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 6, marginBottom: 6 }]}>
-                  <Text style={[styles.modalMathLabel, { color: C.textSecondary }]}>Net Expected Received:</Text>
-                  <Text style={[styles.modalMathValue, { color: C.accent, fontWeight: "700" }]}>
-                    ₹{netExpected.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                  </Text>
+
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>Due Date:</Text>
+                  <Text style={{ fontSize: 17, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{paymentInvoice?.due_date || "N/A"}</Text>
                 </View>
-                <View style={styles.modalMathRow}>
-                  <Text style={[styles.modalMathLabel, { color: C.textSecondary }]}>Net Amount Received:</Text>
-                  <Text style={[styles.modalMathValue, { color: "#10B981", fontWeight: "700" }]}>
-                    ₹{rec.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={[styles.modalMathRow, { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 6, marginTop: 6 }]}>
-                  <Text style={[styles.modalMathLabel, { color: C.textPrimary, fontWeight: "700" }]}>Remaining Balance:</Text>
-                  <Text style={[styles.modalMathValue, { color: remaining <= 0 ? "#10B981" : "#F59E0B", fontWeight: "800" }]}>
-                    ₹{remaining.toLocaleString("en-IN", { minimumFractionDigits: 2 })} {remaining <= 0 ? "(Settled)" : "(Pending)"}
+
+                <View style={{ height: 1, backgroundColor: C.border, marginVertical: 8 }} />
+
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontSize: 17, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>Total Invoice Amount:</Text>
+                  <Text style={{ fontSize: 26, fontWeight: "900", color: C.accent, fontFamily: "Segoe UI Variable Display" }}>
+                    ₹{Number(paymentInvoice?.total || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                   </Text>
                 </View>
               </View>
-            );
-          })()}
 
-          {/* Amount Input */}
-          <View style={styles.formGroup}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={[styles.inputLabel, { color: C.textSecondary }]}>AMOUNT RECEIVED (NET) *</Text>
-              <Pressable
-                onPress={() => {
-                  const balance = paymentInvoice?.balance_due || 0;
-                  setPaymentForm(f => ({ ...f, amount: String(balance) }));
-                }}
-                style={({ hovered, pressed }: any) => [
-                  hovered && { opacity: 0.7 },
-                  pressed && { transform: [{ scale: 0.95 }] }
-                ]}
-              >
-                <Text style={{ fontSize: 10.5, fontWeight: "700", color: C.accent, fontFamily: "Segoe UI Variable Text", textDecorationLine: "underline" }}>PAY EXPECTED</Text>
-              </Pressable>
+              {/* Visual Settlement Breakdown Card */}
+              {(() => {
+                const out = Number(paymentInvoice?.balance_due || 0);
+                const rec = parseFloat(paymentForm.amount) || 0;
+                const tds = paymentForm.apply_remaining_as_tds ? Math.max(0, out - rec) : 0;
+                const netExpected = Math.max(0, out - tds);
+                const remaining = Math.max(0, out - tds - rec);
+                return (
+                  <View style={[styles.modalMathCard, { backgroundColor: isDarkMode ? "#1E293B" : "#F8FAFC", borderColor: C.border, padding: 24, borderRadius: 12, gap: 12 }]}>
+                    <Text style={{ fontSize: 18, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display", letterSpacing: 0.8, marginBottom: 4 }}>SETTLEMENT CALCULATION</Text>
+                    
+                    <View style={styles.modalMathRow}>
+                      <Text style={[styles.modalMathLabel, { color: C.textSecondary, fontSize: 16.5, fontWeight: "600" }]}>Total Outstanding Balance:</Text>
+                      <Text style={[styles.modalMathValue, { color: C.textPrimary, fontSize: 21, fontWeight: "800" }]}>
+                        ₹{out.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.modalMathRow}>
+                      <Text style={[styles.modalMathLabel, { color: C.textSecondary, fontSize: 16.5, fontWeight: "600" }]}>TDS Deducted (-):</Text>
+                      <Text style={[styles.modalMathValue, { color: "#EF4444", fontSize: 21, fontWeight: "800" }]}>
+                        ₹{tds.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    
+                    <View style={[styles.modalMathRow, { borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 12, marginBottom: 4 }]}>
+                      <Text style={[styles.modalMathLabel, { color: C.textSecondary, fontSize: 16.5, fontWeight: "600" }]}>Net Expected Received:</Text>
+                      <Text style={[styles.modalMathValue, { color: C.accent, fontSize: 22, fontWeight: "800" }]}>
+                        ₹{netExpected.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    
+                    <View style={styles.modalMathRow}>
+                      <Text style={[styles.modalMathLabel, { color: C.textSecondary, fontSize: 16.5, fontWeight: "600" }]}>Net Amount Received Now (+):</Text>
+                      <Text style={[styles.modalMathValue, { color: "#10B981", fontSize: 22, fontWeight: "800" }]}>
+                        ₹{rec.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                    
+                    <View style={[styles.modalMathRow, { borderTopWidth: 1.5, borderTopColor: C.border, paddingTop: 12, marginTop: 6 }]}>
+                      <Text style={[styles.modalMathLabel, { color: C.textPrimary, fontSize: 18, fontWeight: "800" }]}>Remaining Balance After Payment:</Text>
+                      <Text style={[styles.modalMathValue, { color: remaining <= 0 ? "#10B981" : "#F59E0B", fontSize: 24, fontWeight: "900" }]}>
+                        ₹{remaining.toLocaleString("en-IN", { minimumFractionDigits: 2 })} {remaining <= 0 ? "(Settled)" : "(Pending)"}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })()}
             </View>
-            <TextInput
-              style={[styles.textInputUWP, { backgroundColor: C.inputBg, borderColor: C.inputBorder, color: C.textPrimary }]}
-              value={paymentForm.amount}
-              onChangeText={v => setPaymentForm(f => ({ ...f, amount: v }))}
-              keyboardType="numeric"
-              placeholder="0.00"
-              placeholderTextColor={C.textSecondary}
-            />
-          </View>
 
-          {/* Auto TDS Toggle Checkbox */}
-          {(() => {
-            const out = Number(paymentInvoice?.balance_due || 0);
-            const rec = parseFloat(paymentForm.amount) || 0;
-            const remaining = Math.max(0, out - rec);
-            if (remaining > 0) {
-              return (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
+            {/* RIGHT COLUMN: Payment Input Form */}
+            <View style={{ flex: 1.2, minWidth: 400, gap: 22, padding: 26, borderRadius: 12, backgroundColor: isDarkMode ? "#1E293B" : "#FFFFFF", borderWidth: 1, borderColor: C.border }}>
+              <Text style={{ fontSize: 18, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display", letterSpacing: 0.8 }}>RECEIPT DETAILS</Text>
+
+              {/* Amount Input */}
+              <View style={{ gap: 10 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>AMOUNT RECEIVED (NET) *</Text>
                   <Pressable
-                    onPress={() => setPaymentForm(f => ({ ...f, apply_remaining_as_tds: !f.apply_remaining_as_tds }))}
-                    style={({ hovered }: any) => [
-                      {
-                        width: 20,
-                        height: 20,
-                        borderRadius: 4,
-                        borderWidth: 1.5,
-                        borderColor: paymentForm.apply_remaining_as_tds ? C.accent : C.border,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: paymentForm.apply_remaining_as_tds ? C.accent : "transparent"
-                      },
-                      hovered && { opacity: 0.8 }
+                    onPress={() => {
+                      const balance = paymentInvoice?.balance_due || 0;
+                      setPaymentForm(f => ({ ...f, amount: String(balance) }));
+                    }}
+                    style={({ hovered, pressed }: any) => [
+                      hovered && { opacity: 0.7 },
+                      pressed && { transform: [{ scale: 0.95 }] }
                     ]}
                   >
-                    {paymentForm.apply_remaining_as_tds && (
-                      <Text style={{ color: "#FFF", fontSize: 11, fontWeight: "900", fontFamily: "Segoe MDL2 Assets" }}>{"\uE73E"}</Text>
-                    )}
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setPaymentForm(f => ({ ...f, apply_remaining_as_tds: !f.apply_remaining_as_tds }))}
-                    style={({ hovered }: any) => [
-                      hovered && { opacity: 0.8 }
-                    ]}
-                  >
-                    <Text style={{ fontSize: 13, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
-                      Settle invoice (Apply remaining balance of ₹{remaining.toFixed(2)} as TDS deduction)
-                    </Text>
+                    <Text style={{ fontSize: 13.5, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Text", textDecorationLine: "underline" }}>PAY EXPECTED BALANCE</Text>
                   </Pressable>
                 </View>
-              );
-            }
-            return null;
-          })()}
 
-          {/* Date Input */}
-          <View style={styles.formGroup}>
-            <DatePicker
-              label="RECEIPT DATE *"
-              value={paymentForm.payment_date}
-              onChange={v => setPaymentForm(f => ({ ...f, payment_date: v }))}
-            />
-          </View>
+                <Input
+                  ref={paymentAmountRef}
+                  value={paymentForm.amount}
+                  onChangeText={v => setPaymentForm(f => ({ ...f, amount: v }))}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                  onSubmitEditing={() => paymentDateRef.current?.focus()}
+                  style={{ fontSize: 22, fontWeight: "700", paddingVertical: 10 }}
+                />
+              </View>
 
-          {/* Payment Method Pills */}
-          <View style={styles.formGroup}>
-            <Text style={[styles.inputLabel, { color: C.textSecondary }]}>PAYMENT METHOD</Text>
-            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-              {["BANK_TRANSFER", "UPI", "CASH", "CHEQUE", "CARD"].map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => {
-                    setPaymentForm(f => ({
-                      ...f,
-                      payment_method: m,
-                      bank_account: m === "CASH" ? "Cash In Hand" : (f.bank_account === "Cash In Hand" ? "" : f.bank_account)
-                    }));
-                  }}
-                  style={({ hovered }: any) => [
-                    styles.methodPill,
-                    { borderColor: paymentForm.payment_method === m ? C.accent : C.border },
-                    paymentForm.payment_method === m && { backgroundColor: isDarkMode ? "#0C4A6E" : "#E0F2FE" },
-                    hovered && { opacity: 0.8 }
-                  ]}
-                >
-                  <Text style={[styles.methodPillText, { color: paymentForm.payment_method === m ? C.accent : C.textSecondary }]}>
-                    {m.replace("_", " ")}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          {/* Bank Account Selection Dropdown */}
-          {paymentForm.payment_method !== "CASH" && (
-            <View style={styles.formGroup}>
-              <Text style={[styles.inputLabel, { color: C.textSecondary }]}>BANK ACCOUNT *</Text>
-              {bankAccounts.length === 0 ? (
-                <Text style={{ fontSize: 11, color: "#DC2626", fontFamily: "Segoe UI Variable Text" }}>No active bank accounts found. Create one in Banking first.</Text>
-              ) : (
-                <View style={[styles.picker, { backgroundColor: C.inputBg, borderColor: C.inputBorder }]}>
-                  <ScrollView style={{ maxHeight: 110 }} nestedScrollEnabled={true}>
-                    {bankAccounts.map((acc) => (
+              {/* Auto TDS Toggle Checkbox */}
+              {(() => {
+                const out = Number(paymentInvoice?.balance_due || 0);
+                const rec = parseFloat(paymentForm.amount) || 0;
+                const remaining = Math.max(0, out - rec);
+                if (remaining > 0) {
+                  return (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", borderWidth: 1, borderColor: C.border }}>
                       <Pressable
-                        key={acc.id}
-                        onPress={() => setPaymentForm(f => ({ ...f, bank_account: acc.name }))}
+                        onPress={() => setPaymentForm(f => ({ ...f, apply_remaining_as_tds: !f.apply_remaining_as_tds }))}
                         style={({ hovered }: any) => [
-                          styles.pickerOption,
-                          { borderBottomColor: C.divider },
-                          hovered && { backgroundColor: C.rowHover },
-                          paymentForm.bank_account === acc.name && { backgroundColor: C.rowActive }
+                          {
+                            width: 24,
+                            height: 24,
+                            borderRadius: 6,
+                            borderWidth: 2,
+                            borderColor: paymentForm.apply_remaining_as_tds ? C.accent : C.border,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: paymentForm.apply_remaining_as_tds ? C.accent : "transparent"
+                          },
+                          hovered && { opacity: 0.8 }
                         ]}
                       >
-                        <Text style={[styles.pickerOptionText, { color: C.textPrimary, fontWeight: paymentForm.bank_account === acc.name ? "600" : "400" }]}>
-                          {acc.name}
+                        {paymentForm.apply_remaining_as_tds && (
+                          <Text style={{ color: "#FFF", fontSize: 13, fontWeight: "900", fontFamily: "Segoe MDL2 Assets" }}>{"\uE73E"}</Text>
+                        )}
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setPaymentForm(f => ({ ...f, apply_remaining_as_tds: !f.apply_remaining_as_tds }))}
+                        style={({ hovered }: any) => [
+                          hovered && { opacity: 0.8 },
+                          { flex: 1 }
+                        ]}
+                      >
+                        <Text style={{ fontSize: 15, fontWeight: "600", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                          Settle invoice completely (Apply remaining ₹{remaining.toFixed(2)} as TDS deduction)
                         </Text>
                       </Pressable>
-                    ))}
-                  </ScrollView>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Date Input */}
+              <View style={{ gap: 10 }}>
+                <DatePicker
+                  ref={paymentDateRef}
+                  label="RECEIPT DATE *"
+                  value={paymentForm.payment_date}
+                  onChange={v => setPaymentForm(f => ({ ...f, payment_date: v }))}
+                  onSubmitEditing={() => {
+                    if (paymentForm.payment_method !== "CASH") {
+                      paymentBankRef.current?.open();
+                    } else {
+                      paymentRefNoRef.current?.focus();
+                    }
+                  }}
+                />
+              </View>
+
+              {/* Payment Method Selector */}
+              <View style={{ gap: 10 }}>
+                <Text style={{ fontSize: 16, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>PAYMENT METHOD</Text>
+                <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+                  {["BANK_TRANSFER", "UPI", "CASH", "CHEQUE", "CARD"].map((m) => (
+                    <Pressable
+                      key={m}
+                      onPress={() => {
+                        setPaymentForm(f => ({
+                          ...f,
+                          payment_method: m,
+                          bank_account: m === "CASH" ? "Cash In Hand" : (f.bank_account === "Cash In Hand" ? "" : f.bank_account)
+                        }));
+                      }}
+                      style={({ hovered }: any) => [
+                        styles.methodPill,
+                        { borderColor: paymentForm.payment_method === m ? C.accent : C.border, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8 },
+                        paymentForm.payment_method === m && { backgroundColor: isDarkMode ? "#0C4A6E" : "#E0F2FE" },
+                        hovered && { opacity: 0.8 }
+                      ]}
+                    >
+                      <Text style={[styles.methodPillText, { color: paymentForm.payment_method === m ? C.accent : C.textSecondary, fontSize: 15, fontWeight: paymentForm.payment_method === m ? "800" : "600" }]}>
+                        {m.replace("_", " ")}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Bank Account Dropdown */}
+              {paymentForm.payment_method !== "CASH" && (
+                <View style={{ gap: 10, zIndex: 100, position: "relative" }}>
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>BANK ACCOUNT *</Text>
+                  {bankAccounts.length === 0 ? (
+                    <Text style={{ fontSize: 13, color: "#DC2626", fontFamily: "Segoe UI Variable Text" }}>No active bank accounts found. Create one in Banking first.</Text>
+                  ) : (
+                    <Dropdown
+                      ref={paymentBankRef}
+                      options={bankAccounts.map(acc => ({
+                        value: acc.name,
+                        label: acc.name,
+                        sublabel: acc.account_number ? `Account No: ${acc.account_number}` : undefined
+                      }))}
+                      value={paymentForm.bank_account}
+                      onChange={val => setPaymentForm(f => ({ ...f, bank_account: val }))}
+                      onSubmitEditing={() => paymentRefNoRef.current?.focus()}
+                      placeholder="Select target bank account..."
+                    />
+                  )}
                 </View>
               )}
+
+              {/* Reference Number Input */}
+              <View style={{ gap: 10 }}>
+                <Input
+                  ref={paymentRefNoRef}
+                  label="REFERENCE NUMBER (UTR / CHEQUE / TXN ID)"
+                  value={paymentForm.reference_number}
+                  onChangeText={v => setPaymentForm(f => ({ ...f, reference_number: v }))}
+                  onSubmitEditing={() => paymentNotesRef.current?.focus()}
+                  placeholder="e.g. UTR1293848"
+                  style={{ fontSize: 17 }}
+                />
+              </View>
+
+              {/* Notes Input */}
+              <View style={{ gap: 10 }}>
+                <Input
+                  ref={paymentNotesRef}
+                  label="NOTES / REMARKS"
+                  value={paymentForm.notes}
+                  onChangeText={v => setPaymentForm(f => ({ ...f, notes: v }))}
+                  onSubmitEditing={handleRecordReceiptSubmit}
+                  placeholder="Additional settlement remarks..."
+                  style={{ fontSize: 17 }}
+                />
+              </View>
+
             </View>
-          )}
 
-          {/* Reference Number */}
-          <View style={styles.formGroup}>
-            <Text style={[styles.inputLabel, { color: C.textSecondary }]}>REFERENCE NUMBER (UTR / CHEQUE / TXN ID)</Text>
-            <TextInput
-              style={[styles.textInputUWP, { backgroundColor: C.inputBg, borderColor: C.inputBorder, color: C.textPrimary }]}
-              value={paymentForm.reference_number}
-              onChangeText={v => setPaymentForm(f => ({ ...f, reference_number: v }))}
-              placeholder="e.g. UTR1293848"
-              placeholderTextColor={C.textSecondary}
-            />
-          </View>
-
-          {/* Notes */}
-          <View style={styles.formGroup}>
-            <Text style={[styles.inputLabel, { color: C.textSecondary }]}>NOTES / REMARKS</Text>
-            <TextInput
-              style={[styles.textInputUWP, { backgroundColor: C.inputBg, borderColor: C.inputBorder, color: C.textPrimary }]}
-              value={paymentForm.notes}
-              onChangeText={v => setPaymentForm(f => ({ ...f, notes: v }))}
-              placeholder="Remarks..."
-              placeholderTextColor={C.textSecondary}
-            />
           </View>
         </View>
-      </Modal>
+      </FullScreenModal>
 
       <PdfPreviewModal
         isOpen={isPreviewOpen}
@@ -2363,6 +2497,11 @@ export default function SalesScreen() {
           </View>
         </Modal>
       )}
+      <ModuleHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        initialCategory={helpModalCategory}
+      />
     </View>
   );
 }
@@ -2423,6 +2562,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
   },
   title: {
     fontSize: 28,
@@ -2524,12 +2665,12 @@ const styles = StyleSheet.create({
   lineTable: { borderWidth: 1, borderRadius: 8, overflow: "hidden" },
   lineHead: {
     flexDirection: "row",
-    height: 42,
+    height: 44,
     alignItems: "center",
     paddingHorizontal: 10,
     borderBottomWidth: 1,
   },
-  lineThCell: { fontSize: 15.5, fontWeight: "700", fontFamily: "Segoe UI Variable Text", letterSpacing: 0.3 },
+  lineThCell: { fontSize: 15.5, fontWeight: "800", fontFamily: "Segoe UI Variable Text", letterSpacing: 0.6 },
   lineRow: {
     flexDirection: "row",
     height: 48,

@@ -11,9 +11,11 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  TextInput
+  TextInput,
+  Image
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
@@ -25,6 +27,8 @@ import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { authApi } from "../api/auth";
 import { Toggle } from "../components/ui/Toggle";
+import { BarcodeStudioModal, BarcodePrintProduct } from "../components/ui/BarcodeStudioModal";
+import { Dropdown } from "../components/ui/Dropdown";
 
 // ─── EAN-13 Barcode Generation Helpers ───
 function calculateEan13Checksum(digits12: string): string {
@@ -107,41 +111,6 @@ function DetailRow({ label, value, C }: { label: string; value?: string | number
   );
 }
 
-
-
-function InlineSelect({ label, value, options, onChange, C }: {
-  label: string; value: string; options: string[] | { value: string; label: string }[];
-  onChange: (v: string) => void; C: any;
-}) {
-  const [open, setOpen] = useState(false);
-  const normalized = options.map((o: any) => typeof o === "string" ? { value: o, label: o } : o);
-  const selected = normalized.find(o => o.value === value);
-  return (
-    <View style={{ gap: 4, zIndex: open ? 999 : 1 }}>
-      <Text style={{ fontSize: 12.5, fontWeight: "700", letterSpacing: 0.5, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>{label}</Text>
-      <Pressable onPress={() => setOpen(o => !o)} style={{ height: 40, borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderColor: C.border, backgroundColor: C.surface }}>
-        <Text style={{ fontSize: 15, color: C.textPrimary, fontFamily: "Segoe UI Variable Text", flex: 1 }} numberOfLines={1}>{selected?.label || "Select..."}</Text>
-        <Text style={{ color: C.textSecondary, fontSize: 12 }}>{open ? "▲" : "▼"}</Text>
-      </Pressable>
-      {open && (
-        <View style={{ position: "absolute", top: 68, left: 0, right: 0, zIndex: 9999, borderWidth: 1, borderColor: C.border, borderRadius: 6, backgroundColor: C.surface, maxHeight: 200, overflow: "hidden" }}>
-          <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
-            {normalized.map(o => (
-              <Pressable key={o.value} onPress={() => { onChange(o.value); setOpen(false); }}
-                style={({ hovered }: any) => ({
-                  paddingHorizontal: 12, paddingVertical: 10,
-                  backgroundColor: o.value === value ? (C.isDarkMode ? "#0C4A6E" : "#EFF6FF") : hovered ? (C.isDarkMode ? "#334155" : "#F1F5F9") : "transparent"
-                })}>
-                <Text style={{ fontSize: 14.5, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{o.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
-  );
-}
-
 // ─── Main Screen ───────────────────────────────────────────────
 export default function InventoryScreen() {
   const { isDarkMode, setIsFullScreenOpen } = useUIStore();
@@ -155,6 +124,18 @@ export default function InventoryScreen() {
   const [formTab, setFormTab] = useState<1 | 2 | 3 | 4>(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
+
+  const [isBarcodeStudioOpen, setIsBarcodeStudioOpen] = useState(false);
+  const [barcodeStudioProducts, setBarcodeStudioProducts] = useState<BarcodePrintProduct[]>([]);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpModalCategory, setHelpModalCategory] = useState<HelpCategory>("INVENTORY_GUIDE");
+
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [adjustProduct, setAdjustProduct] = useState<Product | null>(null);
+  const [adjustType, setAdjustType] = useState<"INWARD" | "OUTWARD">("INWARD");
+  const [adjustQty, setAdjustQty] = useState<string>("");
+  const [adjustReason, setAdjustReason] = useState<string>("Stock Inward");
+  const [adjustNotes, setAdjustNotes] = useState<string>("");
 
   const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
   const [duplicatePayload, setDuplicatePayload] = useState<any>(null);
@@ -209,6 +190,23 @@ export default function InventoryScreen() {
     mutationFn: async (id: string) => { await apiClient.delete(`/api/inventory/products/${id}`); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); setSelectedProduct(null); },
     onError: (err: any) => { Alert.alert("Cannot Delete", err.response?.data?.detail || "Product has linked transactions."); }
+  });
+
+  const adjustStockMutation = useMutation({
+    mutationFn: async ({ productId, data }: { productId: string; data: any }) => {
+      const res = await apiClient.post(`/api/inventory/products/${productId}/adjust`, data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      setIsAdjustModalOpen(false);
+      setAdjustQty("");
+      setAdjustNotes("");
+      Alert.alert("Stock Updated", "Product stock adjustment has been recorded in inventory ledger.");
+    },
+    onError: (err: any) => {
+      Alert.alert("Adjustment Failed", err.response?.data?.detail || "Could not adjust product stock.");
+    }
   });
 
   // ── Helpers ──
@@ -308,12 +306,22 @@ export default function InventoryScreen() {
     );
   };
 
-  // ── Filter ──
+  // ── Multi-field Effective Search ──
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchStatus = statusFilter === "ALL" || (statusFilter === "ACTIVE" && p.is_active) || (statusFilter === "INACTIVE" && !p.is_active);
-      const q = searchQuery.toLowerCase();
-      const matchSearch = !q || p.name.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q)) || (p.hsn_code && p.hsn_code.includes(q)) || (p.barcode && p.barcode.includes(q));
+      const q = searchQuery.toLowerCase().trim();
+      const categoryStr = typeof (p as any).category === "string" ? (p as any).category : ((p as any).category?.name || "");
+      const matchSearch =
+        !q ||
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.sku && p.sku.toLowerCase().includes(q)) ||
+        (p.hsn_code && String(p.hsn_code).toLowerCase().includes(q)) ||
+        (p.barcode && String(p.barcode).toLowerCase().includes(q)) ||
+        (categoryStr && categoryStr.toLowerCase().includes(q)) ||
+        (p.unit && String(p.unit).toLowerCase().includes(q)) ||
+        (p.sale_price !== undefined && p.sale_price !== null && String(p.sale_price).includes(q)) ||
+        (p.current_stock !== undefined && p.current_stock !== null && String(p.current_stock).includes(q));
       return matchStatus && matchSearch;
     });
   }, [products, searchQuery, statusFilter]);
@@ -333,7 +341,9 @@ export default function InventoryScreen() {
       render: (row: Product) => (
         <View>
           <Text style={{ fontSize: 14.5, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }} numberOfLines={1}>{row.name}</Text>
-          <Text style={{ fontSize: 12, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>{row.sku || "No SKU"} · {row.unit}</Text>
+          <Text style={{ fontSize: 12, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>
+            {row.sku ? `SKU: ${row.sku}` : "No SKU"} · Unit: {row.unit || "PCS"}
+          </Text>
         </View>
       )
     },
@@ -382,19 +392,56 @@ export default function InventoryScreen() {
       <View style={[styles.masterSection, selectedProduct && { flex: 0.6, borderRightWidth: 1, borderRightColor: C.divider }]}>
         <View style={{ gap: 4 }}>
           <Text style={{ fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: C.accent, fontFamily: "Segoe UI Variable Text" }}>INVENTORY / PRODUCTS</Text>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
             <Text style={{ fontSize: 28, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>Products Registry</Text>
-            <View style={{ flexDirection: "row", gap: 10 }}>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+              <Button
+                title="⚡ Adjust Stock"
+                variant="secondary"
+                size="medium"
+                onPress={() => {
+                  setAdjustProduct(selectedProduct || products[0] || null);
+                  setIsAdjustModalOpen(true);
+                  setIsFullScreenOpen(true);
+                }}
+              />
+              <Button
+                title="Print Barcodes"
+                icon={
+                  <Image
+                    source={require("../components/print_icon_for_print_preview.png")}
+                    style={{ width: 16, height: 16 }}
+                    resizeMode="contain"
+                  />
+                }
+                onPress={() => {
+                  setBarcodeStudioProducts(
+                    selectedProduct ? [selectedProduct] : filteredProducts.slice(0, 50)
+                  );
+                  setIsBarcodeStudioOpen(true);
+                }}
+                variant="secondary"
+                size="medium"
+              />
               {company?.settings?.enable_barcodes && (
                 <Pressable
                   onPress={handleBulkGenerateBarcodes}
                   style={({ hovered }: any) => [
-                    { height: 36, paddingHorizontal: 16, borderRadius: 6, borderWidth: 1, borderColor: C.border, justifyContent: "center", alignItems: "center", backgroundColor: hovered ? (isDarkMode ? "#334155" : "#F1F5F9") : "transparent" }
+                    { height: 36, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1, borderColor: C.border, justifyContent: "center", alignItems: "center", backgroundColor: hovered ? (isDarkMode ? "#334155" : "#F1F5F9") : "transparent" }
                   ]}
                 >
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: C.textPrimary }}>Bulk Generate Barcodes</Text>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: C.textPrimary }}>Bulk Barcodes</Text>
                 </Pressable>
               )}
+              <Button
+                title="❓ Help & Guide"
+                onPress={() => {
+                  setHelpModalCategory("INVENTORY_GUIDE");
+                  setIsHelpModalOpen(true);
+                }}
+                variant="secondary"
+                size="medium"
+              />
               <Button title="+ Add Product" onPress={openAdd} variant="primary" size="medium" />
             </View>
           </View>
@@ -468,9 +515,34 @@ export default function InventoryScreen() {
               </View>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
-              <Button title="✎ Edit" onPress={() => openEdit(selectedProduct)} variant="primary" size="medium" style={{ flex: 1 }} />
-              <Button title="Delete" onPress={() => Alert.alert("Delete Confirmation", `Delete "${selectedProduct.name}"?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selectedProduct.id) }])} variant="secondary" size="medium" style={{ flex: 1 }} />
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 14 }}>
+              <Button
+                title="⚡ Adjust Stock"
+                onPress={() => {
+                  setAdjustProduct(selectedProduct);
+                  setIsAdjustModalOpen(true);
+                  setIsFullScreenOpen(true);
+                }}
+                variant="primary"
+                size="medium"
+                style={{ flex: 1.2 }}
+              />
+              <Button
+                title="Print Barcode"
+                icon={
+                  <Image
+                    source={require("../components/print_icon_for_print_preview.png")}
+                    style={{ width: 16, height: 16 }}
+                    resizeMode="contain"
+                  />
+                }
+                onPress={() => { setBarcodeStudioProducts([selectedProduct]); setIsBarcodeStudioOpen(true); }}
+                variant="secondary"
+                size="medium"
+                style={{ flex: 1 }}
+              />
+              <Button title="✎ Edit" onPress={() => openEdit(selectedProduct)} variant="secondary" size="medium" style={{ flex: 0.9 }} />
+              <Button title="Delete" onPress={() => Alert.alert("Delete Confirmation", `Delete "${selectedProduct.name}"?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selectedProduct.id) }])} variant="secondary" size="medium" style={{ flex: 0.9 }} />
             </View>
 
             {/* Pricing */}
@@ -554,7 +626,7 @@ export default function InventoryScreen() {
               <Button title="Discard Product" onPress={closeForm} variant="secondary" size="large" style={{ minWidth: 140 }} />
               {formTab < 4
                 ? <Button title="Next ›" onPress={() => setFormTab(t => Math.min(4, t + 1) as any)} variant="primary" size="large" style={{ minWidth: 120 }} />
-                : <Button title={isEditMode ? "Update Product" : "Save Product"} onPress={handleSave} variant="primary" size="large" loading={createMutation.isPending || updateMutation.isPending} style={{ minWidth: 160 }} />
+                : <Button title={isEditMode ? "Update Product" : "Save Product"} onPress={handleSave} variant="primary" size="large" loading={createMutation.isPending || updateMutation.isPending} loadingText={isEditMode ? "Updating Product..." : "Saving Product..."} style={{ minWidth: 160 }} />
               }
             </View>
           </View>
@@ -662,9 +734,18 @@ export default function InventoryScreen() {
                 </View>
 
                 <View style={{ flexDirection: "row", gap: 12, zIndex: 100 }}>
-                  <View style={{ flex: 1 }}><InlineSelect label="PRIMARY UNIT" value={formData.unit} options={UNIT_OPTIONS} onChange={v => set("unit", v)} C={C} /></View>
-                  <View style={{ flex: 1 }}><InlineSelect label="BASE UNIT" value={formData.base_unit} options={UNIT_OPTIONS} onChange={v => set("base_unit", v)} C={C} /></View>
-                  <View style={{ flex: 1 }}><InlineSelect label="SECONDARY UNIT" value={formData.secondary_unit || ""} options={["", ...UNIT_OPTIONS]} onChange={v => set("secondary_unit", v)} C={C} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, marginBottom: 4, fontFamily: "Segoe UI Variable Text" }}>PRIMARY UNIT</Text>
+                    <Dropdown options={UNIT_OPTIONS.map(u => ({ value: u, label: u }))} value={formData.unit} onChange={v => set("unit", v)} placeholder="Select primary unit..." />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, marginBottom: 4, fontFamily: "Segoe UI Variable Text" }}>BASE UNIT</Text>
+                    <Dropdown options={UNIT_OPTIONS.map(u => ({ value: u, label: u }))} value={formData.base_unit} onChange={v => set("base_unit", v)} placeholder="Select base unit..." />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, marginBottom: 4, fontFamily: "Segoe UI Variable Text" }}>SECONDARY UNIT</Text>
+                    <Dropdown options={["", ...UNIT_OPTIONS].map(u => ({ value: u, label: u || "None" }))} value={formData.secondary_unit || ""} onChange={v => set("secondary_unit", v)} placeholder="Select secondary unit..." />
+                  </View>
                 </View>
 
                 <View style={{ flexDirection: "row", gap: 12 }}>
@@ -702,7 +783,10 @@ export default function InventoryScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: "row", gap: 12, zIndex: 90 }}>
-                  <View style={{ flex: 1 }}><InlineSelect label="ITEM TYPE" value={formData.item_type} options={ITEM_TYPES} onChange={v => set("item_type", v)} C={C} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, marginBottom: 4, fontFamily: "Segoe UI Variable Text" }}>ITEM TYPE</Text>
+                    <Dropdown options={ITEM_TYPES} value={formData.item_type} onChange={v => set("item_type", v)} placeholder="Select item type..." />
+                  </View>
                 </View>
                 <Toggle value={formData.is_active} onChange={v => set("is_active", v)} label="Product Active Status" />
               </View>
@@ -969,6 +1053,302 @@ export default function InventoryScreen() {
         </Modal>
       )}
 
+      {/* STOCK ADJUSTMENT (INWARD / OUTWARD) FULLSCREEN MODAL */}
+      <FullScreenModal
+        isOpen={isAdjustModalOpen}
+        onClose={() => {
+          setIsAdjustModalOpen(false);
+          setIsFullScreenOpen(false);
+        }}
+        title="Industrial Stock Adjustment & Inventory Ledger Studio"
+        subtitle="Record stock inward additions, stock outward reductions, damaged goods, and physical audit corrections with full event-sourced ledger tracking"
+        breadcrumb="inventory / stock adjustment studio"
+        scrollEnabled={true}
+        footerActions={
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 12, flex: 1, alignItems: "center" }}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              size="large"
+              onPress={() => {
+                setIsAdjustModalOpen(false);
+                setIsFullScreenOpen(false);
+              }}
+              style={{ minWidth: 120 }}
+            />
+            <Button
+              title={adjustStockMutation.isPending ? "Updating Stock..." : `Save ${adjustType} Stock Adjustment`}
+              variant="primary"
+              size="large"
+              loading={adjustStockMutation.isPending}
+              style={{ minWidth: 260 }}
+              onPress={() => {
+                if (!adjustProduct) {
+                  Alert.alert("Product Required", "Please select a product to adjust stock.");
+                  return;
+                }
+                const qty = parseFloat(adjustQty);
+                if (isNaN(qty) || qty <= 0) {
+                  Alert.alert("Validation Error", "Please enter a valid positive quantity (> 0).");
+                  return;
+                }
+                adjustStockMutation.mutate({
+                  productId: adjustProduct.id,
+                  data: {
+                    entry_type: adjustType,
+                    quantity: adjustType === "INWARD" ? qty : -qty,
+                    notes: `${adjustReason}${adjustNotes.trim() ? ` — ${adjustNotes.trim()}` : ""}`,
+                  },
+                });
+              }}
+            />
+          </View>
+        }
+      >
+        <View style={{ flexDirection: "row", gap: 24, padding: 8 }}>
+          {/* Left Column: Form Controls */}
+          <View style={{ flex: 1, gap: 16 }}>
+            {/* Target Product Selector */}
+            <View style={{ gap: 6, zIndex: 100, overflow: "visible" }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>SELECT TARGET PRODUCT *</Text>
+              <Dropdown
+                options={products.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                  sublabel: `${p.sku || "No SKU"} · Stock: ${p.current_stock || 0} ${p.unit}`
+                }))}
+                value={adjustProduct?.id}
+                onChange={(val) => {
+                  const p = products.find((x) => x.id === val);
+                  if (p) setAdjustProduct(p);
+                }}
+                placeholder="Search product by name, SKU..."
+              />
+            </View>
+
+            {/* Inward / Outward Direction Switcher */}
+            <View style={{ gap: 6, zIndex: 1, position: "relative" }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>ADJUSTMENT TYPE</Text>
+              <View style={{ flexDirection: "row", gap: 14 }}>
+                <Pressable
+                  onPress={() => {
+                    setAdjustType("INWARD");
+                    setAdjustReason("Stock Inward / Received");
+                  }}
+                  style={[
+                    {
+                      flex: 1,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      borderRadius: 10,
+                      borderWidth: 2,
+                      alignItems: "center",
+                      backgroundColor: adjustType === "INWARD" ? (isDarkMode ? "#14532D" : "#DCFCE7") : C.surface,
+                      borderColor: adjustType === "INWARD" ? C.statusActive : C.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: adjustType === "INWARD" ? C.statusActive : C.textSecondary, fontFamily: "Segoe UI Variable Display" }}>
+                    📥 Stock Inward (+ Add)
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 4, fontFamily: "Segoe UI Variable Text" }}>
+                    Increases available physical inventory
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setAdjustType("OUTWARD");
+                    setAdjustReason("Damaged Stock (Outward)");
+                  }}
+                  style={[
+                    {
+                      flex: 1,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      borderRadius: 10,
+                      borderWidth: 2,
+                      alignItems: "center",
+                      backgroundColor: adjustType === "OUTWARD" ? (isDarkMode ? "#450A0A" : "#FEE2E2") : C.surface,
+                      borderColor: adjustType === "OUTWARD" ? C.statusInactive : C.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: "800", color: adjustType === "OUTWARD" ? C.statusInactive : C.textSecondary, fontFamily: "Segoe UI Variable Display" }}>
+                    📤 Stock Outward (- Reduce)
+                  </Text>
+                  <Text style={{ fontSize: 12, color: C.textSecondary, marginTop: 4, fontFamily: "Segoe UI Variable Text" }}>
+                    Decreases inventory (damage, loss, audit)
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Quantity Input */}
+            <View style={{ gap: 6, zIndex: 1, position: "relative" }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>
+                ADJUSTMENT QUANTITY ({adjustProduct?.unit || "PCS"})
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <TextInput
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    borderWidth: 1,
+                    borderColor: C.border,
+                    borderRadius: 8,
+                    paddingHorizontal: 14,
+                    fontSize: 20,
+                    fontWeight: "800",
+                    color: C.textPrimary,
+                    backgroundColor: C.surface,
+                    fontFamily: "Segoe UI Variable Display"
+                  }}
+                  keyboardType="numeric"
+                  value={adjustQty}
+                  onChangeText={(val) => setAdjustQty(val.replace(/[^0-9.]/g, ""))}
+                  placeholder="0.00"
+                  placeholderTextColor={C.textSecondary}
+                />
+                <View style={{ paddingHorizontal: 16, height: 48, borderRadius: 8, borderWidth: 1, borderColor: C.border, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", justifyContent: "center", alignItems: "center" }}>
+                  <Text style={{ fontSize: 15, fontWeight: "800", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>
+                    {adjustProduct?.unit || "PCS"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Reason Selector */}
+            <View style={{ gap: 6, zIndex: 90, overflow: "visible" }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>REASON / CATEGORY</Text>
+              <Dropdown
+                direction="up"
+                options={(
+                  adjustType === "INWARD"
+                    ? [
+                        "Stock Inward / Received",
+                        "Physical Audit Correction (Inward)",
+                        "Customer Return (Inward)",
+                        "Initial Opening Stock",
+                        "Other / Custom Note",
+                      ]
+                    : [
+                        "Damaged Stock (Outward)",
+                        "Expired Stock (Outward)",
+                        "Physical Audit Correction (Outward)",
+                        "Theft / Loss (Outward)",
+                        "Supplier Return (Outward)",
+                        "Other / Custom Note",
+                      ]
+                ).map((r) => ({ value: r, label: r }))}
+                value={adjustReason}
+                onChange={setAdjustReason}
+                placeholder="Select reason..."
+              />
+            </View>
+
+            {/* Remarks / Custom Notes */}
+            <View style={{ gap: 6 }}>
+              <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>REMARKS / AUDIT NOTES (OPTIONAL)</Text>
+              <TextInput
+                style={{
+                  height: 44,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  borderRadius: 8,
+                  paddingHorizontal: 14,
+                  fontSize: 14,
+                  color: C.textPrimary,
+                  backgroundColor: C.surface,
+                  fontFamily: "Segoe UI Variable Text"
+                }}
+                value={adjustNotes}
+                onChangeText={setAdjustNotes}
+                placeholder="e.g. Physical inventory audit by manager"
+                placeholderTextColor={C.textSecondary}
+              />
+            </View>
+          </View>
+
+          {/* Right Column: Live Audit Summary Card */}
+          <View style={{ width: 380, gap: 16 }}>
+            {adjustProduct ? (
+              <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 20, backgroundColor: isDarkMode ? "#1E293B" : "#FFFFFF", gap: 16 }}>
+                <Text style={{ fontSize: 12, fontWeight: "800", letterSpacing: 1.0, color: C.accent, fontFamily: "Segoe UI Variable Text" }}>
+                  PRODUCT AUDIT SUMMARY
+                </Text>
+
+                <View>
+                  <Text style={{ fontSize: 20, fontWeight: "800", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>
+                    {adjustProduct.name}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: C.textSecondary, marginTop: 2 }}>
+                    SKU: {adjustProduct.sku || "—"} · HSN: {adjustProduct.hsn_code || "—"}
+                  </Text>
+                </View>
+
+                <View style={{ height: 1, backgroundColor: C.divider }} />
+
+                {/* Calculations */}
+                <View style={{ gap: 12 }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ fontSize: 13, color: C.textSecondary }}>Current Stock:</Text>
+                    <Text style={{ fontSize: 16, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>
+                      {Number(adjustProduct.current_stock || 0)} {adjustProduct.unit}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ fontSize: 13, color: C.textSecondary }}>Adjustment Delta:</Text>
+                    <Text style={{ fontSize: 18, fontWeight: "900", color: adjustType === "INWARD" ? C.statusActive : C.statusInactive, fontFamily: "Segoe UI Variable Display" }}>
+                      {adjustType === "INWARD" ? "+" : "-"}{parseFloat(adjustQty) || 0} {adjustProduct.unit}
+                    </Text>
+                  </View>
+
+                  <View style={{ height: 1, backgroundColor: C.divider }} />
+
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: C.textPrimary }}>New Expected Stock:</Text>
+                    <Text style={{ fontSize: 24, fontWeight: "900", color: C.accent, fontFamily: "Segoe UI Variable Display" }}>
+                      {Math.max(
+                        0,
+                        Number(adjustProduct.current_stock || 0) +
+                          (adjustType === "INWARD" ? parseFloat(adjustQty) || 0 : -(parseFloat(adjustQty) || 0))
+                      )}{" "}
+                      {adjustProduct.unit}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Audit Ledger Entry Preview */}
+                <View style={{ marginTop: 8, padding: 12, borderRadius: 8, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", borderWidth: 1, borderColor: C.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: "700", color: C.textSecondary, marginBottom: 4 }}>
+                    LEDGER RECORD PREVIEW
+                  </Text>
+                  <Text style={{ fontSize: 12.5, color: C.textPrimary, fontFamily: "Consolas" }}>
+                    {`[${adjustType}] Qty: ${adjustType === "INWARD" ? "+" : "-"}${parseFloat(adjustQty) || 0} | ${adjustReason}${adjustNotes ? ` — ${adjustNotes}` : ""}`}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 30, backgroundColor: C.surface, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 14, color: C.textSecondary }}>Select a product on the left to preview live stock calculation.</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </FullScreenModal>
+
+      <BarcodeStudioModal
+        isOpen={isBarcodeStudioOpen}
+        onClose={() => setIsBarcodeStudioOpen(false)}
+        initialProducts={barcodeStudioProducts}
+      />
+      <ModuleHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        initialCategory={helpModalCategory}
+      />
     </View>
   );
 }

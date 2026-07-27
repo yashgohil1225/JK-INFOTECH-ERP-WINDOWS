@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Purchase Bill - {{ bill.bill_number }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 9pt;
+            color: #0F172A;
+            background: #FFFFFF;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 0;
+            -webkit-print-color-adjust: exact;
+        }
+
+        /* ── PAGE CONTAINER ─────────────────────────── */
+        .page-wrapper {
+            padding: 10mm 10mm 8mm 10mm;
+            min-height: 297mm;
+            position: relative;
+        }
+
+        /* ── TOP HEADER STRIP ────────────────────────── */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 8pt;
+            padding-bottom: 6px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #E2E8F0;
+        }
+        .top-bar .auspicious {
+            color: #059669;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .top-bar .doc-badge {
+            background: #0F172A;
+            color: #FFFFFF;
+            font-size: 8.5pt;
+            font-weight: 800;
+            padding: 2px 10px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .top-bar .copy-label {
+            font-style: italic;
+            color: #64748B;
+            font-weight: 600;
+        }
+
+        /* ── EXECUTIVE BRANDING HEADER ────────────────── */
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            background: #F8FAFC;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .brand-left {
+            flex: 1;
+            padding: 12px 16px;
+            display: flex;
+            gap: 14px;
+            align-items: center;
+        }
+        .company-logo {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+        }
+        .company-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .company-name {
+            font-size: 16pt;
+            font-weight: 900;
+            color: #0F172A;
+            letter-spacing: 0.2px;
+            line-height: 1.1;
+        }
+        .company-sub {
+            font-size: 8.5pt;
+            color: #475569;
+            line-height: 1.4;
+        }
+        .company-gstin {
+            font-size: 8.5pt;
+            font-weight: 700;
+            color: #0F172A;
+            margin-top: 2px;
+        }
+        .company-gstin span { color: #059669; }
+
+        .meta-right {
+            width: 220px;
+            background: #0F172A;
+            color: #FFFFFF;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .meta-title {
+            font-size: 11pt;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #34D399;
+            text-transform: uppercase;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 4px;
+            margin-bottom: 6px;
+        }
+        .meta-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 8pt;
+        }
+        .meta-label { color: #94A3B8; }
+        .meta-val { font-weight: 700; color: #F8FAFC; text-align: right; }
+        .meta-val.highlight { color: #34D399; font-size: 9pt; }
+
+        /* ── STATUS BADGE ────────────────────────────── */
+        .status-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 7.5pt;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .status-paid { background: #DCFCE7; color: #16A34A; }
+        .status-partial { background: #FEF9C3; color: #A16207; }
+        .status-unpaid { background: #FEE2E2; color: #DC2626; }
+
+        /* ── PARTIES CARDS ────────────────────────────── */
+        .parties-wrapper {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .party-card {
+            flex: 1;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #FFFFFF;
+        }
+        .party-card-head {
+            background: #1E293B;
+            color: #F8FAFC;
+            font-size: 8pt;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            padding: 5px 10px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .party-card-body {
+            padding: 8px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .party-name {
+            font-size: 11pt;
+            font-weight: 800;
+            color: #0F172A;
+            margin-bottom: 2px;
+        }
+        .party-text {
+            font-size: 8.5pt;
+            color: #334155;
+            line-height: 1.4;
+        }
+        .party-gstin {
+            font-size: 8.5pt;
+            font-weight: 700;
+            color: #0F172A;
+            margin-top: 3px;
+        }
+        .party-gstin span { color: #059669; }
+
+        /* ── LINE ITEMS TABLE ────────────────────────── */
+        .table-container {
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .items-table th {
+            background: #1E293B;
+            color: #F8FAFC;
+            font-size: 8pt;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            padding: 7px 8px;
+            border-right: 1px solid #334155;
+        }
+        .items-table th:last-child { border-right: none; }
+        .items-table td {
+            padding: 7px 8px;
+            font-size: 8.5pt;
+            border-bottom: 1px solid #E2E8F0;
+            border-right: 1px solid #E2E8F0;
+            vertical-align: middle;
+        }
+        .items-table td:last-child { border-right: none; }
+        .items-table tbody tr:nth-child(even) {
+            background: #F8FAFC;
+        }
+        .items-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .prod-name {
+            font-size: 9pt;
+            font-weight: 700;
+            color: #0F172A;
+        }
+        .prod-note {
+            font-size: 7.5pt;
+            color: #64748B;
+            margin-top: 2px;
+            font-style: italic;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .font-bold { font-weight: 700; }
+
+        /* Subtotal Row */
+        .subtotal-row td {
+            background: #F1F5F9;
+            font-weight: 800;
+            border-top: 2px solid #CBD5E1;
+            font-size: 8.5pt;
+            color: #0F172A;
+        }
+
+        /* ── SUMMARY & FOOTER BLOCK ──────────────────── */
+        .summary-wrapper {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .summary-left {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .summary-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .info-card {
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 8px 10px;
+            background: #FFFFFF;
+        }
+        .info-card-title {
+            font-size: 7.5pt;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #475569;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #E2E8F0;
+            padding-bottom: 2px;
+        }
+        .info-card-text {
+            font-size: 8pt;
+            color: #334155;
+            line-height: 1.4;
+        }
+
+        /* Tax Breakdown Table */
+        .tax-table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .tax-table td {
+            padding: 5px 8px;
+            font-size: 8.5pt;
+            border-bottom: 1px solid #E2E8F0;
+        }
+        .tax-table tr:last-child td { border-bottom: none; }
+        .tax-label { color: #475569; }
+        .tax-val { font-weight: 700; text-align: right; color: #0F172A; }
+
+        /* Grand Total Box */
+        .grand-total-card {
+            background: #0F172A;
+            color: #FFFFFF;
+            border-radius: 6px;
+            padding: 10px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .gt-label {
+            font-size: 9pt;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #94A3B8;
+        }
+        .gt-val {
+            font-size: 15pt;
+            font-weight: 900;
+            color: #34D399;
+        }
+
+        /* Amount in Words Box */
+        .words-card {
+            background: #F1F5F9;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 8.5pt;
+        }
+        .words-label {
+            font-weight: 800;
+            color: #475569;
+            text-transform: uppercase;
+            font-size: 7.5pt;
+            letter-spacing: 0.5px;
+            margin-right: 6px;
+        }
+
+        /* ── SIGNATURE & PROTOCOL ────────────────────── */
+        .protocol-wrapper {
+            display: flex;
+            gap: 12px;
+            border: 1px solid #CBD5E1;
+            border-radius: 6px;
+            padding: 10px 12px;
+            background: #FFFFFF;
+        }
+        .protocol-left {
+            flex: 1.3;
+            font-size: 7.5pt;
+            color: #475569;
+            line-height: 1.4;
+        }
+        .protocol-title {
+            font-size: 8pt;
+            font-weight: 800;
+            color: #0F172A;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .protocol-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            text-align: center;
+            border-left: 1px solid #E2E8F0;
+            padding-left: 12px;
+        }
+        .sign-company {
+            font-size: 8.5pt;
+            font-weight: 800;
+            color: #0F172A;
+            text-transform: uppercase;
+        }
+        .sign-space {
+            height: 36px;
+        }
+        .sign-label {
+            font-size: 8pt;
+            font-weight: 700;
+            color: #64748B;
+            border-top: 1px dashed #94A3B8;
+            padding-top: 2px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+<div class="page-wrapper">
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <span class="auspicious">|| SHREE GANESHAY NAMAH ||</span>
+        <span class="doc-badge">PURCHASE VOUCHER / BILL</span>
+        <span class="copy-label">Copy: {{ copy_label | default('ORIGINAL FOR RECIPIENT') }}</span>
+    </div>
+
+    <!-- Executive Branding Header -->
+    <div class="header-container">
+        <div class="brand-left">
+            {% if logo_svg %}
+            <div class="company-logo">{{ logo_svg | safe }}</div>
+            {% endif %}
+            <div class="company-info">
+                <div class="company-name">{{ company.name }}</div>
+                <div class="company-sub">
+                    {% if company.office_address_1 %}{{ company.office_address_1 }}{% endif %}
+                    {% if company.office_address_2 %}, {{ company.office_address_2 }}{% endif %}
+                    {% if company.registered_state %}, {{ company.registered_state }}{% endif %}{% if company.pincode %} - {{ company.pincode }}{% endif %}
+                </div>
+                {% if company.phone or company.email %}
+                <div class="company-sub">
+                    {% if company.phone %}Tel: {{ company.phone }}{% endif %}
+                    {% if company.email %} &nbsp;|&nbsp; Email: {{ company.email }}{% endif %}
+                </div>
+                {% endif %}
+                <div class="company-gstin">GSTIN: <span>{{ company.gst_number | default('UNREGISTERED') }}</span></div>
+            </div>
+        </div>
+
+        <div class="meta-right">
+            <div class="meta-title">BILL DETAILS</div>
+            <div class="meta-grid">
+                <div class="meta-row">
+                    <span class="meta-label">Bill No:</span>
+                    <span class="meta-val highlight">{{ bill.bill_number }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">Bill Date:</span>
+                    <span class="meta-val">{{ bill.bill_date.strftime('%d-%m-%Y') if bill.bill_date else '—' }}</span>
+                </div>
+                {% if bill.supplier_bill_no %}
+                <div class="meta-row">
+                    <span class="meta-label">Vendor Ref:</span>
+                    <span class="meta-val">{{ bill.supplier_bill_no }}</span>
+                </div>
+                {% endif %}
+                <div class="meta-row">
+                    <span class="meta-label">Due Date:</span>
+                    <span class="meta-val">{{ bill.due_date.strftime('%d-%m-%Y') if bill.due_date else 'On Receipt' }}</span>
+                </div>
+                <div class="meta-row">
+                    <span class="meta-label">GST Nature:</span>
+                    <span class="meta-val">{{ bill.gst_type | default('B2B') }}</span>
+                </div>
+                <div class="meta-row" style="margin-top: 4px;">
+                    <span class="meta-label">Status:</span>
+                    <span class="meta-val">
+                        <span class="status-pill
+                            {% if bill.status == 'PAID' %}status-paid
+                            {% elif bill.status == 'PARTIAL' %}status-partial
+                            {% else %}status-unpaid{% endif %}">
+                            {{ bill.status }}
+                        </span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parties Section -->
+    <div class="parties-wrapper">
+        <!-- Supplier Card -->
+        <div class="party-card">
+            <div class="party-card-head">
+                <span>Supplier / Vendor (Consignor)</span>
+                {% if supplier and supplier.gst_number and supplier.gst_number|length >= 2 %}
+                <span>State Code: {{ supplier.gst_number[:2] }}</span>
+                {% endif %}
+            </div>
+            <div class="party-card-body">
+                <div class="party-name">{{ supplier.name if supplier else 'Vendor Entity' }}</div>
+                <div class="party-text">
+                    {% if supplier and supplier.address %}{{ supplier.address }}<br>{% endif %}
+                    {% if supplier and supplier.city %}{{ supplier.city }}, {% endif %}
+                    {% if supplier and supplier.state %}{{ supplier.state }}{% endif %}
+                    {% if supplier and supplier.pincode %} — {{ supplier.pincode }}{% endif %}
+                </div>
+                <div class="party-gstin">
+                    GSTIN: <span>{{ supplier.gst_number if (supplier and supplier.gst_number) else 'UNREGISTERED' }}</span>
+                    {% if supplier and supplier.pan_number %} &nbsp;|&nbsp; PAN: {{ supplier.pan_number }}{% endif %}
+                </div>
+                {% if supplier and (supplier.phone or supplier.mobile) %}
+                <div class="party-text" style="margin-top:2px;">Phone: {{ supplier.phone or supplier.mobile }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Buyer / Store Card -->
+        <div class="party-card">
+            <div class="party-card-head">
+                <span>Buyer / Receiver (Our Business)</span>
+                {% if bill.place_of_supply %}
+                <span>POS: {{ bill.place_of_supply }}</span>
+                {% endif %}
+            </div>
+            <div class="party-card-body">
+                <div class="party-name">{{ company.name }}</div>
+                <div class="party-text">
+                    {% if company.office_address_1 %}{{ company.office_address_1 }}{% endif %}
+                    {% if company.office_address_2 %}, {{ company.office_address_2 }}{% endif %}<br>
+                    {% if company.registered_state %}{{ company.registered_state }}{% endif %}{% if company.pincode %} — {{ company.pincode }}{% endif %}
+                </div>
+                <div class="party-gstin">
+                    GSTIN: <span>{{ company.gst_number | default('—') }}</span>
+                </div>
+                <div class="party-text" style="margin-top:2px;">
+                    Destination Warehouse / Store: {{ company.name }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Line Items Table -->
+    <div class="table-container">
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th style="width: 4%;">#</th>
+                    <th style="text-align:left; width: 40%;">Item Description / Details</th>
+                    <th style="width: 11%;">HSN/SAC</th>
+                    <th style="width: 8%;">Qty</th>
+                    <th style="width: 12%; text-align:right;">Unit Cost (₹)</th>
+                    <th style="width: 8%;">Tax %</th>
+                    <th style="width: 17%; text-align:right;">Line Total (₹)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td class="text-center font-bold">{{ "%02d"|format(loop.index) }}</td>
+                    <td>
+                        <div class="prod-name">{{ item.product.name if item.product else (item.product_name | default('—')) }}</div>
+                        {% if item.note or (item.product and (item.product.sku or item.product.unit)) %}
+                        <div class="prod-note">
+                            {% if item.product and item.product.sku %}SKU: {{ item.product.sku }}{% endif %}
+                            {% if item.product and item.product.unit %} &nbsp;Unit: {{ item.product.unit }}{% endif %}
+                            {% if item.note %} &nbsp;| Note: {{ item.note }}{% endif %}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {{ item.hsn_code if item.hsn_code else (item.product.hsn_code if (item.product and item.product.hsn_code) else '—') }}
+                    </td>
+                    <td class="text-center font-bold">
+                        {{ item.quantity | int if (item.quantity == item.quantity | int) else "%.2f"|format(item.quantity) }}
+                    </td>
+                    <td class="text-right">{{ "%.2f"|format(item.unit_price) }}</td>
+                    <td class="text-center font-bold">{{ item.tax_rate | int }}%</td>
+                    <td class="text-right font-bold">{{ "%.2f"|format(item.total) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center" style="padding:16px; color:#94A3B8; font-style:italic;">
+                        No line items recorded for this purchase bill.
+                    </td>
+                </tr>
+                {% endfor %}
+
+                <!-- Subtotal Row -->
+                <tr class="subtotal-row">
+                    <td colspan="3" class="font-bold" style="text-align: right; padding-right: 12px;">Total Items Summary:</td>
+                    <td class="text-center font-bold">{{ total_qty | int }}</td>
+                    <td colspan="2" class="text-right font-bold">Taxable Subtotal:</td>
+                    <td class="text-right font-bold">₹ {{ "%.2f"|format(bill.subtotal) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Summary & Footer Block -->
+    <div class="summary-wrapper">
+        <!-- Left: Notes & Terms -->
+        <div class="summary-left">
+            {% if bill.notes %}
+            <div class="info-card">
+                <div class="info-card-title">Narration / Bill Notes</div>
+                <div class="info-card-text">{{ bill.notes }}</div>
+            </div>
+            {% endif %}
+
+            <div class="info-card">
+                <div class="info-card-title">Terms &amp; Payment Guidelines</div>
+                <div class="info-card-text">
+                    1. Payment Due Date: <strong>{{ bill.due_date.strftime('%d-%m-%Y') if bill.due_date else 'On Receipt' }}</strong>.<br>
+                    2. Input Tax Credit (ITC) subject to GSTR-2B filing status.<br>
+                    3. All goods received subject to physical inventory audit.
+                </div>
+            </div>
+
+            {% if company.bank_name or company.account_no %}
+            <div class="info-card">
+                <div class="info-card-title">Our Bank Account Details</div>
+                <div class="info-card-text">
+                    {% if company.bank_name %}<strong>Bank:</strong> {{ company.bank_name }} &nbsp;|&nbsp; {% endif %}
+                    {% if company.account_no %}<strong>A/C:</strong> {{ company.account_no }} &nbsp;|&nbsp; {% endif %}
+                    {% if company.ifsc_code %}<strong>IFSC:</strong> {{ company.ifsc_code }}{% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Right: Tax Breakdown & Grand Total -->
+        <div class="summary-right">
+            <table class="tax-table">
+                <tr>
+                    <td class="tax-label">Taxable Subtotal</td>
+                    <td class="tax-val">₹ {{ "%.2f"|format(bill.subtotal) }}</td>
+                </tr>
+                {% if cgst_amount and cgst_amount > 0 %}
+                <tr>
+                    <td class="tax-label">(+) Central Tax (CGST)</td>
+                    <td class="tax-val">₹ {{ "%.2f"|format(cgst_amount) }}</td>
+                </tr>
+                {% endif %}
+                {% if sgst_amount and sgst_amount > 0 %}
+                <tr>
+                    <td class="tax-label">(+) State Tax (SGST)</td>
+                    <td class="tax-val">₹ {{ "%.2f"|format(sgst_amount) }}</td>
+                </tr>
+                {% endif %}
+                {% if igst_amount and igst_amount > 0 %}
+                <tr>
+                    <td class="tax-label">(+) Integrated Tax (IGST)</td>
+                    <td class="tax-val">₹ {{ "%.2f"|format(igst_amount) }}</td>
+                </tr>
+                {% endif %}
+                {% if round_off and round_off != 0 %}
+                <tr>
+                    <td class="tax-label">Round Off Adjust</td>
+                    <td class="tax-val">₹ {{ "%.2f"|format(round_off) }}</td>
+                </tr>
+                {% endif %}
+            </table>
+
+            <div class="grand-total-card">
+                <div class="gt-label">Total Payable</div>
+                <div class="gt-val">₹ {{ "%.2f"|format(bill.total) }}</div>
+            </div>
+
+            {% if bill.amount_paid and bill.amount_paid > 0 %}
+            <div style="font-size: 8pt; display: flex; justify-content: space-between; padding: 4px 6px; background: #F1F5F9; border-radius: 4px; font-weight: 700;">
+                <span>Paid: ₹ {{ "%.2f"|format(bill.amount_paid) }}</span>
+                <span style="color: #DC2626;">Balance Due: ₹ {{ "%.2f"|format(bill.balance_due) }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Amount in Words -->
+    <div class="words-card">
+        <span class="words-label">Amount in Words:</span>
+        <strong>{{ amount_in_words }}</strong>
+    </div>
+
+    <!-- Verification Protocol & Signatory -->
+    <div class="protocol-wrapper">
+        <div class="protocol-left">
+            <div class="protocol-title">Goods Receipt Verification Protocol</div>
+            1. Verified physical delivery of stock items against vendor shipment note.<br>
+            2. Purchase prices, tax rates, and discounts cross-checked with commercial terms.<br>
+            3. Goods posted into stock ledger; ITC eligible for GSTR-2B reconciliation.
+        </div>
+        <div class="protocol-right">
+            <div class="sign-company">For {{ company.name }}</div>
+            <div class="sign-space"></div>
+            <div class="sign-label">Authorized Signatory / Receiver</div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

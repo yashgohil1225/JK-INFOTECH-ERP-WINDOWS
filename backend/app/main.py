@@ -160,6 +160,11 @@ async def startup_event():
     else:
         print("JK ERP: SYSTEM ACTIVATED. Hardware bound successfully.")
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.core.redis import cache_manager
+    await cache_manager.close()
+
 
 # --- Security: Rate Limiting ---
 from slowapi import _rate_limit_exceeded_handler  # pyrefly: ignore [missing-import]

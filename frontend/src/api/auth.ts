@@ -160,6 +160,10 @@ export const authApi = {
     return response.data;
   },
 
+  deleteCompany: async (company_id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/companies/${company_id}`);
+  },
+
   setPin: async (data: SetPinRequest): Promise<{ message: string }> => {
     const response = await apiClient.post<{ message: string }>('/api/auth/set-pin', data);
     return response.data;

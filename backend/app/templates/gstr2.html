@@ -136,7 +136,9 @@
     // Set headers
     document.getElementById('company-name').textContent = reportData.company.name;
     document.getElementById('company-address').textContent = reportData.company.address;
-    document.getElementById('company-gstin').textContent = 'GOODS AND SERVICES TAX IDENTIFICATION NUMBER: ' + reportData.company.gst_number;
+    const gstStr = reportData.company.gst_number ? ('GSTIN: ' + reportData.company.gst_number) : '';
+    const panStr = reportData.company.pan_number ? ('PAN: ' + reportData.company.pan_number) : (reportData.company.gst_number && reportData.company.gst_number.length >= 12 ? 'PAN: ' + reportData.company.gst_number.substring(2, 12) : '');
+    document.getElementById('company-gstin').textContent = [gstStr, panStr].filter(Boolean).join('  |  ') || 'GSTIN: URP';
     document.getElementById('report-title').textContent = 'GOODS AND SERVICES TAX GSTR-2 MONTHLY INWARD ANALYSIS REPORT FROM : ' + reportData.period.start + ' TO : ' + reportData.period.end;
 
     const tbody = document.getElementById('report-body');

@@ -9,7 +9,8 @@ import { useUIStore } from "../../store/uiStore";
 
 interface ToggleProps {
   value: boolean;
-  onChange: (v: boolean) => void;
+  onChange?: (v: boolean) => void;
+  onValueChange?: (v: boolean) => void;
   label?: string;
   disabled?: boolean;
   onLabel?: string;
@@ -19,6 +20,7 @@ interface ToggleProps {
 export function Toggle({
   value,
   onChange,
+  onValueChange,
   label,
   disabled = false,
   onLabel = "On",
@@ -51,7 +53,11 @@ export function Toggle({
   return (
     <Pressable
       disabled={disabled}
-      onPress={() => onChange(!value)}
+      onPress={() => {
+        const next = !value;
+        onChange?.(next);
+        onValueChange?.(next);
+      }}
       style={({ hovered }: any) => [
         styles.container,
         disabled && { opacity: 0.5 },

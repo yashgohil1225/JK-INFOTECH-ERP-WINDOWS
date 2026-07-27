@@ -91,7 +91,8 @@ th, td {
 <div class="report-container">
   <div class="header-title" id="comp-name">COMPANY NAME</div>
   <div class="header-subtitle" id="comp-addr">Company Address</div>
-  <div class="header-meta" id="report-period">GSTR-2 SUMMARY USING FOR GSTR-9 INWARD ANALYSIS REPORT</div>
+  <div class="header-subtitle" id="comp-gstin-pan" style="font-weight: bold; margin-top: 2px;"></div>
+  <div class="header-meta" id="report-period" style="margin-top: 4px;">GSTR-2 SUMMARY USING FOR GSTR-9 INWARD ANALYSIS REPORT</div>
 
   <div id="tables-container">
     <!-- Dynamic tables will be rendered here -->
@@ -104,6 +105,9 @@ const report = JSON.parse(rawData);
 
 document.getElementById('comp-name').textContent = report.company.name.toUpperCase();
 document.getElementById('comp-addr').textContent = report.company.address;
+const gstStr = report.company.gst_number ? ('GSTIN: ' + report.company.gst_number) : '';
+const panStr = report.company.pan_number ? ('PAN: ' + report.company.pan_number) : (report.company.gst_number && report.company.gst_number.length >= 12 ? 'PAN: ' + report.company.gst_number.substring(2, 12) : '');
+document.getElementById('comp-gstin-pan').textContent = [gstStr, panStr].filter(Boolean).join('  |  ');
 document.getElementById('report-period').textContent = `GSTR-2 SUMMARY USING FOR GSTR-9 INWARD ANALYSIS REPORT FROM : ${report.period.start} TO : ${report.period.end}`;
 
 const container = document.getElementById('tables-container');

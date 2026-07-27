@@ -13,6 +13,7 @@ import {
   Alert
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
@@ -167,7 +168,7 @@ function InlineSelect({ label, value, options, onChange, C }: {
 
 // ─── Main Screen ───────────────────────────────────────────────
 export default function PartiesScreen() {
-  const { activeScreen, isDarkMode, setIsFullScreenOpen } = useUIStore();
+  const { activeScreen, isDarkMode, setIsFullScreenOpen, setActiveScreen } = useUIStore();
   const { company } = useAuthStore();
   const queryClient = useQueryClient();
 
@@ -183,6 +184,8 @@ export default function PartiesScreen() {
   const [formTab, setFormTab] = useState<1 | 2 | 3 | 4>(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpModalCategory, setHelpModalCategory] = useState<HelpCategory>("PARTIES_GUIDE");
 
   const C = isDarkMode
     ? { bg: "#0F172A", surface: "#1E293B", border: "#334155", textPrimary: "#F8FAFC", textSecondary: "#94A3B8", accent: "#38BDF8", divider: "#334155", statusActive: "#22C55E", statusInactive: "#EF4444", isDarkMode: true }
@@ -290,11 +293,21 @@ export default function PartiesScreen() {
     else createMutation.mutate(payload);
   };
 
+  // ── Multi-field Effective Search ──
   const filteredParties = useMemo(() => {
     return parties.filter(p => {
       const matchStatus = statusFilter === "ALL" || (statusFilter === "ACTIVE" && p.is_active) || (statusFilter === "INACTIVE" && !p.is_active);
-      const q = searchQuery.toLowerCase();
-      const matchSearch = !q || p.name.toLowerCase().includes(q) || (p.gst_number && p.gst_number.toLowerCase().includes(q)) || (p.phone && p.phone.includes(q)) || (p.city && p.city.toLowerCase().includes(q));
+      const q = searchQuery.toLowerCase().trim();
+      const matchSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        (p.phone && p.phone.toLowerCase().includes(q)) ||
+        (p.email && p.email.toLowerCase().includes(q)) ||
+        (p.gst_number && p.gst_number.toLowerCase().includes(q)) ||
+        (p.city && p.city.toLowerCase().includes(q)) ||
+        (p.state && p.state.toLowerCase().includes(q)) ||
+        ((p as any).outstanding_balance && (p as any).outstanding_balance.toString().includes(q)) ||
+        ((p as any).balance && (p as any).balance.toString().includes(q));
       return matchStatus && matchSearch;
     });
   }, [parties, searchQuery, statusFilter]);
@@ -345,14 +358,32 @@ export default function PartiesScreen() {
       {/* ─── LEFT: MASTER LIST ─── */}
       <View style={[styles.masterSection, selectedParty && { flex: 0.6, borderRightWidth: 1, borderRightColor: C.divider }]}>
         <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: C.accent, fontFamily: "Segoe UI Variable Text" }}>
-            PARTIES / {entityLabelPlural.toUpperCase()}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Pressable onPress={() => setActiveScreen("DASHBOARD")} style={({ hovered }: any) => [hovered && { opacity: 0.8 }]}>
+              <Text style={{ fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: C.accent, fontFamily: "Segoe UI Variable Text" }}>
+                DASHBOARD
+              </Text>
+            </Pressable>
+            <Text style={{ fontSize: 12, fontWeight: "700", letterSpacing: 1.2, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>
+              {" / "}PARTIES / {entityLabelPlural.toUpperCase()}
+            </Text>
+          </View>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ fontSize: 28, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }}>
               {entityLabelPlural} Registry
             </Text>
-            <Button title={`+ Add ${entityLabel}`} onPress={openAdd} variant="primary" size="medium" />
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Button
+                title="❓ Help & Guide"
+                onPress={() => {
+                  setHelpModalCategory("PARTIES_GUIDE");
+                  setIsHelpModalOpen(true);
+                }}
+                variant="secondary"
+                size="medium"
+              />
+              <Button title={`+ Add ${entityLabel}`} onPress={openAdd} variant="primary" size="medium" />
+            </View>
           </View>
           <Text style={{ fontSize: 15, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>
             Manage {entityLabelPlural.toLowerCase()}, payment terms, outstanding balances & contact details.
@@ -490,7 +521,7 @@ export default function PartiesScreen() {
               <Button title={`Discard ${entityLabel}`} onPress={() => { setIsFormOpen(false); setFormTab(1); setIsFullScreenOpen(false); }} variant="secondary" size="large" style={{ minWidth: 140 }} />
               {formTab < 4
                 ? <Button title="Next ›" onPress={() => setFormTab(t => Math.min(4, t + 1) as any)} variant="primary" size="large" style={{ minWidth: 120 }} />
-                : <Button title={isEditMode ? `Update ${entityLabel}` : `Save ${entityLabel}`} onPress={handleSave} variant="primary" size="large" loading={createMutation.isPending || updateMutation.isPending} style={{ minWidth: 160 }} />
+                : <Button title={isEditMode ? `Update ${entityLabel}` : `Save ${entityLabel}`} onPress={handleSave} variant="primary" size="large" loading={createMutation.isPending || updateMutation.isPending} loadingText={isEditMode ? `Updating ${entityLabel}...` : `Saving ${entityLabel}...`} style={{ minWidth: 160 }} />
               }
             </View>
           </View>
@@ -730,8 +761,13 @@ export default function PartiesScreen() {
               </View>
             </View>
           )}
-        </View>
+          </View>
       </FullScreenModal>
+      <ModuleHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        initialCategory={helpModalCategory}
+      />
     </View>
   );
 }

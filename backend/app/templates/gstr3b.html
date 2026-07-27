@@ -226,10 +226,14 @@
       <td class="details-value" id="comp-legal-name">-</td>
     </tr>
     <tr>
-      <td class="details-label">2(b). Trade Name (if any)</td>
+      <td class="details-label">2(b). Trade Name</td>
       <td class="details-value" id="comp-trade-name">-</td>
-      <td class="details-label">Filing Status</td>
-      <td class="details-value">PROVISIONAL / GENERATED</td>
+      <td class="details-label">Permanent Account No. (PAN)</td>
+      <td class="details-value" id="comp-pan-no">-</td>
+    </tr>
+    <tr>
+      <td class="details-label">Registered Address</td>
+      <td class="details-value" colspan="3" id="comp-address">-</td>
     </tr>
   </table>
 
@@ -430,6 +434,10 @@
   document.getElementById('comp-gstin').textContent = reportData.company.gst_number || "URP";
   document.getElementById('comp-legal-name').textContent = reportData.company.name;
   document.getElementById('comp-trade-name').textContent = reportData.company.name;
+  const gst = reportData.company.gst_number || "";
+  const pan = reportData.company.pan_number || (gst.length >= 12 ? gst.substring(2, 12) : "-");
+  document.getElementById('comp-pan-no').textContent = pan;
+  document.getElementById('comp-address').textContent = reportData.company.address || "-";
   
   // Format dates for tax period
   function formatPeriod(startStr, endStr) {

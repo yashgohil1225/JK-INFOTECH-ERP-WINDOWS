@@ -26,6 +26,7 @@ from app.schemas.sales import (
 from app.services.compliance import process_statutory_integrations
 from app.services.reports import ReportService
 from app.services.sequence_service import get_next_document_number
+from app.core.redis import cache_manager
 # pyrefly: ignore [missing-import]
 from fastapi.responses import Response
 
@@ -267,6 +268,7 @@ async def create_invoice(
 
     await process_statutory_integrations(company, new_invoice)
     await db.commit()
+    await cache_manager.invalidate_prefix(f"company:{company.id}:")
 
     
     result = await db.execute(
@@ -412,6 +414,8 @@ async def update_sales_invoice(
 
     await process_statutory_integrations(company, invoice)
     await db.commit()
+    await cache_manager.invalidate_prefix(f"company:{company.id}:")
+    await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
 
     
     # Reload invoice with items and customer
@@ -479,6 +483,8 @@ async def delete_sales_invoice(
 
     await db.delete(invoice)
     await db.commit()
+    await cache_manager.invalidate_prefix(f"company:{company.id}:")
+    await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -508,6 +514,21 @@ async def public_invoice_pdf(
     db: AsyncSession = Depends(get_db)
 ):
     try:
+        cache_key = f"invoice:pdf:{invoice_id}:{theme or ''}:{copy_type or 'original'}:{orientation or 'portrait'}:{search or ''}"
+        cached_pdf = await cache_manager.get_bytes(cache_key)
+        if cached_pdf is not None:
+            import json
+            return Response(
+                content=cached_pdf,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"inline; filename=Tax_Invoice_{invoice_id}.pdf",
+                    "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
+                    "X-PDF-Search-Matches": json.dumps([]),
+                    "X-Cache": "HIT"
+                }
+            )
+
         stmt = select(Invoice).where(Invoice.id == invoice_id)
         result = await db.execute(stmt)
         invoice = result.scalar_one_or_none()
@@ -523,13 +544,16 @@ async def public_invoice_pdf(
             landscape=(orientation == "landscape"),
             search_query=search
         )
+        await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
         import json
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"inline; filename=Tax_Invoice_{invoice_id}.pdf",
-                "X-PDF-Search-Matches": json.dumps(match_counts)
+                "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
+                "X-PDF-Search-Matches": json.dumps(match_counts),
+                "X-Cache": "MISS"
             }
         )
     except ValueError as ve:
@@ -577,8 +601,28 @@ async def get_invoice_pdf(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
-    service = ReportService(db, company.id)
     try:
+        cache_key = f"invoice:pdf:{invoice_id}:{theme or ''}:{copy_type or 'original'}:{orientation or 'portrait'}:{search or ''}"
+        cached_pdf = await cache_manager.get_bytes(cache_key)
+        if cached_pdf is not None:
+            # Fetch invoice number for filename
+            inv_stmt = select(Invoice.invoice_number).where(Invoice.id == invoice_id, Invoice.company_id == company.id)
+            inv_result = await db.execute(inv_stmt)
+            inv_number = inv_result.scalar_one_or_none() or str(invoice_id)
+            safe_filename = inv_number.replace('/', '_').replace(' ', '_')
+            import json
+            return Response(
+                content=cached_pdf,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"inline; filename=Tax_Invoice_{safe_filename}.pdf",
+                    "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
+                    "X-PDF-Search-Matches": json.dumps([]),
+                    "X-Cache": "HIT"
+                }
+            )
+
+        service = ReportService(db, company.id)
         # Fetch invoice number for filename
         inv_stmt = select(Invoice.invoice_number).where(Invoice.id == invoice_id, Invoice.company_id == company.id)
         inv_result = await db.execute(inv_stmt)
@@ -593,14 +637,16 @@ async def get_invoice_pdf(
             landscape=(orientation == "landscape"),
             search_query=search
         )
+        await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
         import json
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f"inline; filename=Tax_Invoice_{safe_filename}.pdf",
-                "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches",
-                "X-PDF-Search-Matches": json.dumps(match_counts)
+                "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
+                "X-PDF-Search-Matches": json.dumps(match_counts),
+                "X-Cache": "MISS"
             }
         )
     except Exception as e:

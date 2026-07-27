@@ -136,7 +136,10 @@
     document.getElementById('company-title').textContent = reportData.companyInfo.name;
     let detailsHTML = '';
     if (reportData.companyInfo.address) detailsHTML += `Address: ${reportData.companyInfo.address}<br>`;
-    if (reportData.companyInfo.gst_number) detailsHTML += `GSTIN: ${reportData.companyInfo.gst_number} | `;
+    const gstStr = reportData.companyInfo.gst_number ? `GSTIN: ${reportData.companyInfo.gst_number}` : '';
+    const panStr = reportData.companyInfo.pan_number ? `PAN: ${reportData.companyInfo.pan_number}` : (reportData.companyInfo.gst_number && reportData.companyInfo.gst_number.length >= 12 ? `PAN: ${reportData.companyInfo.gst_number.substring(2, 12)}` : '');
+    const gstPanCombined = [gstStr, panStr].filter(Boolean).join(' | ');
+    if (gstPanCombined) detailsHTML += `${gstPanCombined}<br>`;
     if (reportData.companyInfo.contact) detailsHTML += `Phone: ${reportData.companyInfo.contact} | `;
     if (reportData.companyInfo.email) detailsHTML += `Email: ${reportData.companyInfo.email}`;
     document.getElementById('company-details').innerHTML = detailsHTML;

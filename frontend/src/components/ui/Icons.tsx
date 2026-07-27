@@ -178,3 +178,13 @@ export function ActiveCustomersKPIIcon({ size = 20 }: { size?: number }) {
     />
   );
 }
+
+export function PrinterIcon({ size = 18 }: { size?: number; color?: string }) {
+  return (
+    <Image
+      source={require("../print_icon_for_print_preview.png")}
+      style={{ width: size, height: size, resizeMode: "contain" }}
+    />
+  );
+}
+

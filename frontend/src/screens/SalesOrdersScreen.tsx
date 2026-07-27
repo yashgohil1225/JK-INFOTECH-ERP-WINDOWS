@@ -896,23 +896,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   detailPanel: {
-    flex: 1.3,
+    flex: 0.55,
     borderLeftWidth: 1,
   },
   detailScroll: {
-    padding: 24,
+    paddingBottom: 40,
   },
   detailHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    marginBottom: 20,
   },
   detailTitle: {
-    fontSize: 21,
-    fontWeight: "800",
+    fontSize: 18,
+    fontWeight: "700",
     fontFamily: "Segoe UI Variable Display",
   },
   closeBtn: {

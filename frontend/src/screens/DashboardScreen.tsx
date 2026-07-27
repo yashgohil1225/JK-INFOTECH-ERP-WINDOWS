@@ -7,12 +7,14 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   Pressable,
   ActivityIndicator,
   DimensionValue,
   Image,
+  DeviceEventEmitter,
 } from "react-native";
 
 // Preload dashboard KPI icon assets early for instant rendering and to eliminate flickering
@@ -27,7 +29,7 @@ const preloadKpiIcons = () => {
     assets.forEach((asset) => {
       const resolved = Image.resolveAssetSource(asset);
       if (resolved && resolved.uri) {
-        Image.prefetch(resolved.uri).catch(() => {});
+        Image.prefetch(resolved.uri).catch(() => { });
       }
     });
   } catch (err) {
@@ -56,7 +58,7 @@ const fmt = (n: number | undefined | null) => {
 };
 
 export default function DashboardScreen() {
-  const { isDarkMode, setActiveScreen } = useUIStore();
+  const { isDarkMode, setActiveScreen, setGlobalSearchOpen } = useUIStore();
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -67,41 +69,41 @@ export default function DashboardScreen() {
 
   const colors = isDarkMode
     ? {
-        background: "#0F172A",
-        cardBg: "#1E293B",
-        cardBorder: "#334155",
-        textPrimary: "#F8FAFC",
-        textSecondary: "#94A3B8",
-        accent: "#38BDF8",
-        accentHover: "#0EA5E9",
-        divider: "#334155",
-        success: "#4ADE80",
-        warning: "#FBBF24",
-        error: "#F87171",
-        salesBar: "#38BDF8",
-        purchaseBar: "#EC4899",
-        stripeRow: "#1E293B",
-        shortcutBg: "#0F172A",
-        shortcutBorder: "#334155",
-      }
+      background: "#0F172A",
+      cardBg: "#1E293B",
+      cardBorder: "#334155",
+      textPrimary: "#F8FAFC",
+      textSecondary: "#94A3B8",
+      accent: "#38BDF8",
+      accentHover: "#0EA5E9",
+      divider: "#334155",
+      success: "#4ADE80",
+      warning: "#FBBF24",
+      error: "#F87171",
+      salesBar: "#38BDF8",
+      purchaseBar: "#EC4899",
+      stripeRow: "#1E293B",
+      shortcutBg: "#0F172A",
+      shortcutBorder: "#334155",
+    }
     : {
-        background: "#F8FAFC",
-        cardBg: "#FFFFFF",
-        cardBorder: "#E2E8F0",
-        textPrimary: "#0F172A",
-        textSecondary: "#64748B",
-        accent: "#0284C7",
-        accentHover: "#0369A1",
-        divider: "#E2E8F0",
-        success: "#16A34A",
-        warning: "#D97706",
-        error: "#DC2626",
-        salesBar: "#0284C7",
-        purchaseBar: "#DB2777",
-        stripeRow: "#F8FAFC",
-        shortcutBg: "#F1F5F9",
-        shortcutBorder: "#E2E8F0",
-      };
+      background: "#F8FAFC",
+      cardBg: "#FFFFFF",
+      cardBorder: "#E2E8F0",
+      textPrimary: "#0F172A",
+      textSecondary: "#64748B",
+      accent: "#0284C7",
+      accentHover: "#0369A1",
+      divider: "#E2E8F0",
+      success: "#16A34A",
+      warning: "#D97706",
+      error: "#DC2626",
+      salesBar: "#0284C7",
+      purchaseBar: "#DB2777",
+      stripeRow: "#F8FAFC",
+      shortcutBg: "#F1F5F9",
+      shortcutBorder: "#E2E8F0",
+    };
 
   // ── Data Queries ───────────────────────────────────────────
   const { data: kpis, isLoading: isKpiLoading } = useQuery({
@@ -171,22 +173,63 @@ export default function DashboardScreen() {
       showsVerticalScrollIndicator={true}
     >
       {/* ── Screen Header Block ────────────────────────────────── */}
-      <View style={styles.header}>
-        <Text style={[styles.breadcrumb, { color: colors.accent }]}>
-          DASHBOARD / ANALYTICS
-        </Text>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
-          Telemetry Control Panel
-        </Text>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Real-time enterprise metrics, liquidity balances, and operations comparison.
-        </Text>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <View style={styles.header}>
+          <Text style={[styles.breadcrumb, { color: colors.accent }]}>
+            DASHBOARD / ANALYTICS
+          </Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]}>
+            Business Overview & Dashboard
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Live sales metrics, cash balance, and business performance summary.
+          </Text>
+        </View>
+
+        {/* Upper Right Global Universal Search Widget */}
+        <Pressable
+          onPress={() => {
+            setGlobalSearchOpen(true);
+          }}
+          style={({ hovered }: any) => [
+            {
+              flexDirection: "row",
+              alignItems: "center",
+              backgroundColor: colors.cardBg,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              borderRadius: 8,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              minWidth: 350,
+              gap: 10,
+              elevation: 2,
+              cursor: "pointer" as any,
+            },
+            hovered && { borderColor: colors.accent, backgroundColor: isDarkMode ? "#334155" : "#F1F5F9" }
+          ]}
+        >
+          <Text style={{ fontSize: 16, color: colors.textSecondary }}>🔍</Text>
+          <Text style={{ flex: 1, fontSize: 13.5, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text" }}>
+            Search invoices, parties, SKUs, reports...
+          </Text>
+          <View style={{ backgroundColor: isDarkMode ? "#334155" : "#E2E8F0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary }}>Ctrl + K</Text>
+          </View>
+        </Pressable>
       </View>
 
       {/* ── KPI Cards Grid ────────────────────────────────────── */}
       <View style={styles.kpiGrid}>
         {/* KPI: Sales Revenue */}
-        <View style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+        <Pressable
+          onPress={() => setActiveScreen("SALES")}
+          style={({ hovered }: any) => [
+            styles.kpiCard,
+            { backgroundColor: colors.cardBg, borderColor: colors.cardBorder },
+            hovered && { opacity: 0.9, borderColor: colors.accent }
+          ]}
+        >
           <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? "rgba(56, 189, 248, 0.12)" : "rgba(2, 132, 199, 0.08)" }]}>
             <TotalSalesKPIIcon size={20} />
           </View>
@@ -201,10 +244,17 @@ export default function DashboardScreen() {
               ▲ +12.4% vs last month
             </Text>
           </View>
-        </View>
+        </Pressable>
 
         {/* KPI: Receivables */}
-        <View style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+        <Pressable
+          onPress={() => setActiveScreen("CUSTOMERS")}
+          style={({ hovered }: any) => [
+            styles.kpiCard,
+            { backgroundColor: colors.cardBg, borderColor: colors.cardBorder },
+            hovered && { opacity: 0.9, borderColor: colors.accent }
+          ]}
+        >
           <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? "rgba(251, 191, 36, 0.12)" : "rgba(217, 119, 6, 0.08)" }]}>
             <TotalReceivablesKPIIcon size={20} />
           </View>
@@ -219,10 +269,17 @@ export default function DashboardScreen() {
               Customer outstanding
             </Text>
           </View>
-        </View>
+        </Pressable>
 
         {/* KPI: Payables */}
-        <View style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+        <Pressable
+          onPress={() => setActiveScreen("VENDORS")}
+          style={({ hovered }: any) => [
+            styles.kpiCard,
+            { backgroundColor: colors.cardBg, borderColor: colors.cardBorder },
+            hovered && { opacity: 0.9, borderColor: colors.accent }
+          ]}
+        >
           <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? "rgba(248, 113, 113, 0.12)" : "rgba(220, 38, 38, 0.08)" }]}>
             <TotalPayablesKPIIcon size={20} />
           </View>
@@ -237,10 +294,17 @@ export default function DashboardScreen() {
               Supplier outstanding
             </Text>
           </View>
-        </View>
+        </Pressable>
 
         {/* KPI: Active Customers */}
-        <View style={[styles.kpiCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+        <Pressable
+          onPress={() => setActiveScreen("CUSTOMERS")}
+          style={({ hovered }: any) => [
+            styles.kpiCard,
+            { backgroundColor: colors.cardBg, borderColor: colors.cardBorder },
+            hovered && { opacity: 0.9, borderColor: colors.accent }
+          ]}
+        >
           <View style={[styles.iconBadge, { backgroundColor: isDarkMode ? "rgba(168, 85, 247, 0.12)" : "rgba(147, 51, 234, 0.08)" }]}>
             <ActiveCustomersKPIIcon size={20} />
           </View>
@@ -255,7 +319,7 @@ export default function DashboardScreen() {
               Registry accounts sync
             </Text>
           </View>
-        </View>
+        </Pressable>
       </View>
 
       {/* ── Main Analytical Panels (Split View) ────────────────── */}
@@ -413,6 +477,7 @@ export default function DashboardScreen() {
               title: "Create Invoices",
               desc: "Generate bills and receipts for customers",
               target: "SALES",
+              key: "F2",
             },
             {
               id: "PURCHASE",
@@ -420,6 +485,7 @@ export default function DashboardScreen() {
               title: "Record Bills",
               desc: "Log inbound bills and vendor purchases",
               target: "PURCHASE",
+              key: "F3",
             },
             {
               id: "INVENTORY",
@@ -427,6 +493,7 @@ export default function DashboardScreen() {
               title: "Check Inventory",
               desc: "Manage product stock levels and reorder values",
               target: "INVENTORY",
+              key: "F7",
             },
             {
               id: "BANK_CASH",
@@ -434,6 +501,23 @@ export default function DashboardScreen() {
               title: "Treasury Logs",
               desc: "Perform bank reconcile logs and cash deposits",
               target: "BANK_CASH",
+              key: "F9",
+            },
+            {
+              id: "VENDORS",
+              icon: "🏢",
+              title: "Vendor Registry",
+              desc: "Manage suppliers, payment terms, and vendor payables",
+              target: "VENDORS",
+              key: "Shift+F8",
+            },
+            {
+              id: "CUSTOMERS",
+              icon: "👥",
+              title: "Customer Registry",
+              desc: "Manage customers, credit limits, and receivables",
+              target: "CUSTOMERS",
+              key: "F8",
             },
             {
               id: "REPORTS",
@@ -441,6 +525,7 @@ export default function DashboardScreen() {
               title: "Audit Reports",
               desc: "Run complete P&L statements and tax filings",
               target: "REPORTS",
+              key: "F6",
             },
           ].map((sc) => (
             <Pressable
@@ -464,10 +549,30 @@ export default function DashboardScreen() {
             >
               <Text style={styles.shortcutIcon}>{sc.icon}</Text>
               <View style={styles.shortcutTextGroup}>
-                <Text style={[styles.shortcutTitle, { color: colors.textPrimary }]}>
-                  {sc.title}
-                </Text>
-                <Text style={[styles.shortcutDesc, { color: colors.textSecondary }]}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
+                  <Text style={[styles.shortcutTitle, { color: colors.textPrimary, flex: 1 }]} numberOfLines={1}>
+                    {sc.title}
+                  </Text>
+                  <View style={{
+                    backgroundColor: isDarkMode ? "rgba(56, 189, 248, 0.22)" : "rgba(2, 132, 199, 0.15)",
+                    paddingHorizontal: 9,
+                    paddingVertical: 3,
+                    borderRadius: 6,
+                    borderWidth: 1.5,
+                    borderColor: colors.accent,
+                    flexShrink: 0,
+                  }}>
+                    <Text style={{
+                      fontSize: 12.5,
+                      fontWeight: "850",
+                      color: colors.accent,
+                      fontFamily: "Segoe UI Variable Display"
+                    }}>
+                      {sc.key}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.shortcutDesc, { color: colors.textSecondary }]} numberOfLines={2}>
                   {sc.desc}
                 </Text>
               </View>
@@ -732,14 +837,16 @@ const styles = StyleSheet.create({
   shortcutGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: 14,
   },
   shortcutItem: {
     flex: 1,
-    minWidth: 180,
+    minWidth: 240,
+    maxWidth: 320,
     borderWidth: 1,
     borderRadius: 8,
-    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

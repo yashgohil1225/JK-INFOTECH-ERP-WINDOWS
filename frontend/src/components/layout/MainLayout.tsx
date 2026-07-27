@@ -3,13 +3,14 @@
 // File : src/components/layout/MainLayout.tsx
 // =============================================================
 
-import React from "react";
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
+import React, { useEffect } from "react";
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, DeviceEventEmitter } from "react-native";
 import Sidebar from "./Sidebar";
 import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { Modal } from "../ui/Modal";
 import { CalendarPicker } from "../ui/DatePicker";
+import { GlobalSearchModal } from "../ui/GlobalSearchModal";
 
 import { getCurrentAppVersion } from "../../services/CloudUpdateService";
 
@@ -18,35 +19,119 @@ interface MainLayoutProps {
 }
 
 export default function MainLayout({ children }: MainLayoutProps) {
-  const { isDarkMode, activeScreen, isSidebarCollapsed, isCreatingInvoice, isPrintPreviewOpen, isFullScreenOpen, globalLoadingMessage, globalLoadingSubtext, activeDatePicker, setActiveDatePicker } = useUIStore();
+  const { isDarkMode, activeScreen, setActiveScreen, isSidebarCollapsed, isCreatingInvoice, isPrintPreviewOpen, isFullScreenOpen, isGlobalSearchOpen, setGlobalSearchOpen, globalLoadingMessage, globalLoadingSubtext, activeDatePicker, setActiveDatePicker } = useUIStore();
   const { user, company } = useAuthStore();
+  const rootRef = React.useRef<any>(null);
+
+  useEffect(() => {
+    const handleGlobalKey = (e: any) => {
+      if (!e) return;
+      const key = e.key;
+      const ctrl = e.ctrlKey || e.metaKey;
+      const shift = e.shiftKey;
+      const alt = e.altKey;
+
+      // Ctrl + K -> Global Search
+      if (ctrl && (key === "k" || key === "K")) {
+        if (e.preventDefault) e.preventDefault();
+        setGlobalSearchOpen(true);
+        return;
+      }
+
+      // F2 -> Sales Invoices (Shift+F2 -> Sales Orders, Ctrl+F2 -> Returns)
+      if (key === "F2" || key === "f2") {
+        if (e.preventDefault) e.preventDefault();
+        if (shift) setActiveScreen("ORDERS");
+        else if (ctrl) setActiveScreen("RETURNS");
+        else setActiveScreen("SALES");
+        return;
+      }
+
+      // F3 -> Purchases
+      if (key === "F3" || key === "f3") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("PURCHASES");
+        return;
+      }
+
+      // F6 -> Reports
+      if (key === "F6" || key === "f6") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("REPORTS");
+        return;
+      }
+
+      // F7 -> Inventory
+      if (key === "F7" || key === "f7") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("INVENTORY");
+        return;
+      }
+
+      // F8 -> Parties (Customers / Vendors)
+      if (key === "F8" || key === "f8") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("PARTIES");
+        return;
+      }
+
+      // F9 -> Banking
+      if (key === "F9" || key === "f9") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("BANKING");
+        return;
+      }
+
+      // F10 -> Settings
+      if (key === "F10" || key === "f10") {
+        if (e.preventDefault) e.preventDefault();
+        setActiveScreen("SETTINGS");
+        return;
+      }
+    };
+
+    if (typeof window !== "undefined" && window.addEventListener) {
+      window.addEventListener("keydown", handleGlobalKey);
+    }
+
+    const sub = DeviceEventEmitter.addListener("globalKeyDown", handleGlobalKey);
+
+    return () => {
+      if (typeof window !== "undefined" && window.removeEventListener) {
+        window.removeEventListener("keydown", handleGlobalKey);
+      }
+      sub.remove();
+    };
+  }, [setActiveScreen, setGlobalSearchOpen]);
 
   const colors = isDarkMode
     ? {
-      mainBg: "#121212", // Clean dark theme background
-      headerBg: "#1C1C1C", // Panel background
+      mainBg: "#0F172A", // Obsidian Slate dark theme
+      headerBg: "#1E293B", // Elevated panel
+      cardBg: "#1E293B",
       border: "rgba(255, 255, 255, 0.08)",
-      textPrimary: "#FFFFFF",
-      textSecondary: "#8E8E8E",
+      textPrimary: "#F8FAFC",
+      textSecondary: "#94A3B8",
       hoverBg: "rgba(255, 255, 255, 0.06)",
-      statusBarBg: "#1C1C1C",
-      statusBarText: "#A0A0A0",
-      accent: "#60CDFF"
+      statusBarBg: "#0B1120",
+      statusBarText: "#94A3B8",
+      accent: "#38BDF8"
     }
     : {
-      mainBg: "#F9F9F9", // Sleek light theme background
-      headerBg: "#FFFFFF", // Panel background
-      border: "rgba(0, 0, 0, 0.06)",
-      textPrimary: "#1C1C1C",
-      textSecondary: "#6E6E6E",
-      hoverBg: "rgba(0, 0, 0, 0.04)",
-      statusBarBg: "#F3F3F3",
-      statusBarText: "#5F5F5F",
-      accent: "#0078D4"
+      mainBg: "#F8FAFC", // Crisp Studio light theme
+      headerBg: "#FFFFFF", // Elevated white panel
+      cardBg: "#FFFFFF",
+      border: "rgba(15, 23, 42, 0.08)",
+      textPrimary: "#0F172A",
+      textSecondary: "#64748B",
+      hoverBg: "rgba(15, 23, 42, 0.04)",
+      statusBarBg: "#F1F5F9",
+      statusBarText: "#64748B",
+      accent: "#0284C7"
     };
 
   return (
-    <View focusable={false} style={[styles.container, { backgroundColor: colors.mainBg }]}>
+    <View style={[styles.container, { backgroundColor: colors.mainBg }]}>
 
       {/* 3. WORKSPACE CORE */}
       <View focusable={false} style={styles.workspaceWrapper}>
@@ -127,6 +212,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
           />
         </Modal>
       )}
+
+      {/* Global Universal Search & Command Palette Modal (Ctrl+K) */}
+      <GlobalSearchModal
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setGlobalSearchOpen(false)}
+      />
     </View>
   );
 }
@@ -276,5 +367,53 @@ const styles = StyleSheet.create({
   globalLoadingSubtext: {
     fontSize: 13.5,
     fontFamily: "Segoe UI Variable Text",
+  },
+  topHeader: {
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    fontFamily: "Segoe UI Variable Display",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  headerRightRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  searchChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 8,
+  },
+  searchChipText: {
+    fontSize: 12.5,
+    fontFamily: "Segoe UI Variable Text",
+  },
+  kbdBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  kbdText: {
+    fontSize: 11,
+    fontWeight: "700",
+    fontFamily: "Segoe UI Variable Display",
   },
 });

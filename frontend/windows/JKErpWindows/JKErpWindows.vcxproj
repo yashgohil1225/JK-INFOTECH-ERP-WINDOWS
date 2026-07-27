@@ -15,6 +15,7 @@
     <ApplicationType>Windows Store</ApplicationType>
     <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
     <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <CppWinRTSDKReferences>$(CppWinRTSDKReferences);Y:\.nuget\packages\microsoft.reactnative\0.75.20\lib\uap10.0\Microsoft.ReactNative.winmd</CppWinRTSDKReferences>
   </PropertyGroup>
   <PropertyGroup Label="ReactNativeWindowsProps">
     <ReactNativeWindowsDir Condition="'$(ReactNativeWindowsDir)' == ''">$([MSBuild]::GetDirectoryNameOfFileAbove($(SolutionDir), 'node_modules\react-native-windows\package.json'))\node_modules\react-native-windows\</ReactNativeWindowsDir>
@@ -105,6 +106,13 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <!-- Explicit Reference so XAML compiler can resolve ReactApplication from Microsoft.ReactNative -->
+    <Reference Include="Y:\.nuget\packages\microsoft.reactnative\0.75.20\lib\uap10.0\Microsoft.ReactNative.winmd">
+      <Private>false</Private>
+      <IsWinMDFile>true</IsWinMDFile>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="MainPage.h">
       <DependentUpon>MainPage.xaml</DependentUpon>
       <SubType>Code</SubType>
@@ -177,6 +185,11 @@
   <ItemGroup>
     <None Include="JKErpWindows_TemporaryKey.pfx" />
     <None Include="PropertySheet.props" />
+    <None Include="Y:\.nuget\packages\microsoft.reactnative\0.75.20\runtimes\win10-$(Platform)\native\Microsoft.ReactNative.dll" Condition="Exists('Y:\.nuget\packages\microsoft.reactnative\0.75.20\runtimes\win10-$(Platform)\native\Microsoft.ReactNative.dll')">
+      <DeploymentContent>true</DeploymentContent>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Microsoft.ReactNative.dll</Link>
+    </None>
     <Text Include="readme.txt">
       <DeploymentContent>false</DeploymentContent>
     </Text>
@@ -186,8 +199,8 @@
       <SubType>Designer</SubType>
     </Page>
   </ItemGroup>
-  <ItemGroup>
-  </ItemGroup>
+
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ReactNativeWindowsTargets">
     <Import Project="$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppApp.targets" Condition="Exists('$(ReactNativeWindowsDir)\PropertySheets\External\Microsoft.ReactNative.Uwp.CppApp.targets')" />

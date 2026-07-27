@@ -133,6 +133,7 @@
     <div class="company-details">
       {% if company.address %}Address: {{ company.address }}<br>{% endif %}
       {% if company.gst_number %}GSTIN: {{ company.gst_number }}{% endif %}
+      {% if company.pan_number %} | PAN: {{ company.pan_number }}{% elif company.gst_number and company.gst_number|length >= 12 %} | PAN: {{ company.gst_number[2:12] }}{% endif %}
     </div>
     <div class="clear"></div>
   </div>

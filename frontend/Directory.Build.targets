@@ -14,11 +14,34 @@
        Using NuGet package (UseExperimentalNuget=true) which provides Microsoft.ReactNative.winmd automatically. -->
   <Target Name="_CppWinRTCleanMakeReferenceProjectionOutputs" />
   <Target Name="CopyPrebuiltPriFiles" BeforeTargets="_GenerateProjectPriFileCore">
+    <!-- Intentionally left blank: NuGet package supplies Microsoft.ReactNative.pri -->
+  </Target>
+  <Target Name="FilterPayloadOutputs"
+          BeforeTargets="_GenerateProjectPriFileCore;_CalculateInputsForGenerateProjectPriFileCore;_GenerateProjectPriConfigurationFiles;_GetPackageOutputs;_ValidatePayloadFiles"
+          AfterTargets="_ComputeInputPriFiles;_GetPriFilesFromPayload">
     <ItemGroup>
-      <!-- Only include the .pri file if it exists (source build). Skipped when using NuGet packages. -->
-      <PrebuiltPriFiles Include="$(ReactNativeWindowsDir)target\ReactCommon\ReactCommon.pri"
-                        Condition="Exists('$(ReactNativeWindowsDir)target\ReactCommon\ReactCommon.pri')" />
+      <!-- 1. Remove non-existent items from all payload and PRI item groups -->
+      <PackagingOutputs Remove="@(PackagingOutputs)" Condition="!Exists('%(Identity)')" />
+      <_PriFilesFromPayloadRaw Remove="@(_PriFilesFromPayloadRaw)" Condition="!Exists('%(Identity)')" />
+      <_PriFilesFromPayload Remove="@(_PriFilesFromPayload)" Condition="!Exists('%(Identity)')" />
+      <_PriFile Remove="@(_PriFile)" Condition="!Exists('%(Identity)')" />
+      <_PriFileToMerge Remove="@(_PriFileToMerge)" Condition="!Exists('%(Identity)')" />
+
+      <!-- 2. Remove duplicate PRI and payload files originating from react-native-windows target and build directories -->
+      <_PriFileToMerge Remove="@(_PriFileToMerge)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+      <_PriFileToMerge Remove="@(_PriFileToMerge)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/build/'))" />
+
+      <_PriFilesFromPayload Remove="@(_PriFilesFromPayload)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+      <_PriFilesFromPayload Remove="@(_PriFilesFromPayload)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/build/'))" />
+
+      <_PriFilesFromPayloadRaw Remove="@(_PriFilesFromPayloadRaw)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+      <_PriFilesFromPayloadRaw Remove="@(_PriFilesFromPayloadRaw)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+
+      <PackagingOutputs Remove="@(PackagingOutputs)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+      <PackagingOutputs Remove="@(PackagingOutputs)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/build/'))" />
+
+      <_PriFile Remove="@(_PriFile)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/target/'))" />
+      <_PriFile Remove="@(_PriFile)" Condition="$([System.String]::Copy('%(Identity)').Replace('\','/').ToLower().Contains('react-native-windows/build/'))" />
     </ItemGroup>
-    <Copy SourceFiles="@(PrebuiltPriFiles)" DestinationFiles="@(PrebuiltPriFiles->'$(ReactNativeWindowsDir)target\$(Platform)\$(Configuration)\ReactCommon\ReactCommon.pri')" SkipUnchangedFiles="true" Condition="'@(PrebuiltPriFiles)' != ''" />
   </Target>
 </Project>

@@ -3,8 +3,8 @@
 // File : App.tsx
 // =============================================================
 
-import React, { useEffect, useState, useRef } from "react";
-import { StatusBar, StyleSheet, useColorScheme, View, Text, ActivityIndicator, Pressable, LogBox, DeviceEventEmitter } from "react-native";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { StatusBar, StyleSheet, useColorScheme, View, Text, ActivityIndicator, Pressable, LogBox, DeviceEventEmitter, TextInput } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { storage } from "./src/utils/storage";
 import { useAuthStore } from "./src/store/authStore";
@@ -24,6 +24,22 @@ const queryClient = new QueryClient({
   },
 });
 
+const RNW_KEY_EVENTS = [
+  { key: "F1", code: "F1", isHandledEvent: true }, { key: "F2", code: "F2", isHandledEvent: true },
+  { key: "F3", code: "F3", isHandledEvent: true }, { key: "F4", code: "F4", isHandledEvent: true },
+  { key: "F5", code: "F5", isHandledEvent: true }, { key: "F6", code: "F6", isHandledEvent: true },
+  { key: "F7", code: "F7", isHandledEvent: true }, { key: "F8", code: "F8", isHandledEvent: true },
+  { key: "F9", code: "F9", isHandledEvent: true }, { key: "F10", code: "F10", isHandledEvent: true },
+  { key: "F11", code: "F11", isHandledEvent: true },
+  { key: "f1", isHandledEvent: true }, { key: "f2", isHandledEvent: true },
+  { key: "f3", isHandledEvent: true }, { key: "f4", isHandledEvent: true },
+  { key: "f5", isHandledEvent: true }, { key: "f6", isHandledEvent: true },
+  { key: "f7", isHandledEvent: true }, { key: "f8", isHandledEvent: true },
+  { key: "f9", isHandledEvent: true }, { key: "f10", isHandledEvent: true },
+  { key: "f11", isHandledEvent: true },
+  { key: "Escape", code: "Escape", isHandledEvent: true }
+];
+
 // Screens and Layouts
 import MainLayout from "./src/components/layout/MainLayout";
 import AuthScreen from "./src/screens/AuthScreen";
@@ -40,16 +56,34 @@ import ReportsScreen from "./src/screens/ReportsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import { useLicenseStore } from "./src/store/licenseStore";
 import LicenseScreen from "./src/screens/LicenseScreen";
+import PinLockScreen from "./src/screens/PinLockScreen";
 import { Modal } from "./src/components/ui/Modal";
 import { UpdateModal } from "./src/components/ui/UpdateModal";
 
 function AppContent() {
-  const { isLoggedIn, company, localAutoLogin, isAuthenticating } = useAuthStore();
-  const { activeScreen, isDarkMode } = useUIStore();
+  const systemColorScheme = useColorScheme();
+  const { isLoggedIn, isLocked, company, localAutoLogin, isAuthenticating } = useAuthStore();
+  const { activeScreen, isDarkMode, isCreatingInvoice, updateSystemTheme, setThemeMode } = useUIStore();
   const { isFrozen, checkLicenseStatus, checking, licenseChecked } = useLicenseStore();
 
   const rootRef = useRef<any>(null);
+  const keyInputRef = useRef<any>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+
+  // Sync system color scheme when mode === "system"
+  useEffect(() => {
+    updateSystemTheme(systemColorScheme ?? null);
+  }, [systemColorScheme]);
+
+  // Preload saved theme on initial mount
+  useEffect(() => {
+    storage.preload(["jk_theme_mode", "jk-erp-auth", "access_token"]).then(() => {
+      const savedTheme = storage.getItemSync("jk_theme_mode") as any;
+      if (savedTheme) {
+        setThemeMode(savedTheme, systemColorScheme ?? null);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     checkLicenseStatus().catch(() => {});
@@ -78,6 +112,57 @@ function AppContent() {
     };
   }, [isFrozen, isLoggedIn, localAutoLogin, licenseChecked]);
 
+  // Refocus keyInputRef on mount, login, screen change, or modal close
+  useEffect(() => {
+    if (isLoggedIn && !isCreatingInvoice && !isHelpOpen) {
+      const timers = [50, 150, 300, 600, 1200, 2500].map(delay =>
+        setTimeout(() => {
+          try {
+            keyInputRef.current?.focus();
+            rootRef.current?.focus();
+          } catch (e) {}
+        }, delay)
+      );
+      return () => timers.forEach(t => clearTimeout(t));
+    }
+  }, [isLoggedIn, company, activeScreen, isCreatingInvoice, isHelpOpen]);
+
+  // Window/Document-level keyboard event capture (for instant hotkey response on app launch before mouse click)
+  useEffect(() => {
+    const handleNativeWindowKeyDown = (e: any) => {
+      if (!e) return;
+      handleGlobalKeyDown({
+        nativeEvent: {
+          key: e.key,
+          code: e.code,
+          keyCode: e.keyCode,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          shiftKey: e.shiftKey,
+        }
+      });
+    };
+
+    const targetWin: any = typeof window !== "undefined" ? window : null;
+    const targetDoc: any = typeof document !== "undefined" ? document : null;
+
+    if (targetWin?.addEventListener) {
+      targetWin.addEventListener("keydown", handleNativeWindowKeyDown, true);
+    }
+    if (targetDoc?.addEventListener) {
+      targetDoc.addEventListener("keydown", handleNativeWindowKeyDown, true);
+    }
+
+    return () => {
+      if (targetWin?.removeEventListener) {
+        targetWin.removeEventListener("keydown", handleNativeWindowKeyDown, true);
+      }
+      if (targetDoc?.removeEventListener) {
+        targetDoc.removeEventListener("removeEventListener", handleNativeWindowKeyDown, true);
+      }
+    };
+  }, [handleGlobalKeyDown]);
+
   // Listen to showKeyboardHelp event
   useEffect(() => {
     const subHelp = DeviceEventEmitter.addListener("showKeyboardHelp", () => {
@@ -86,16 +171,25 @@ function AppContent() {
     return () => subHelp.remove();
   }, []);
 
-  const handleGlobalKeyDown = (e: any) => {
-    if (!e || !e.nativeEvent) return;
-    const { key, ctrlKey, altKey, shiftKey } = e.nativeEvent;
+  const handleGlobalKeyDown = useCallback((e: any) => {
+    if (!e) return;
+    const ne = e.nativeEvent || e;
+    const rawKey = ne.key || "";
+    const code = ne.code || "";
+    const keyCode = ne.keyCode || 0;
+    const ctrlKey = !!ne.ctrlKey;
+    const altKey = !!ne.altKey;
+    const shiftKey = !!ne.shiftKey;
+
+    const k = rawKey.toUpperCase();
     
-    // Broadcast event to screen-local listeners (e.g. to close custom modals on Escape, or save on Ctrl+S)
-    DeviceEventEmitter.emit("globalKeyDown", { key, ctrlKey, altKey, shiftKey });
+    // Broadcast event to screen-local listeners
+    DeviceEventEmitter.emit("globalKeyDown", { key: rawKey, code, keyCode, ctrlKey, altKey, shiftKey });
+
+    const ui = useUIStore.getState();
 
     // Global dialog state manager handles Escape keys
-    if (key === "Escape") {
-      const ui = useUIStore.getState();
+    if (k === "ESCAPE" || k === "ESC" || rawKey === "Escape" || keyCode === 27) {
       if (ui.activeDatePicker) {
         ui.setActiveDatePicker(null);
         return;
@@ -118,42 +212,64 @@ function AppContent() {
       }
     }
 
+    // If Create Invoice modal is open, protect inner modal keyboard flow from screen switching
+    if (ui.isCreatingInvoice) {
+      return;
+    }
+
+    // F2 handling with Shift / Ctrl modifiers
+    if (k === "F2" || code === "F2" || keyCode === 113) {
+      if (shiftKey) {
+        ui.setActiveScreen("SALES_ORDERS");
+      } else if (ctrlKey) {
+        ui.setActiveScreen("RETURNS");
+      } else {
+        ui.setActiveScreen("SALES");
+      }
+      return;
+    }
+
     // Ctrl / Alt hotkeys
     if (ctrlKey || altKey) {
-      if (altKey && key === "c") {
-        useAuthStore.getState().setCompany(null);
+      if (altKey && (k === "A" || rawKey === "a" || keyCode === 65)) {
+        ui.setActiveScreen("SALES");
+        ui.setIsCreatingInvoice(true);
       }
-      if (altKey && key === "l") {
-        useAuthStore.getState().logout();
+      if (altKey && (k === "C" || rawKey === "c" || keyCode === 67)) {
+        useAuthStore.getState().setCompany(null as any);
+      }
+      if (altKey && (k === "L" || rawKey === "l" || keyCode === 76)) {
+        useAuthStore.getState().setLocked(true);
       }
     } else {
-      // Functional Keys
-      switch (key) {
-        case "F1":
-          setIsHelpOpen((prev) => !prev);
-          break;
-        case "F2":
-          useUIStore.getState().setActiveScreen("SALES");
-          useUIStore.getState().setIsCreatingInvoice(true);
-          break;
-        case "F3":
-          useUIStore.getState().setActiveScreen("PURCHASE");
-          break;
-        case "F4":
-          useUIStore.getState().toggleSidebar();
-          break;
-        case "F5":
-          DeviceEventEmitter.emit("refreshScreenData");
-          break;
-        case "F6":
-          useUIStore.getState().setActiveScreen("REPORTS");
-          break;
-        case "F10":
-          useUIStore.getState().setActiveScreen("SETTINGS");
-          break;
+      // Functional Keys by key string, code name, or VK keyCode
+      if (k === "F1" || code === "F1" || keyCode === 112) {
+        ui.setActiveScreen("DASHBOARD");
+      } else if (k === "F3" || code === "F3" || keyCode === 114) {
+        ui.setActiveScreen("PURCHASE");
+      } else if (k === "F4" || code === "F4" || keyCode === 115) {
+        ui.toggleSidebar();
+      } else if (k === "F5" || code === "F5" || keyCode === 116) {
+        DeviceEventEmitter.emit("refreshScreenData");
+      } else if (k === "F6" || code === "F6" || keyCode === 117) {
+        ui.setActiveScreen("REPORTS");
+      } else if (k === "F7" || code === "F7" || keyCode === 118) {
+        ui.setActiveScreen("INVENTORY");
+      } else if (k === "F8" || code === "F8" || keyCode === 119) {
+        if (shiftKey) {
+          ui.setActiveScreen("VENDORS");
+        } else {
+          ui.setActiveScreen("CUSTOMERS");
+        }
+      } else if (k === "F9" || code === "F9" || keyCode === 120) {
+        ui.setActiveScreen("BANK_CASH");
+      } else if (k === "F10" || code === "F10" || keyCode === 121) {
+        ui.setActiveScreen("SETTINGS");
+      } else if (k === "F11" || code === "F11" || keyCode === 122) {
+        setIsHelpOpen((prev) => !prev);
       }
     }
-  };
+  }, [isHelpOpen]);
 
   const themeColors = isDarkMode
     ? { text: "#FFFFFF", bg: "transparent" } // Transparent allows Mica to show
@@ -161,7 +277,6 @@ function AppContent() {
 
   // Route to the appropriate screen
   const renderActiveScreen = () => {
-    const screenName = activeScreen.replace("_", " ");
     switch (activeScreen) {
       case "DASHBOARD":
         return <DashboardScreen />;
@@ -173,45 +288,19 @@ function AppContent() {
         return <ReturnsScreen />;
       case "PURCHASE":
         return <PurchasesScreen />;
-      case "CUSTOMERS":
-      case "VENDORS":
-        return <PartiesScreen />;
       case "INVENTORY":
         return <InventoryScreen />;
       case "BANK_CASH":
         return <BankingScreen />;
+      case "CUSTOMERS":
+      case "VENDORS":
+        return <PartiesScreen />;
       case "REPORTS":
         return <ReportsScreen />;
       case "SETTINGS":
         return <SettingsScreen />;
       default:
-        return (
-          <View style={styles.placeholderContainer}>
-            <View style={[styles.placeholderCard, { backgroundColor: isDarkMode ? "#1C1C1C" : "#FFFFFF", borderColor: isDarkMode ? "#2C2C2C" : "#E5E5E5" }]}>
-              <Text style={[styles.placeholderIcon, { fontFamily: "Segoe MDL2 Assets", color: isDarkMode ? "#60CDFF" : "#0078D4" }]}>
-                {"\uE825"} {/* Construction Icon */}
-              </Text>
-              <Text style={[styles.placeholderTitle, { color: isDarkMode ? "#FFFFFF" : "#1A1A1A" }]}>
-                {screenName} Module
-              </Text>
-              <Text style={[styles.placeholderDesc, { color: isDarkMode ? "#8E8E8E" : "#6E6E6E" }]}>
-                This system node is currently undergoing native WinUI integration and will be available in the upcoming compilation.
-              </Text>
-              <Pressable
-                onPress={() => useUIStore.getState().setActiveScreen("DASHBOARD")}
-                style={(state?: any) => [
-                  styles.backBtn,
-                  { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)" },
-                  state?.hovered && { opacity: 0.8 }
-                ]}
-              >
-                <Text style={[styles.backBtnText, { color: isDarkMode ? "#FFFFFF" : "#1A1A1A" }]}>
-                  Return to Dashboard
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        );
+        return <DashboardScreen />;
     }
   };
 
@@ -257,6 +346,9 @@ function AppContent() {
   }
 
   const renderContentTree = () => {
+    if (isLocked) {
+      return <PinLockScreen />;
+    }
     if (!company) {
       return <CompanySelectScreen />;
     }
@@ -265,12 +357,24 @@ function AppContent() {
 
   return (
     <View
-      focusable={false}
+      ref={rootRef}
+      focusable={true}
+      isTabStop={true}
+      autoFocus={true}
+      tabIndex={0}
       style={{ flex: 1 }}
       {...({
+        keyDownEvents: RNW_KEY_EVENTS,
         onKeyDown: handleGlobalKeyDown
       } as any)}
     >
+      <TextInput
+        ref={keyInputRef}
+        autoFocus={true}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0.01, zIndex: -1, top: 0, left: 0 }}
+        showSoftInputOnFocus={false}
+        onKeyPress={(e: any) => handleGlobalKeyDown(e)}
+      />
       {renderContentTree()}
 
       {/* Cloud Auto-Update Checker Modal */}
@@ -312,11 +416,19 @@ function AppContent() {
             </Text>
             <View style={styles.helpRow}>
               <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F1</Text>
-              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Open / close this shortcuts help guide</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Main Dashboard</Text>
             </View>
             <View style={styles.helpRow}>
               <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F2</Text>
-              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Invoices & open New Invoice Form</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Invoices screen</Text>
+            </View>
+            <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>Shift + F2</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Sales Orders screen</Text>
+            </View>
+            <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>Ctrl + F2</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Returns screen</Text>
             </View>
             <View style={styles.helpRow}>
               <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F3</Text>
@@ -335,8 +447,24 @@ function AppContent() {
               <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Reports & Ledger Registers Hub</Text>
             </View>
             <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F7</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Inventory & Stock Register</Text>
+            </View>
+            <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F8</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Parties Directory (Customers / Shift+F8 for Vendors)</Text>
+            </View>
+            <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F9</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to Banking & Cash Registers</Text>
+            </View>
+            <View style={styles.helpRow}>
               <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F10</Text>
               <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Go to System Settings Screen</Text>
+            </View>
+            <View style={styles.helpRow}>
+              <Text style={[styles.helpKey, { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)", borderColor: isDarkMode ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)", color: isDarkMode ? "#FFFFFF" : "#1C1C1C" }]}>F11</Text>
+              <Text style={[styles.helpDesc, { color: isDarkMode ? "#E2E8F0" : "#334155" }]}>Open / close this shortcuts help guide</Text>
             </View>
           </View>
 

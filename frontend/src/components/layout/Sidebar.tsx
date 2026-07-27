@@ -63,6 +63,7 @@ interface SidebarMenuItemProps {
     glyph: string;
     color?: string;
     badge?: number;
+    shortcutKey?: string;
   };
   isActive: boolean;
   isSidebarCollapsed: boolean;
@@ -94,12 +95,20 @@ function SidebarMenuItem({ item, isActive, isSidebarCollapsed, onPress, colors }
               styles.menuLabel,
               {
                 color: isActive ? colors.activeAccent : colors.textPrimary,
-                fontWeight: isActive ? "600" : "400"
+                fontWeight: isActive ? "700" : "500",
+                flex: 1
               }
             ]}
           >
             {item.label}
           </Text>
+          {item.shortcutKey && (
+            <View style={[styles.shortcutTag, { backgroundColor: colors.shortcutTagBg, borderColor: colors.shortcutTagBorder }]}>
+              <Text style={[styles.shortcutTagText, { color: colors.shortcutTagText }]}>
+                {item.shortcutKey}
+              </Text>
+            </View>
+          )}
           {item.badge !== undefined && (
             <View style={[styles.badge, { backgroundColor: colors.badgeBg }]}>
               <Text style={styles.badgeText}>{item.badge}</Text>
@@ -123,42 +132,42 @@ export default function Sidebar() {
     {
       title: "MAIN",
       items: [
-        { id: "DASHBOARD", label: "Dashboard", glyph: GLYPHS.DASHBOARD, color: "#0078D4" }
+        { id: "DASHBOARD", label: "Dashboard", glyph: GLYPHS.DASHBOARD, color: "#0078D4", shortcutKey: "F1" }
       ]
     },
     {
       title: "SALES",
       items: [
-        { id: "SALES", label: "Invoices", glyph: GLYPHS.SALES, color: "#E81123" },
-        { id: "SALES_ORDERS", label: "Sales Orders", glyph: "\uE81C", color: "#107C41" },
-        { id: "RETURNS", label: "Returns", glyph: "\uE7A7", color: "#F7630C" }
+        { id: "SALES", label: "Invoices", glyph: GLYPHS.SALES, color: "#E81123", shortcutKey: "F2" },
+        { id: "SALES_ORDERS", label: "Sales Orders", glyph: "\uE81C", color: "#107C41", shortcutKey: "Shift+F2" },
+        { id: "RETURNS", label: "Returns", glyph: "\uE7A7", color: "#F7630C", shortcutKey: "Ctrl+F2" }
       ]
     },
     {
       title: "PARTIES",
       items: [
-        { id: "CUSTOMERS", label: "Customers", glyph: "\uE77B", color: "#8764B8" },
-        { id: "VENDORS", label: "Vendors", glyph: "\uE13D", color: "#008272" }
+        { id: "CUSTOMERS", label: "Customers", glyph: "\uE77B", color: "#8764B8", shortcutKey: "F8" },
+        { id: "VENDORS", label: "Vendors", glyph: "\uE13D", color: "#008272", shortcutKey: "Shift+F8" }
       ]
     },
     {
       title: "STOCK",
       items: [
-        { id: "INVENTORY", label: "Inventory", glyph: GLYPHS.INVENTORY, color: "#FFB900" },
-        { id: "PURCHASE", label: "Purchases", glyph: GLYPHS.PURCHASE, color: "#B4009E" }
+        { id: "INVENTORY", label: "Inventory", glyph: GLYPHS.INVENTORY, color: "#FFB900", shortcutKey: "F7" },
+        { id: "PURCHASE", label: "Purchases", glyph: GLYPHS.PURCHASE, color: "#B4009E", shortcutKey: "F3" }
       ]
     },
     {
       title: "FINANCE",
       items: [
-        { id: "BANK_CASH", label: "Bank & Cash", glyph: GLYPHS.BANK_CASH, color: "#00B7C3" },
-        { id: "REPORTS", label: "Reports", glyph: GLYPHS.REPORTS, color: "#8764B8" }
+        { id: "BANK_CASH", label: "Bank & Cash", glyph: GLYPHS.BANK_CASH, color: "#00B7C3", shortcutKey: "F9" },
+        { id: "REPORTS", label: "Reports", glyph: GLYPHS.REPORTS, color: "#8764B8", shortcutKey: "F6" }
       ]
     },
     {
       title: "SYSTEM",
       items: [
-        { id: "SETTINGS", label: "Settings", glyph: "\uE713", color: "#64748B" }
+        { id: "SETTINGS", label: "Settings", glyph: "\uE713", color: "#64748B", shortcutKey: "F10" }
       ]
     }
   ];
@@ -166,29 +175,35 @@ export default function Sidebar() {
   // Fluent design palette based on Dark/Light mode
   const colors = isDarkMode
     ? {
-        sidebarBg: "#1E293B", // Premium dark slate background
-        textPrimary: "#F1F5F9",
-        textSecondary: "#8A94A6",
-        sectionHeader: "#64748B",
-        hoverBg: "#334155", // Slate-type dark hover
-        activeBg: "#0C4A6E", // Premium soft light blue active tab background
-        activeAccent: "#38BDF8", // Fluent active text blue
-        divider: "rgba(255, 255, 255, 0.08)",
-        badgeBg: "#38BDF8",
-        badgeText: "#000000"
-      }
+      sidebarBg: "#1E293B", // Premium dark slate background
+      textPrimary: "#F1F5F9",
+      textSecondary: "#8A94A6",
+      sectionHeader: "#64748B",
+      hoverBg: "#334155", // Slate-type dark hover
+      activeBg: "#0C4A6E", // Premium soft light blue active tab background
+      activeAccent: "#38BDF8", // Fluent active text blue
+      divider: "rgba(255, 255, 255, 0.08)",
+      badgeBg: "#38BDF8",
+      badgeText: "#000000",
+      shortcutTagBg: "rgba(56, 189, 248, 0.16)",
+      shortcutTagBorder: "rgba(56, 189, 248, 0.4)",
+      shortcutTagText: "#38BDF8",
+    }
     : {
-        sidebarBg: "#F3F4F6", // Premium light grey background
-        textPrimary: "#374151",
-        textSecondary: "#6B7280",
-        sectionHeader: "#9CA3AF",
-        hoverBg: "#E2E8F0", // Slate-type light hover
-        activeBg: "#BAE6FD", // Deep sky blue active tab background — clearly visible
-        activeAccent: "#0284C7", // Corporate active text blue
-        divider: "rgba(0, 0, 0, 0.08)",
-        badgeBg: "#0284C7",
-        badgeText: "#FFFFFF"
-      };
+      sidebarBg: "#F3F4F6", // Premium light grey background
+      textPrimary: "#374151",
+      textSecondary: "#6B7280",
+      sectionHeader: "#9CA3AF",
+      hoverBg: "#E2E8F0", // Slate-type light hover
+      activeBg: "#BAE6FD", // Deep sky blue active tab background — clearly visible
+      activeAccent: "#0284C7", // Corporate active text blue
+      divider: "rgba(0, 0, 0, 0.08)",
+      badgeBg: "#0284C7",
+      badgeText: "#FFFFFF",
+      shortcutTagBg: "rgba(2, 132, 199, 0.12)",
+      shortcutTagBorder: "rgba(2, 132, 199, 0.4)",
+      shortcutTagText: "#0284C7",
+    };
 
   return (
     <View style={[styles.sidebar, { backgroundColor: colors.sidebarBg, width: isSidebarCollapsed ? 64 : 260, borderRightColor: colors.divider }]}>
@@ -201,11 +216,11 @@ export default function Sidebar() {
             onHoverOut={() => setIsToggleHovered(false)}
             style={[
               styles.logoContainer,
-              { 
-                justifyContent: "center", 
-                alignItems: "center", 
-                width: 44, 
-                height: 44, 
+              {
+                justifyContent: "center",
+                alignItems: "center",
+                width: 44,
+                height: 44,
                 borderRadius: 8,
                 alignSelf: "center",
                 flex: 0
@@ -253,7 +268,11 @@ export default function Sidebar() {
       <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       {/* Grouped Menu Options */}
-      <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={true}>
+      <ScrollView
+        style={styles.scrollContainer}
+        showsVerticalScrollIndicator={true}
+        indicatorStyle={isDarkMode ? "white" : "black"}
+      >
         {navigationGroups.map((group, groupIdx) => (
           <View key={groupIdx} style={styles.groupContainer}>
             {!isSidebarCollapsed && (
@@ -286,8 +305,8 @@ export default function Sidebar() {
               `User: ${user?.full_name || "Enterprise User"}\nActive Workspace: ${company?.name || "None"}\n\nWould you like to switch to another company workspace?`,
               [
                 { text: "Stay here", style: "cancel" },
-                { 
-                  text: "Switch Workspace", 
+                {
+                  text: "Switch Workspace",
                   onPress: () => {
                     useAuthStore.getState().setCompany(null as any);
                   }
@@ -312,11 +331,24 @@ export default function Sidebar() {
                 {user?.full_name || "Enterprise User"}
               </Text>
               <Text style={[styles.profileRole, { color: colors.textSecondary }]} numberOfLines={1}>
-                {user?.is_superadmin ? "Administrator" : "User Node"}
+                {user?.is_superadmin ? "Administrator" : "Standard User"}
               </Text>
             </View>
           )}
         </Pressable>
+        {!isSidebarCollapsed && !!(user?.has_pin && user?.pin_login_enabled) && (
+          <Pressable
+            onPress={() => useAuthStore.getState().setLocked(true)}
+            onHoverIn={() => setIsLogoutHovered(true)}
+            onHoverOut={() => setIsLogoutHovered(false)}
+            style={[
+              styles.logoutBtn,
+              isLogoutHovered && { backgroundColor: colors.hoverBg }
+            ]}
+          >
+            <Text style={{ fontSize: 14, color: colors.textSecondary }}>🔒</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -447,6 +479,19 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "800",
     color: "#FFFFFF",
+  },
+  shortcutTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    marginLeft: 6,
+  },
+  shortcutTagText: {
+    fontSize: 11,
+    fontWeight: "900",
+    fontFamily: "Segoe UI Variable Display",
+    letterSpacing: 0.10,
   },
   footer: {
     paddingTop: 12,

@@ -335,7 +335,7 @@ export default function ReportsScreen() {
       };
 
   // ── State ──────────────────────────────────────────────────
-  const [selectedReport, setSelectedReport] = useState<ReportMeta | null>(null);
+  const [selectedReport, setSelectedReport] = useState<ReportMeta | null>(REPORT_CATEGORIES[0].reports[0]);
   const [startDate, setStartDate] = useState(monthStart());
   const [endDate, setEndDate] = useState(today());
   const [asOf, setAsOf] = useState(today());
@@ -367,6 +367,18 @@ export default function ReportsScreen() {
   const { data: customers = [] } = useQuery<any[]>({
     queryKey: ["customers_for_reports"],
     queryFn: async () => (await apiClient.get("/api/customers")).data,
+  });
+  const { data: gstSummaryKpi } = useQuery<any>({
+    queryKey: ["gst_summary_kpi_header"],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get("/api/v1/reports/gst");
+        return res.data;
+      } catch (e) {
+        return null;
+      }
+    },
+    staleTime: 60000,
   });
   const { data: suppliers = [] } = useQuery<any[]>({
     queryKey: ["suppliers_for_reports"],
@@ -448,46 +460,6 @@ export default function ReportsScreen() {
     if (!reportData) return null;
     const key = selectedReport?.key;
 
-    // GST Summary
-    if (key === "gst_summary") return (
-      <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-        <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>GST Summary</Text>
-        <View style={styles.kvGrid}>
-          <KVRow label="Total Sales Value" value={fmt(reportData.total_sales_value)} colors={colors} />
-          <KVRow label="Output Tax (GST Collected)" value={fmt(reportData.output_tax)} colors={colors} />
-          <KVRow label="Total Purchase Value" value={fmt(reportData.total_purchases_value)} colors={colors} />
-          <KVRow label="ITC Claimed" value={fmt(reportData.itc_claimed)} colors={colors} />
-          <KVRow label="Net Tax Payable" value={fmt(reportData.net_tax_payable)} colors={colors} />
-        </View>
-      </View>
-    );
-
-    // GSTR-3B
-    if (key === "gstr3b") {
-      const d = reportData;
-      return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>GSTR-3B — {d.period?.start} to {d.period?.end}</Text>
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>Outward Supplies</Text>
-          <View style={styles.kvGrid}>
-            <KVRow label="Taxable Value" value={fmt(d.outward_supplies?.taxable_value)} colors={colors} />
-            <KVRow label="IGST" value={fmt(d.outward_supplies?.igst)} colors={colors} />
-            <KVRow label="CGST" value={fmt(d.outward_supplies?.cgst)} colors={colors} />
-            <KVRow label="SGST" value={fmt(d.outward_supplies?.sgst)} colors={colors} />
-            <KVRow label="Total Tax" value={fmt(d.outward_supplies?.total_tax)} colors={colors} />
-          </View>
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Inward Supplies (ITC)</Text>
-          <View style={styles.kvGrid}>
-            <KVRow label="Taxable Value" value={fmt(d.inward_supplies_itc?.taxable_value)} colors={colors} />
-            <KVRow label="ITC Available" value={fmt(d.inward_supplies_itc?.itc_available)} colors={colors} />
-          </View>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>Net Tax Payable</Text>
-            <Text style={[styles.totalValue, { color: colors.accent }]}>{fmt(d.net_tax_payable)}</Text>
-          </View>
-        </View>
-      );
-    }
 
     // Trial Balance
     if (key === "trial_balance" && Array.isArray(reportData)) {
@@ -1196,6 +1168,31 @@ export default function ReportsScreen() {
       {/* ── Right Panel: Controls + Preview ──────────── */}
       {selectedReport ? (
         <ScrollView style={styles.rightPanel} contentContainerStyle={styles.rightPanelContent}>
+          {/* Executive Summary KPI Bar */}
+          <View style={[styles.kpiBar, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]}>TOTAL SALES</Text>
+              <Text style={[styles.kpiValue, { color: "#10B981" }]}>{fmt(gstSummaryKpi?.total_sales_value)}</Text>
+            </View>
+            <View style={[styles.kpiDivider, { backgroundColor: colors.divider }]} />
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]}>OUTPUT TAX (GST)</Text>
+              <Text style={[styles.kpiValue, { color: "#3B82F6" }]}>{fmt(gstSummaryKpi?.output_tax)}</Text>
+            </View>
+            <View style={[styles.kpiDivider, { backgroundColor: colors.divider }]} />
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]}>ITC CLAIMED</Text>
+              <Text style={[styles.kpiValue, { color: "#8B5CF6" }]}>{fmt(gstSummaryKpi?.itc_claimed)}</Text>
+            </View>
+            <View style={[styles.kpiDivider, { backgroundColor: colors.divider }]} />
+            <View style={styles.kpiItem}>
+              <Text style={[styles.kpiLabel, { color: colors.textSecondary }]}>NET TAX PAYABLE</Text>
+              <Text style={[styles.kpiValue, { color: (gstSummaryKpi?.net_tax_payable ?? 0) >= 0 ? colors.accent : "#10B981" }]}>
+                {fmt(gstSummaryKpi?.net_tax_payable)}
+              </Text>
+            </View>
+          </View>
+
           {/* Report Title */}
           <View>
             <Text style={[styles.breadcrumb, { color: colors.accent }]}>
@@ -1313,16 +1310,26 @@ export default function ReportsScreen() {
             <View style={styles.actionRow}>
               {selectedReport.dataEndpoint && (
                 <Pressable onPress={handleViewData} style={[styles.actionBtn, { backgroundColor: colors.accent }]}>
-                  {isLoadingData
-                    ? <ActivityIndicator size="small" color="#FFFFFF" />
-                    : <Text style={styles.actionBtnText}>👁  View Data</Text>}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    {isLoadingData && <ActivityIndicator size="small" color="#FFFFFF" style={{ width: 18, height: 18 }} />}
+                    <Text style={styles.actionBtnText}>👁  View Data</Text>
+                  </View>
                 </Pressable>
               )}
               {selectedReport.pdfEndpoint && (
                 <Pressable onPress={handlePdf} style={[styles.actionBtn, { backgroundColor: colors.pdfBtnBg }]}>
-                  {isPdfLoading
-                    ? <ActivityIndicator size="small" color="#FFFFFF" />
-                    : <Text style={styles.actionBtnText}>🖨️  Print / Preview</Text>}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    {isPdfLoading ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" style={{ width: 18, height: 18 }} />
+                    ) : (
+                      <Image
+                        source={require("../components/print_icon_for_print_preview.png")}
+                        style={{ width: 18, height: 18 }}
+                        resizeMode="contain"
+                      />
+                    )}
+                    <Text style={styles.actionBtnText}>Print / Preview</Text>
+                  </View>
                 </Pressable>
               )}
 
@@ -1351,6 +1358,11 @@ export default function ReportsScreen() {
         subtitle={selectedReport ? `Review, configure, and output ${selectedReport.label}` : ""}
         breadcrumb="reports / preview"
         reportKey={`${selectedReport?.key || "report"}`}
+        defaultOrientation={
+          selectedReport && ["gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary", "daybook", "trial_balance", "cdn_register", "stock_valuation", "sales_by_customer", "sales_by_item"].includes(selectedReport.key)
+            ? "landscape"
+            : "portrait"
+        }
         getPdfUrl={(orientation, search, theme, copyType) => {
           if (!selectedReport || !selectedReport.pdfEndpoint) return "";
           const baseEndpoint = selectedReport.pdfEndpoint(currentParams);
@@ -1449,5 +1461,34 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 16,
     fontFamily: "Segoe UI Variable Text",
+  },
+  kpiBar: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  kpiItem: {
+    flex: 1,
+    gap: 4,
+  },
+  kpiLabel: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    fontFamily: "Segoe UI Variable Display",
+  },
+  kpiValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    fontFamily: "Segoe UI Variable Display",
+  },
+  kpiDivider: {
+    width: 1,
+    height: 36,
+    marginHorizontal: 16,
   },
 });

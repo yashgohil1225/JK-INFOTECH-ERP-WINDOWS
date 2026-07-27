@@ -55,6 +55,25 @@ class RedisCacheManager:
             logger.warning(f"Redis SET failed for key '{key}': {e}")
             return False
 
+    async def get_bytes(self, key: str) -> Optional[bytes]:
+        import base64
+        try:
+            val = await self.get(key)
+            if val and isinstance(val, str):
+                return base64.b64decode(val.encode('ascii'))
+        except Exception as e:
+            logger.warning(f"Redis GET bytes failed for key '{key}': {e}")
+        return None
+
+    async def set_bytes(self, key: str, value: bytes, ttl_seconds: int = 300) -> bool:
+        import base64
+        try:
+            b64_str = base64.b64encode(value).decode('ascii')
+            return await self.set(key, b64_str, ttl_seconds=ttl_seconds)
+        except Exception as e:
+            logger.warning(f"Redis SET bytes failed for key '{key}': {e}")
+            return False
+
     async def invalidate_prefix(self, prefix: str) -> int:
         try:
             client = await self.get_client()
@@ -66,5 +85,13 @@ class RedisCacheManager:
         except Exception as e:
             logger.warning(f"Redis invalidate failed for prefix '{prefix}': {e}")
         return 0
+
+    async def close(self):
+        if self._redis_client:
+            try:
+                await self._redis_client.aclose()
+            except Exception:
+                pass
+            self._redis_client = None
 
 cache_manager = RedisCacheManager()

@@ -29,6 +29,7 @@ interface DropdownProps {
   onSubmitEditing?: () => void;
   onAddNew?: (searchQuery: string) => void;
   addNewLabel?: string;
+  direction?: "up" | "down" | "auto";
 }
 
 export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dropdown({
@@ -41,11 +42,13 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
   inputRefProp,
   onSubmitEditing,
   onAddNew,
-  addNewLabel
+  addNewLabel,
+  direction = "down"
 }, forwardedRef) {
   const { isDarkMode } = useUIStore();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
+
   const [isFocused, setIsFocused] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredItemId, setHoveredItemId] = useState<string | number | null>(null);
@@ -84,6 +87,7 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
   useImperativeHandle(forwardedRef, () => ({
     open: () => { setSearch(""); setIsOpen(true); },
     close: () => setIsOpen(false),
+    focus: () => { setSearch(""); setIsOpen(true); },
   }));
 
   const handleSelect = (opt: DropdownOption) => {
@@ -131,7 +135,7 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
         }
       }}
       collapsable={false}
-      style={styles.container}
+      style={[styles.container, { zIndex: isOpen ? 99999 : 1 }]}
     >
       {/* Absolute Backdrop to detect click outside */}
       {isOpen && (
@@ -185,6 +189,7 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
         <View
           style={[
             styles.dropdown,
+            direction === "up" ? { bottom: 52, top: undefined } : { top: 52 },
             {
               backgroundColor: colors.bg,
               borderColor: colors.border,
@@ -192,7 +197,7 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
           ]}
         >
           {/* Search Box */}
-          <View style={[styles.searchContainer, { borderBottomColor: colors.divider }]}>
+          <View style={[styles.searchContainer, { backgroundColor: colors.bg, borderBottomColor: colors.divider }]}>
             <Text style={[styles.searchIcon, { fontFamily: "Segoe MDL2 Assets", color: colors.textSecondary }]}>
               {"\uE721"}
             </Text>
@@ -205,16 +210,41 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
               placeholder="Search..."
               placeholderTextColor={colors.textSecondary}
               onKeyPress={(e: any) => {
-                const key = e.nativeEvent?.key;
-                if (key === "Escape") {
+                const k = e.nativeEvent?.key || e.key || "";
+                const isDown = k === "ArrowDown" || k === "Down";
+                const isUp = k === "ArrowUp" || k === "Up";
+                const isEnter = k === "Enter" || k === "Accept";
+                const isEsc = k === "Escape" || k === "Esc";
+
+                if (isDown || isUp || isEnter || isEsc) {
+                  if (typeof e.preventDefault === "function") e.preventDefault();
+                  if (typeof e.stopPropagation === "function") e.stopPropagation();
+                  if (typeof e.nativeEvent?.preventDefault === "function") e.nativeEvent.preventDefault();
+                  if (typeof e.nativeEvent?.stopPropagation === "function") e.nativeEvent.stopPropagation();
+                }
+
+                if (isEsc) {
                   setIsOpen(false);
-                } else if (key === "ArrowDown") {
-                  setHighlightedIndex(i => Math.min(i + 1, filteredOptions.length - 1));
-                } else if (key === "ArrowUp") {
-                  setHighlightedIndex(i => Math.max(i - 1, 0));
-                } else if (key === "Enter") {
+                } else if (isDown) {
+                  setHighlightedIndex(i => {
+                    const next = Math.min(i + 1, Math.max(0, filteredOptions.length - 1));
+                    if (listScrollRef.current && next >= 0) {
+                      listScrollRef.current.scrollTo({ y: next * 42, animated: false });
+                    }
+                    return next;
+                  });
+                } else if (isUp) {
+                  setHighlightedIndex(i => {
+                    const prev = Math.max(i - 1, 0);
+                    if (listScrollRef.current && prev >= 0) {
+                      listScrollRef.current.scrollTo({ y: prev * 42, animated: false });
+                    }
+                    return prev;
+                  });
+                } else if (isEnter) {
                   if (filteredOptions.length > 0) {
-                    handleSelect(filteredOptions[highlightedIndex || 0]);
+                    const targetIdx = Math.max(0, Math.min(highlightedIndex, filteredOptions.length - 1));
+                    handleSelect(filteredOptions[targetIdx]);
                   } else if (onAddNew && search.trim().length > 0) {
                     const q = search.trim();
                     setIsOpen(false);
@@ -222,9 +252,55 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
                   }
                 }
               }}
+              {...({
+                onKeyDown: (e: any) => {
+                  const k = e.nativeEvent?.key || e.key || "";
+                  const isDown = k === "ArrowDown" || k === "Down";
+                  const isUp = k === "ArrowUp" || k === "Up";
+                  const isEnter = k === "Enter" || k === "Accept";
+                  const isEsc = k === "Escape" || k === "Esc";
+
+                  if (isDown || isUp || isEnter || isEsc) {
+                    if (typeof e.preventDefault === "function") e.preventDefault();
+                    if (typeof e.stopPropagation === "function") e.stopPropagation();
+                    if (typeof e.nativeEvent?.preventDefault === "function") e.nativeEvent.preventDefault();
+                    if (typeof e.nativeEvent?.stopPropagation === "function") e.nativeEvent.stopPropagation();
+                  }
+
+                  if (isEsc) {
+                    setIsOpen(false);
+                  } else if (isDown) {
+                    setHighlightedIndex(i => {
+                      const next = Math.min(i + 1, Math.max(0, filteredOptions.length - 1));
+                      if (listScrollRef.current && next >= 0) {
+                        listScrollRef.current.scrollTo({ y: next * 42, animated: false });
+                      }
+                      return next;
+                    });
+                  } else if (isUp) {
+                    setHighlightedIndex(i => {
+                      const prev = Math.max(i - 1, 0);
+                      if (listScrollRef.current && prev >= 0) {
+                        listScrollRef.current.scrollTo({ y: prev * 42, animated: false });
+                      }
+                      return prev;
+                    });
+                  } else if (isEnter) {
+                    if (filteredOptions.length > 0) {
+                      const targetIdx = Math.max(0, Math.min(highlightedIndex, filteredOptions.length - 1));
+                      handleSelect(filteredOptions[targetIdx]);
+                    } else if (onAddNew && search.trim().length > 0) {
+                      const q = search.trim();
+                      setIsOpen(false);
+                      onAddNew(q);
+                    }
+                  }
+                }
+              } as any)}
               onSubmitEditing={() => {
                 if (filteredOptions.length > 0) {
-                  handleSelect(filteredOptions[highlightedIndex || 0]);
+                  const targetIdx = Math.max(0, Math.min(highlightedIndex, filteredOptions.length - 1));
+                  handleSelect(filteredOptions[targetIdx]);
                 } else if (onAddNew && search.trim().length > 0) {
                   const q = search.trim();
                   setIsOpen(false);
@@ -238,8 +314,10 @@ export const Dropdown = React.forwardRef<DropdownRef, DropdownProps>(function Dr
           <ScrollView
             ref={listScrollRef}
             style={styles.list}
+            contentContainerStyle={{ paddingBottom: 16 }}
             nestedScrollEnabled={true}
             showsVerticalScrollIndicator={true}
+            indicatorStyle={isDarkMode ? "white" : "black"}
             keyboardShouldPersistTaps="handled"
           >
             {filteredOptions.length === 0 ? (

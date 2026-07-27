@@ -168,7 +168,10 @@
     document.getElementById('company-title').textContent = reportData.company.name;
     let detailsHTML = '';
     if (reportData.company.address) detailsHTML += `Address: ${reportData.company.address}<br>`;
-    if (reportData.company.gst_number) detailsHTML += `GSTIN: ${reportData.company.gst_number}`;
+    const gstStr = reportData.company.gst_number ? `GSTIN: ${reportData.company.gst_number}` : '';
+    const panStr = reportData.company.pan_number ? `PAN: ${reportData.company.pan_number}` : (reportData.company.gst_number && reportData.company.gst_number.length >= 12 ? `PAN: ${reportData.company.gst_number.substring(2, 12)}` : '');
+    const gstPanCombined = [gstStr, panStr].filter(Boolean).join(' | ');
+    if (gstPanCombined) detailsHTML += `${gstPanCombined}<br>`;
     document.getElementById('company-details').innerHTML = detailsHTML;
 
     // Set account name

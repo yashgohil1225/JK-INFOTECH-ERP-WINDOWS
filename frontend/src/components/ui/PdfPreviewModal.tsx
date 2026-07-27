@@ -24,6 +24,7 @@ import { storage } from "../../utils/storage";
 import { FullScreenModal } from "./FullScreenModal";
 import { Button } from "./Button";
 import { ShareReportModal } from "./ShareReportModal";
+import { PrinterIcon } from "./Icons";
 
 const WindowsView = View as any;
 const WindowsScrollView = ScrollView as any;
@@ -172,28 +173,36 @@ const CenteredSearchBar = React.memo(({
 interface PdfPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  title: string;
+  title?: string;
+  documentTitle?: string;
   subtitle?: string;
   breadcrumb?: string;
-  reportKey: string;
-  getPdfUrl: (orientation: 'portrait' | 'landscape', search: string, theme: string, copyType: string) => string;
+  reportKey?: string;
+  layout?: string;
+  defaultOrientation?: 'portrait' | 'landscape';
+  getPdfUrl?: (orientation: 'portrait' | 'landscape', search: string, theme: string, copyType: string) => string;
   getExcelUrl?: () => string;
   showThemeSelector?: boolean;
   showCopySelector?: boolean;
+  pdfBase64?: string;
 }
 
 export function PdfPreviewModal({
   isOpen,
   onClose,
   title,
+  documentTitle,
   subtitle,
   breadcrumb,
-  reportKey,
+  reportKey = "document",
+  layout,
+  defaultOrientation,
   getPdfUrl,
   getExcelUrl,
   showThemeSelector = false,
   showCopySelector = false
 }: PdfPreviewModalProps) {
+  const displayTitle = title || documentTitle || "Document Preview";
   const { isDarkMode } = useUIStore();
 
   const colors = isDarkMode
@@ -245,8 +254,28 @@ export function PdfPreviewModal({
     return 0;
   };
 
-  const baseWidth = printOrientation === 'landscape' ? 1018 : 720;
-  const baseHeight = printOrientation === 'landscape' ? 720 : 1018;
+  useEffect(() => {
+    if (defaultOrientation) {
+      setPrintOrientation(defaultOrientation);
+    }
+  }, [defaultOrientation]);
+
+  const isThermalSticker = reportKey === "barcode_labels" && layout?.startsWith("thermal_");
+  let baseWidth = printOrientation === 'landscape' ? 1018 : 720;
+  let baseHeight = printOrientation === 'landscape' ? 720 : 1018;
+
+  if (isThermalSticker) {
+    if (layout === "thermal_50x25_2up") {
+      baseWidth = printOrientation === 'landscape' ? 700 : 175;
+      baseHeight = printOrientation === 'landscape' ? 175 : 700;
+    } else if (layout === "thermal_38x25") {
+      baseWidth = printOrientation === 'landscape' ? 426 : 280;
+      baseHeight = printOrientation === 'landscape' ? 280 : 426;
+    } else {
+      baseWidth = printOrientation === 'landscape' ? 560 : 280;
+      baseHeight = printOrientation === 'landscape' ? 280 : 560;
+    }
+  }
 
   const scrollToPage = (pageIdx: number) => {
     const offsetY = 20 + pageIdx * (baseHeight * zoomScale + 16);
@@ -373,23 +402,31 @@ export function PdfPreviewModal({
   useEffect(() => {
     if (!isOpen) return;
     const zoomSub = DeviceEventEmitter.addListener("OnPdfZoomWheel", (evt: { delta: number }) => {
-      if (!evt || typeof evt.delta !== "number") return;
+      if (!evt || typeof evt.delta !== "number" || !isFinite(evt.delta)) return;
       const rawDelta = evt.delta;
       if (rawDelta !== 0) {
         const absDelta = Math.abs(rawDelta);
         const zoomStep = absDelta >= 100
           ? (rawDelta > 0 ? 0.08 : -0.08)
           : (rawDelta * 0.0012);
-        setZoomScale((z) => Math.min(3.0, Math.max(0.4, z + zoomStep)));
+        setZoomScale((z) => {
+          const current = isFinite(z) && z > 0 ? z : 1.0;
+          const next = current + zoomStep;
+          if (!isFinite(next)) return current;
+          return Math.min(3.0, Math.max(0.4, next));
+        });
       }
     });
 
     const scrollSub = DeviceEventEmitter.addListener("OnPdfHorizontalScroll", (evt: { delta: number }) => {
-      if (!evt || typeof evt.delta !== "number") return;
+      if (!evt || typeof evt.delta !== "number" || !isFinite(evt.delta)) return;
       const delta = evt.delta;
       setPanX((prev) => {
         const mxPan = maxPanRef.current;
-        const next = prev + delta * 1.5;
+        if (!isFinite(mxPan) || mxPan <= 0) return 0;
+        const currentP = isFinite(prev) ? prev : 0;
+        const next = currentP + delta * 1.5;
+        if (!isFinite(next)) return 0;
         return Math.min(mxPan, Math.max(-mxPan, next));
       });
     });
@@ -449,54 +486,62 @@ export function PdfPreviewModal({
   ).current;
 
   const handleZoomWheel = (e: any) => {
-    if (!e || !e.nativeEvent) return;
+    try {
+      if (!e || !e.nativeEvent) return;
 
-    const deltaX = e.nativeEvent.deltaX || 0;
-    const deltaY = e.nativeEvent.deltaY || 0;
-    const isShift = isShiftPressed || e.nativeEvent.shiftKey || false;
+      const deltaX = e.nativeEvent.deltaX || 0;
+      const deltaY = e.nativeEvent.deltaY || 0;
+      const isShift = isShiftPressed || e.nativeEvent.shiftKey || false;
 
-    // 1. Detect two-finger horizontal trackpad swipe / horizontal scroll wheel / Shift+wheel
-    if ((Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 0.5) || (isShift && !isCtrlPressed && Math.abs(deltaY) > 0.5)) {
-      if (e.preventDefault) e.preventDefault();
-      const hDelta = Math.abs(deltaX) > 0.5 ? deltaX : deltaY;
-      setPanX((prev) => {
-        const mxPan = maxPanRef.current;
-        const next = prev - hDelta * 1.5;
-        return Math.min(mxPan, Math.max(-mxPan, next));
-      });
-      return;
-    }
+      // 1. Detect two-finger horizontal trackpad swipe / horizontal scroll wheel / Shift+wheel
+      if ((Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 0.5) || (isShift && !isCtrlPressed && Math.abs(deltaY) > 0.5)) {
+        if (typeof e.preventDefault === "function") { try { e.preventDefault(); } catch (_) {} }
+        const hDelta = Math.abs(deltaX) > 0.5 ? deltaX : deltaY;
+        setPanX((prev) => {
+          const mxPan = maxPanRef.current;
+          if (!isFinite(mxPan) || mxPan <= 0) return 0;
+          const currentP = isFinite(prev) ? prev : 0;
+          const next = currentP - hDelta * 1.5;
+          if (!isFinite(next)) return 0;
+          return Math.min(mxPan, Math.max(-mxPan, next));
+        });
+        return;
+      }
 
-    // 2. Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
-    const isCtrl = isCtrlPressed ||
-      e.nativeEvent.ctrlKey ||
-      (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
+      // 2. Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
+      const isCtrl = isCtrlPressed ||
+        e.nativeEvent.ctrlKey ||
+        (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
 
-    if (!isCtrl) return; // Normal vertical scroll mode — let ScrollView handle vertical scrolling
+      if (!isCtrl) return; // Normal vertical scroll mode — let ScrollView handle vertical scrolling
 
-    if (e.preventDefault) e.preventDefault();
-    if (e.stopPropagation) e.stopPropagation();
+      if (typeof e.preventDefault === "function") { try { e.preventDefault(); } catch (_) {} }
+      if (typeof e.stopPropagation === "function") { try { e.stopPropagation(); } catch (_) {} }
 
-    let rawDelta = 0;
-    if (e.nativeEvent.deltaY !== undefined) {
-      rawDelta = -e.nativeEvent.deltaY;
-    } else if (e.nativeEvent.wheelDeltaY !== undefined) {
-      rawDelta = e.nativeEvent.wheelDeltaY;
-    } else if (e.nativeEvent.wheelDelta !== undefined) {
-      rawDelta = e.nativeEvent.wheelDelta;
-    }
+      let rawDelta = 0;
+      if (e.nativeEvent.deltaY !== undefined) {
+        rawDelta = -e.nativeEvent.deltaY;
+      } else if (e.nativeEvent.wheelDeltaY !== undefined) {
+        rawDelta = e.nativeEvent.wheelDeltaY;
+      } else if (e.nativeEvent.wheelDelta !== undefined) {
+        rawDelta = e.nativeEvent.wheelDelta;
+      }
 
-    if (rawDelta !== 0) {
-      // Calculate smooth zoom step (supports both physical mouse wheel detents and continuous trackpad pinch gestures)
-      const absDelta = Math.abs(rawDelta);
-      const zoomStep = absDelta >= 100
-        ? (rawDelta > 0 ? 0.08 : -0.08)
-        : (rawDelta * 0.0012);
+      if (rawDelta !== 0 && isFinite(rawDelta)) {
+        const absDelta = Math.abs(rawDelta);
+        const zoomStep = absDelta >= 100
+          ? (rawDelta > 0 ? 0.08 : -0.08)
+          : (rawDelta * 0.0012);
 
-      setZoomScale((z) => {
-        const next = z + zoomStep;
-        return Math.min(3.0, Math.max(0.4, next));
-      });
+        setZoomScale((z) => {
+          const current = isFinite(z) && z > 0 ? z : 1.0;
+          const next = current + zoomStep;
+          if (!isFinite(next)) return current;
+          return Math.min(3.0, Math.max(0.4, next));
+        });
+      }
+    } catch (err) {
+      console.warn("Error in handleZoomWheel:", err);
     }
   };
 
@@ -517,6 +562,12 @@ export function PdfPreviewModal({
       const { PdfRenderer: pdfModule } = NativeModules;
       if (!pdfModule || !pdfModule.RenderPdfWithToken) {
         throw new Error("Native PdfRenderer.RenderPdfWithToken module not registered in Windows project");
+      }
+
+      if (!getPdfUrl) {
+        setIsPdfLoading(false);
+        setIsSearching(false);
+        return;
       }
 
       const url = getPdfUrl(orientation as any, searchQuery, theme, copyType);
@@ -562,7 +613,13 @@ export function PdfPreviewModal({
   // Reset states and trigger first preview load when opening
   useEffect(() => {
     if (isOpen) {
-      setPrintOrientation("portrait");
+      const isLandscapeReport = [
+        "gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary",
+        "daybook", "trial_balance", "cdn_register", "stock_valuation",
+        "sales_by_customer", "sales_by_item"
+      ].includes(reportKey);
+      const initialOrientation = defaultOrientation || (isLandscapeReport ? "landscape" : "portrait");
+      setPrintOrientation(initialOrientation);
       setPrintCopies(1);
       setPageSelection("all");
       setPageRange("1");
@@ -592,7 +649,7 @@ export function PdfPreviewModal({
         } catch (e) {
           console.warn("Error reading print preferences:", e);
         }
-        regeneratePreview("portrait", "", false, defaultTheme, defaultCopy);
+        regeneratePreview(initialOrientation, "", false, defaultTheme, defaultCopy);
       };
       initLoad();
     } else {
@@ -618,7 +675,7 @@ export function PdfPreviewModal({
     <FullScreenModal
       isOpen={isOpen}
       onClose={onClose}
-      title={title}
+      title={displayTitle}
       subtitle={subtitle}
       breadcrumb={breadcrumb}
       scrollEnabled={false}
@@ -706,8 +763,9 @@ export function PdfPreviewModal({
                     if (!pdfModule || !pdfModule.SaveFileWithToken) {
                       throw new Error("SaveFileWithToken method not found in native PdfRenderer module");
                     }
-                    const excelUrl = getExcelUrl();
-                    const suggestedName = `${title.replace(/[\/\s]/g, "_")}`;
+                    const excelUrl = getExcelUrl ? getExcelUrl() : "";
+                    const safeTitle = title || documentTitle || "document";
+                    const suggestedName = `${safeTitle.replace(/[\/\s]/g, "_")}`;
                     const token = storage.getItemSync("access_token") || "";
                     await pdfModule.SaveFileWithToken(excelUrl, suggestedName, "Excel Spreadsheet", ".xlsx", token);
                     Alert.alert("Success", "Excel file has been saved.");
@@ -736,8 +794,10 @@ export function PdfPreviewModal({
                   if (!pdfModule || !pdfModule.SavePdfFileWithToken) {
                     throw new Error("SavePdfFileWithToken method not found in native PdfRenderer module");
                   }
+                  if (!getPdfUrl) return;
                   const downloadUrl = getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType);
-                  const suggestedName = `${title.replace(/[\/\s]/g, "_")}`;
+                  const safeTitle = title || documentTitle || "document";
+                  const suggestedName = `${safeTitle.replace(/[\/\s]/g, "_")}`;
                   const token = storage.getItemSync("access_token") || "";
                   await pdfModule.SavePdfFileWithToken(downloadUrl, suggestedName, token);
                 } catch (e: any) {
@@ -772,6 +832,7 @@ export function PdfPreviewModal({
                   if (!pdfModule || !pdfModule.PrintPdfUrlWithToken) {
                     throw new Error("PrintPdfUrlWithToken method not found in native PdfRenderer module");
                   }
+                  if (!getPdfUrl) return;
                   const printUrl = getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType);
                   const token = storage.getItemSync("access_token") || "";
                   await pdfModule.PrintPdfUrlWithToken(printUrl, token);
@@ -1004,7 +1065,8 @@ export function PdfPreviewModal({
               ref={scrollViewRef}
               style={{ flex: 1 }}
               contentContainerStyle={{
-                padding: 20,
+                paddingVertical: 40,
+                paddingHorizontal: 60,
                 alignItems: "center",
                 minWidth: "100%",
                 minHeight: "100%"
@@ -1013,7 +1075,6 @@ export function PdfPreviewModal({
               scrollEnabled={true}
               showsVerticalScrollIndicator={true}
               showsHorizontalScrollIndicator={true}
-              persistentScrollbar={true}
               pinchGestureEnabled={true}
               minimumZoomScale={0.4}
               maximumZoomScale={3.0}
@@ -1023,7 +1084,9 @@ export function PdfPreviewModal({
               <View
                 {...contentPanResponder.panHandlers}
                 style={{
-                  gap: 16,
+                  gap: 20,
+                  marginVertical: 16,
+                  marginHorizontal: 32,
                   alignItems: "center",
                   width: Math.max(baseWidth * zoomScale, 100),
                   transform: [{ translateX: panX }]
@@ -1041,13 +1104,16 @@ export function PdfPreviewModal({
                         backgroundColor: "#FFFFFF",
                         borderWidth: 1,
                         borderColor: colors.divider,
-                        borderRadius: 4,
+                        borderRadius: 6,
                         elevation: 4,
                         shadowColor: "#000",
                         shadowOffset: { width: 0, height: 2 },
                         shadowOpacity: 0.15,
                         shadowRadius: 6,
-                        overflow: "hidden"
+                        overflow: "hidden",
+                        marginVertical: 12,
+                        justifyContent: "flex-start",
+                        alignItems: "flex-start"
                       }}
                     >
                       <Image
@@ -1062,50 +1128,57 @@ export function PdfPreviewModal({
             </WindowsScrollView>
           )}
 
-          {/* Bottom Horizontal Scrollbar when content exceeds viewport */}
-          {maxPan > 0 && (
-            <View
-              {...scrollbarPanResponder.panHandlers}
-              style={{
-                height: 16,
-                backgroundColor: isDarkMode ? "#1E293B" : "#E2E8F0",
-                width: "100%",
-                justifyContent: "center",
-                paddingHorizontal: 20,
-                borderTopWidth: 1,
-                borderTopColor: colors.divider
-              }}
-            >
+          {/* Bottom Horizontal Scrollbar when content exceeds viewport - Placed strictly on outer side */}
+          {maxPan > 0 && (() => {
+            const safeContentW = isFinite(contentWidth) && contentWidth > 0 ? contentWidth : 1;
+            const safeWorkspaceW = isFinite(workspaceWidth) && workspaceWidth > 0 ? workspaceWidth : 1;
+            const trackW = Math.max(1, safeWorkspaceW - 48);
+            const rawThumbW = (safeWorkspaceW / safeContentW) * trackW;
+            const thumbW = Math.max(40, isFinite(rawThumbW) ? rawThumbW : 40);
+            const scrollableRange = Math.max(1, trackW - thumbW);
+
+            const rawProgress = maxPan > 0 ? (0.5 - panX / (2 * maxPan)) : 0;
+            const safeProgress = isFinite(rawProgress) ? Math.max(0, Math.min(1, rawProgress)) : 0;
+            const thumbTranslateX = safeProgress * scrollableRange;
+
+            return (
               <View
+                {...scrollbarPanResponder.panHandlers}
                 style={{
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: isDarkMode ? "#475569" : "#94A3B8",
-                  width: Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)),
-                  transform: [
-                    {
-                      translateX: Math.max(
-                        0,
-                        Math.min(
-                          (workspaceWidth - 40) - Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)),
-                          (0.5 - panX / (2 * maxPan)) * ((workspaceWidth - 40) - Math.max(40, (workspaceWidth / contentWidth) * (workspaceWidth - 40)))
-                        )
-                      )
-                    }
-                  ]
+                  height: 20,
+                  backgroundColor: isDarkMode ? "#0F172A" : "#E2E8F0",
+                  width: "100%",
+                  justifyContent: "center",
+                  paddingHorizontal: 24,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.divider
                 }}
-              />
-            </View>
-          )}
+              >
+                <View
+                  style={{
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: isDarkMode ? "#475569" : "#94A3B8",
+                    width: thumbW,
+                    transform: [
+                      {
+                        translateX: thumbTranslateX
+                      }
+                    ]
+                  }}
+                />
+              </View>
+            );
+          })()}
         </WindowsView>
       </View>
 
       <ShareReportModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        reportTitle={title}
-        pdfUrl={getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType)}
-        defaultFilename={`${title.replace(/[\/\s]/g, "_")}.pdf`}
+        reportTitle={title || documentTitle || "Report"}
+        pdfUrl={getPdfUrl ? getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType) : ""}
+        defaultFilename={`${(title || documentTitle || "document").replace(/[\/\s]/g, "_")}.pdf`}
       />
     </FullScreenModal>
   );

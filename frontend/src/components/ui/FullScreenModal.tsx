@@ -51,9 +51,14 @@ export function FullScreenModal({
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const setIsFullScreenOpen = useUIStore(state => state.setIsFullScreenOpen);
 
+  const wasOpenRef = useRef(false);
+
   useEffect(() => {
     if (isOpen) {
-      setIsFullScreenOpen(true);
+      if (!wasOpenRef.current) {
+        wasOpenRef.current = true;
+        setIsFullScreenOpen(true);
+      }
       setVisible(true);
       requestAnimationFrame(() => {
         Animated.parallel([
@@ -85,13 +90,19 @@ export function FullScreenModal({
       ]).start(({ finished }) => {
         if (finished) {
           setVisible(false);
-          setIsFullScreenOpen(false);
+          if (wasOpenRef.current) {
+            wasOpenRef.current = false;
+            setIsFullScreenOpen(false);
+          }
         }
       });
     }
 
     return () => {
-      setIsFullScreenOpen(false);
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        setIsFullScreenOpen(false);
+      }
     };
   }, [isOpen, setIsFullScreenOpen]);
 

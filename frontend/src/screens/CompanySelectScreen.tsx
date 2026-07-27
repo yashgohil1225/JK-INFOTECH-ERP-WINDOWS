@@ -23,8 +23,27 @@ const GLYPHS = {
 
 export default function CompanySelectScreen() {
   const { isDarkMode } = useUIStore();
-  const { availableCompanies, company: currentCompany, switchActiveCompany, isSwitching, loadAvailableCompanies } = useAuthStore();
+  const { availableCompanies, company: currentCompany, switchActiveCompany, isSwitching, loadAvailableCompanies, deleteCompany } = useAuthStore();
   const [search, setSearch] = useState("");
+  const [isLoadingCos, setIsLoadingCos] = useState(true);
+
+  // Delete Company Modal state
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Automatically fetch companies from backend whenever CompanySelectScreen mounts
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingCos(true);
+    loadAvailableCompanies()
+      .catch(err => console.warn("Failed to fetch companies on hub mount:", err))
+      .finally(() => {
+        if (isMounted) setIsLoadingCos(false);
+      });
+    return () => { isMounted = false; };
+  }, []);
 
   // Create Company Modal state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -188,6 +207,26 @@ export default function CompanySelectScreen() {
     return () => sub.remove();
   }, [isCreateOpen, coName, coGst, coPan, coTan, coEmail, coPhone, coMobile, coState, coAddress1, coAddress2, coAddress3, coAddress4, coPincode, coBank, coBranch, coAccNo, coIfsc]);
 
+  const handleDeleteCompany = async () => {
+    if (!deleteTarget) return;
+    if (deleteConfirmInput.trim().toLowerCase() !== deleteTarget.name.trim().toLowerCase()) {
+      setDeleteError("Typed workspace name does not match.");
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteCompany(deleteTarget.id);
+      setDeleteTarget(null);
+      setDeleteConfirmInput("");
+      await loadAvailableCompanies();
+    } catch (err: any) {
+      setDeleteError(err.response?.data?.detail || "Failed to delete workspace profile.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const renderCompanyItem = ({ item }: { item: any }) => {
     const isActive = item.id === currentCompany?.id;
     return (
@@ -205,14 +244,36 @@ export default function CompanySelectScreen() {
         ]}
       >
         <View style={styles.cardHeader}>
-          <Text style={[styles.companyIcon, { fontFamily: "Segoe MDL2 Assets", color: isActive ? colors.activeAccent : colors.textSecondary }]}>
-            {GLYPHS.COMPANY}
-          </Text>
-          {isActive && (
-            <View style={[styles.activeBadge, { backgroundColor: colors.activeAccent }]}>
-              <Text style={styles.activeBadgeText}>ACTIVE</Text>
-            </View>
-          )}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Text style={[styles.companyIcon, { fontFamily: "Segoe MDL2 Assets", color: isActive ? colors.activeAccent : colors.textSecondary }]}>
+              {GLYPHS.COMPANY}
+            </Text>
+            {isActive && (
+              <View style={[styles.activeBadge, { backgroundColor: colors.activeAccent }]}>
+                <Text style={styles.activeBadgeText}>ACTIVE</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Delete Workspace Trash Button */}
+          <Pressable
+            onPress={(e: any) => {
+              e?.stopPropagation?.();
+              setDeleteTarget(item);
+              setDeleteConfirmInput("");
+              setDeleteError(null);
+            }}
+            style={({ hovered }: any) => [
+              {
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 4,
+                backgroundColor: hovered ? "rgba(239, 68, 68, 0.15)" : "transparent"
+              }
+            ]}
+          >
+            <Text style={{ fontFamily: "Segoe MDL2 Assets", color: "#EF4444", fontSize: 16 }}>{"\uE74D"}</Text>
+          </Pressable>
         </View>
 
         <View style={styles.cardBody}>
@@ -283,10 +344,12 @@ export default function CompanySelectScreen() {
         </View>
 
         {/* Companies Grid */}
-        {isSwitching ? (
+        {isSwitching || isLoadingCos ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.activeAccent} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Configuring active company context...</Text>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+              {isSwitching ? "Configuring active company context..." : "Fetching authorized company workspaces..."}
+            </Text>
           </View>
         ) : (
           <FlatList
@@ -298,17 +361,32 @@ export default function CompanySelectScreen() {
             columnWrapperStyle={styles.columnWrapper}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, { color: colors.textSecondary, marginBottom: 12 }]}>No company workspaces found.</Text>
-                <Pressable
-                  onPress={() => setIsCreateOpen(true)}
-                  style={({ hovered }: any) => [
-                    styles.createBtn,
-                    { backgroundColor: colors.activeAccent },
-                    hovered && { opacity: 0.9 }
-                  ]}
-                >
-                  <Text style={styles.createBtnText}>Create Your First Company</Text>
-                </Pressable>
+                <Text style={[styles.emptyText, { color: colors.textSecondary, marginBottom: 16 }]}>No company workspaces found.</Text>
+                <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                  <Pressable
+                    onPress={() => {
+                      setIsLoadingCos(true);
+                      loadAvailableCompanies().finally(() => setIsLoadingCos(false));
+                    }}
+                    style={({ hovered }: any) => [
+                      styles.createBtn,
+                      { backgroundColor: "transparent", borderWidth: 1, borderColor: colors.activeAccent },
+                      hovered && { opacity: 0.85 }
+                    ]}
+                  >
+                    <Text style={[styles.createBtnText, { color: colors.activeAccent }]}>Refresh Workspaces</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setIsCreateOpen(true)}
+                    style={({ hovered }: any) => [
+                      styles.createBtn,
+                      { backgroundColor: colors.activeAccent },
+                      hovered && { opacity: 0.9 }
+                    ]}
+                  >
+                    <Text style={styles.createBtnText}>Create Your First Company</Text>
+                  </Pressable>
+                </View>
               </View>
             }
           />
@@ -382,13 +460,12 @@ export default function CompanySelectScreen() {
                     hovered && { opacity: 0.9 }
                   ]}
                 >
-                  {gstLoading ? (
-                    <ActivityIndicator size="small" color="#FFF" />
-                  ) : (
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    {gstLoading && <ActivityIndicator size="small" color="#FFF" style={{ width: 16, height: 16 }} />}
                     <Text style={styles.verifyBtnText}>
                       {gstVerified === true ? "VERIFIED" : "VERIFY"}
                     </Text>
-                  )}
+                  </View>
                 </Pressable>
               </View>
             </View>
@@ -550,6 +627,84 @@ export default function CompanySelectScreen() {
             </View>
           </View>
       </FullScreenModal>
+
+      {/* Delete Workspace Safety Confirmation Modal */}
+      {deleteTarget && (
+        <Modal
+          isOpen={!!deleteTarget}
+          onClose={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+          title="Delete Workspace Profile"
+          width={540}
+        >
+          <View style={{ padding: 20, gap: 18 }}>
+            {/* Warning Banner */}
+            <View style={{
+              flexDirection: "row",
+              gap: 12,
+              padding: 16,
+              borderRadius: 8,
+              backgroundColor: isDarkMode ? "rgba(239, 68, 68, 0.15)" : "#FEF2F2",
+              borderWidth: 1,
+              borderColor: "#EF4444"
+            }}>
+              <Text style={{ fontFamily: "Segoe MDL2 Assets", color: "#EF4444", fontSize: 22 }}>{"\uE814"}</Text>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontSize: 15, fontWeight: "800", color: "#EF4444", fontFamily: "Segoe UI Variable Display" }}>
+                  DESTRUCTIVE ACTION WARNING
+                </Text>
+                <Text style={{ fontSize: 13.5, color: isDarkMode ? "#FCA5A5" : "#991B1B", fontFamily: "Segoe UI Variable Text", lineHeight: 20 }}>
+                  Deactivating <Text style={{ fontWeight: "800" }}>"{deleteTarget.name}"</Text> will restrict future access to this workspace and all associated vouchers, inventory registers, and tax reports.
+                </Text>
+              </View>
+            </View>
+
+            {deleteError && (
+              <View style={{ padding: 12, borderRadius: 6, backgroundColor: "rgba(239, 68, 68, 0.2)", borderWidth: 1, borderColor: "#EF4444" }}>
+                <Text style={{ color: "#EF4444", fontSize: 13, fontWeight: "600" }}>{deleteError}</Text>
+              </View>
+            )}
+
+            <View style={{ gap: 8 }}>
+              <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                To confirm deletion, please type the exact workspace name <Text style={{ fontWeight: "800", color: colors.activeAccent }}>"{deleteTarget.name}"</Text> below:
+              </Text>
+              <TextInput
+                value={deleteConfirmInput}
+                onChangeText={setDeleteConfirmInput}
+                placeholder={deleteTarget.name}
+                placeholderTextColor={colors.textSecondary}
+                style={{
+                  borderWidth: 1,
+                  borderColor: deleteConfirmInput.trim().toLowerCase() === deleteTarget.name.trim().toLowerCase() ? colors.activeAccent : colors.inputBorder,
+                  borderRadius: 6,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 15,
+                  color: colors.textPrimary,
+                  backgroundColor: colors.inputBg
+                }}
+              />
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 12, justifyContent: "flex-end", marginTop: 8 }}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                disabled={deleting}
+                onPress={() => setDeleteTarget(null)}
+              />
+              <Button
+                title={deleting ? "Deactivating..." : "Permanently Delete Workspace"}
+                variant="danger"
+                disabled={deleting || deleteConfirmInput.trim().toLowerCase() !== deleteTarget.name.trim().toLowerCase()}
+                onPress={handleDeleteCompany}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }

@@ -79,6 +79,7 @@ async def preview_sequence(
     suffix = seq.suffix or ""
     return {"next_number": f"{prefix}{number_str}{suffix}"}
 
+@router.get("", response_model=List[SequenceResponse])
 @router.get("/", response_model=List[SequenceResponse])
 async def get_sequences(
     company: Company = Depends(get_current_company),

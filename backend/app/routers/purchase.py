@@ -2,9 +2,13 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, status
+# pyrefly: ignore [missing-import]
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+# pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
+# pyrefly: ignore [missing-import]
 from sqlalchemy import select, func, delete
+# pyrefly: ignore [missing-import]
 from sqlalchemy.orm import selectinload
 import logging
 
@@ -24,6 +28,7 @@ from app.schemas.purchase import (
 )
 from app.services.reports import ReportService
 from app.services.sequence_service import get_next_document_number
+# pyrefly: ignore [missing-import]
 from fastapi.responses import Response
 
 
@@ -422,6 +427,7 @@ async def delete_purchase_bill(
 @router.get("/bills/{bill_id}/pdf")
 async def get_bill_pdf(
     bill_id: UUID,
+    theme: str = Query("theme1"),
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
@@ -436,7 +442,7 @@ async def get_bill_pdf(
         bill_number = bill_res.scalar_one_or_none() or str(bill_id)
         safe_filename = bill_number.replace('/', '_').replace(' ', '_')
         
-        pdf_bytes = await service.generate_purchase_bill_pdf(bill_id, company.id)
+        pdf_bytes = await service.generate_purchase_bill_pdf(bill_id, company.id, theme=theme)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",

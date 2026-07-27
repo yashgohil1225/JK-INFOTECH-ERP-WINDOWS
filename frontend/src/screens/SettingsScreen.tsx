@@ -10,9 +10,10 @@ import {
   Alert,
   NativeModules,
   DeviceEventEmitter,
+  useColorScheme,
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
-import { useAuthStore } from "../store/authStore";
+import { useAuthStore, getAccessToken } from "../store/authStore";
 import { authApi } from "../api/auth";
 import apiClient from "../api/client";
 import { storage } from "../utils/storage";
@@ -28,43 +29,50 @@ import { DatePicker } from "../components/ui/DatePicker";
 type TabType = "business" | "communication" | "interface" | "advanced" | "sequences" | "fiscal_years" | "diagnostics";
 
 // System Settings Screen for JK Infotech ERP
+import { getCurrentAppVersion } from "../services/CloudUpdateService";
+import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
+
 export default function SettingsScreen() {
-  const { isDarkMode, toggleTheme } = useUIStore();
+  const systemColorScheme = useColorScheme();
+  const { isDarkMode, themeMode, setThemeMode } = useUIStore();
   const { company, user, setCompany, loadMe } = useAuthStore();
+
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [helpModalCategory, setHelpModalCategory] = useState<HelpCategory>("COMMUNICATION_SETUP");
 
   const colors = isDarkMode
     ? {
-        background: "#0F172A",
-        cardBg: "#1E293B",
-        cardBorder: "#334155",
-        textPrimary: "#F8FAFC",
-        textSecondary: "#94A3B8",
-        accent: "#38BDF8",
-        accentLight: "rgba(56, 189, 248, 0.12)",
-        btnBg: "#334155",
-        btnText: "#F8FAFC",
-        inputBg: "#0F172A",
-        inputText: "#F8FAFC",
-        inputBorder: "#334155",
-        success: "#4ADE80",
-        error: "#F87171",
-      }
+      background: "#0F172A",
+      cardBg: "#1E293B",
+      cardBorder: "#334155",
+      textPrimary: "#F8FAFC",
+      textSecondary: "#94A3B8",
+      accent: "#38BDF8",
+      accentLight: "rgba(56, 189, 248, 0.12)",
+      btnBg: "#334155",
+      btnText: "#F8FAFC",
+      inputBg: "#0F172A",
+      inputText: "#F8FAFC",
+      inputBorder: "#334155",
+      success: "#4ADE80",
+      error: "#F87171",
+    }
     : {
-        background: "#F8FAFC",
-        cardBg: "#FFFFFF",
-        cardBorder: "#E2E8F0",
-        textPrimary: "#0F172A",
-        textSecondary: "#64748B",
-        accent: "#0284C7",
-        accentLight: "rgba(2, 132, 199, 0.08)",
-        btnBg: "#E2E8F0",
-        btnText: "#0F172A",
-        inputBg: "#FFFFFF",
-        inputText: "#0F172A",
-        inputBorder: "#CBD5E1",
-        success: "#16A34A",
-        error: "#DC2626",
-      };
+      background: "#F8FAFC",
+      cardBg: "#FFFFFF",
+      cardBorder: "#E2E8F0",
+      textPrimary: "#0F172A",
+      textSecondary: "#64748B",
+      accent: "#0284C7",
+      accentLight: "rgba(2, 132, 199, 0.08)",
+      btnBg: "#E2E8F0",
+      btnText: "#0F172A",
+      inputBg: "#FFFFFF",
+      inputText: "#0F172A",
+      inputBorder: "#CBD5E1",
+      success: "#16A34A",
+      error: "#DC2626",
+    };
 
   const [activeTab, setActiveTab] = useState<TabType>("business");
   const [loading, setLoading] = useState(false);
@@ -96,6 +104,7 @@ export default function SettingsScreen() {
   // Security states
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pinCode, setPinCode] = useState("");
+  const [confirmPinCode, setConfirmPinCode] = useState("");
   const [pinPassword, setPinPassword] = useState("");
 
   // Advanced States
@@ -184,13 +193,13 @@ export default function SettingsScreen() {
     const sub = DeviceEventEmitter.addListener("globalKeyDown", (e) => {
       if (!e) return;
       const { key, ctrlKey } = e;
-      
+
       if (key === "Escape") {
         setIsSeqModalOpen(false);
         setIsNewFyModalOpen(false);
         setIsCloseFyWizardOpen(false);
       }
-      
+
       // Ctrl + S triggers saves or next wizard steps!
       if (ctrlKey && (key === "s" || key === "S")) {
         if (isSeqModalOpen) {
@@ -267,7 +276,7 @@ export default function SettingsScreen() {
       setMessage({ type: "success", text: "New Financial Year created successfully!" });
       await loadMe();
       fetchFiscalYears();
-      
+
       // Reset form
       setNewFyLabel("");
       setNewFyStart("");
@@ -285,7 +294,7 @@ export default function SettingsScreen() {
     setClosingStep(1);
     setIsCloseFyWizardOpen(true);
     setClosingNotes("");
-    
+
     // Step 1: Fetch audit checks
     setAuditLoading(true);
     try {
@@ -336,11 +345,11 @@ export default function SettingsScreen() {
       if (backupBeforeClose) {
         const { PdfRenderer: pdfModule } = NativeModules;
         if (pdfModule && pdfModule.SaveFileWithToken) {
-          const downloadUrl = `${apiClient.defaults.baseURL}/api/v1/backup/create`;
+          const token = getAccessToken() || "";
+          const downloadUrl = `${apiClient.defaults.baseURL}/api/v1/backup/create?token=${encodeURIComponent(token)}`;
           const timestamp = new Date().toISOString().split("T")[0];
           const suggestedName = `jkerp_backup_${fyToClose.label.replace(/[\/\s]/g, "_")}_${timestamp}`;
-          const token = storage.getItemSync("access_token") || "";
-          
+
           await pdfModule.SaveFileWithToken(
             downloadUrl,
             suggestedName,
@@ -367,8 +376,8 @@ export default function SettingsScreen() {
           "You cancelled the database backup. Do you want to proceed and close the financial year without a backup?",
           [
             { text: "Retry Backup", onPress: () => executeCloseFiscalYear() },
-            { 
-              text: "Close Without Backup", 
+            {
+              text: "Close Without Backup",
               onPress: async () => {
                 setLoading(true);
                 try {
@@ -645,6 +654,13 @@ export default function SettingsScreen() {
 
   // Action: Toggle Pin Login enable/disable
   const handleTogglePinLogin = async () => {
+    if (!pinEnabled && !user?.has_pin) {
+      setMessage({
+        type: "error",
+        text: "Please configure a 4 or 6-digit Security PIN below first before enabling PIN screen lock."
+      });
+      return;
+    }
     setLoading(true);
     try {
       await authApi.updateSecuritySettings({ pin_login_enabled: !pinEnabled });
@@ -664,13 +680,17 @@ export default function SettingsScreen() {
       setMessage({ type: "error", text: "PIN must be at least 4 digits." });
       return;
     }
+    if (confirmPinCode && pinCode !== confirmPinCode) {
+      setMessage({ type: "error", text: "New PIN and Confirm PIN do not match." });
+      return;
+    }
     setLoading(true);
     try {
-      await authApi.setPin({ pin: pinCode, current_password: pinPassword || undefined });
+      await authApi.setPin({ pin: pinCode });
       setPinCode("");
-      setPinPassword("");
+      setConfirmPinCode("");
       await loadMe();
-      setMessage({ type: "success", text: "Security PIN has been updated successfully." });
+      setMessage({ type: "success", text: "Security PIN has been updated & saved successfully." });
     } catch (err: any) {
       setMessage({ type: "error", text: err.response?.data?.detail || "Failed to set security PIN." });
     } finally {
@@ -721,13 +741,12 @@ export default function SettingsScreen() {
                 { backgroundColor: hoveredBtn === "save" ? colors.accentLight : colors.accent, borderColor: colors.accent },
               ]}
             >
-              {loading ? (
-                <ActivityIndicator size="small" color={hoveredBtn === "save" ? colors.accent : "#FFFFFF"} />
-              ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {loading && <ActivityIndicator size="small" color={hoveredBtn === "save" ? colors.accent : "#FFFFFF"} style={{ width: 18, height: 18 }} />}
                 <Text style={[styles.saveBtnText, { color: hoveredBtn === "save" ? colors.accent : "#FFFFFF" }]}>
                   Save Changes
                 </Text>
-              )}
+              </View>
             </Pressable>
           )}
         </View>
@@ -796,12 +815,32 @@ export default function SettingsScreen() {
         </View>
 
         {/* Right Settings Form panel */}
-        <ScrollView style={styles.formPanel} contentContainerStyle={styles.formScrollContent}>
+        <ScrollView
+          style={styles.formPanel}
+          contentContainerStyle={styles.formScrollContent}
+          indicatorStyle={isDarkMode ? "white" : "black"}
+        >
           {activeTab === "communication" && (
             <View style={{ gap: 20 }}>
+              {/* Header with Setup Guide Button */}
+              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+                <View>
+                  <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>CA & Communication Settings</Text>
+                  <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>Configure Email (SMTP), WhatsApp Messaging, and CA Report Sharing</Text>
+                </View>
+                <Button
+                  title="❓ Setup Guide & Help"
+                  variant="secondary"
+                  onPress={() => {
+                    setHelpModalCategory("COMMUNICATION_SETUP");
+                    setIsHelpModalOpen(true);
+                  }}
+                />
+              </View>
+
               {/* CA Contact Card */}
               <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Chartered Accountant (CA) Contact Details</Text>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Chartered Accountant (CA) & Auditor Details</Text>
                 <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
                   Specify your CA or tax consultant details for quick report dispatching.
                 </Text>
@@ -1183,18 +1222,61 @@ export default function SettingsScreen() {
           {activeTab === "interface" && (
             <View style={styles.tabWrapper}>
               {/* Card 1: Theme selection */}
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Interface Customization</Text>
-                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                  Toggle application color mode between Dark and Light mode.
-                </Text>
-                <Toggle
-                  value={isDarkMode}
-                  onChange={toggleTheme}
-                  label="Application Dark Theme"
-                  onLabel="Enabled"
-                  offLabel="Disabled"
-                />
+              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, gap: 16 }]}>
+                <View>
+                  <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Interface Theme Preference</Text>
+                  <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+                    Choose your preferred visual theme for JK INFOTECH ERP. Your theme choice is automatically persisted across sessions.
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 16, flexWrap: "wrap", marginTop: 4 }}>
+                  {[
+                    { mode: "dark", label: "Dark Mode", desc: "High contrast dark aesthetic", glyph: "\uE708" },
+                    { mode: "light", label: "Light Mode", desc: "Clean, high-visibility bright layout", glyph: "\uE706" },
+                    { mode: "system", label: "System Default", desc: "Automatically match Windows system theme", glyph: "\uE7F8" }
+                  ].map((item) => {
+                    const isSelected = themeMode === item.mode;
+                    return (
+                      <Pressable
+                        key={item.mode}
+                        onPress={() => setThemeMode(item.mode as any, systemColorScheme)}
+                        style={({ hovered }: any) => [
+                          {
+                            flex: 1,
+                            minWidth: 200,
+                            padding: 18,
+                            borderRadius: 8,
+                            borderWidth: 2,
+                            borderColor: isSelected ? colors.accent : colors.cardBorder,
+                            backgroundColor: isSelected ? colors.accentLight : colors.inputBg,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 14
+                          },
+                          hovered && !isSelected && { backgroundColor: colors.btnBg }
+                        ]}
+                      >
+                        <Text style={{ fontFamily: "Segoe MDL2 Assets", fontSize: 26, color: isSelected ? colors.accent : colors.textSecondary }}>
+                          {item.glyph}
+                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 16, fontWeight: "700", color: isSelected ? colors.accent : colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                            {item.label}
+                          </Text>
+                          <Text style={{ fontSize: 12.5, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", marginTop: 2 }}>
+                            {item.desc}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <Text style={{ fontFamily: "Segoe MDL2 Assets", fontSize: 18, color: colors.accent, fontWeight: "900" }}>
+                            {"\uE73E"}
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             </View>
           )}
@@ -1299,11 +1381,85 @@ export default function SettingsScreen() {
 
               {/* Card 2: Security settings */}
               <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>PIN Security Settings</Text>
-                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                  Require a secure 4 or 6 digit PIN screen lock when starting or unlocking the application.
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>PIN Security & Screen Lock</Text>
+                  <View style={{
+                    backgroundColor: user?.has_pin ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#451A03" : "#FEF3C7"),
+                    paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12, borderWidth: 1,
+                    borderColor: user?.has_pin ? (isDarkMode ? "#22C55E" : "#16A34A") : (isDarkMode ? "#F59E0B" : "#D97706")
+                  }}>
+                    <Text style={{ fontSize: 11, fontWeight: "800", color: user?.has_pin ? (isDarkMode ? "#4ADE80" : "#15803D") : (isDarkMode ? "#FBBF24" : "#B45309"), fontFamily: "Segoe UI Variable Text" }}>
+                      {user?.has_pin ? "✓ PIN CONFIGURED" : "⚠️ NO PIN CONFIGURED"}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={[styles.cardDesc, { color: colors.textSecondary, marginBottom: 16 }]}>
+                  Configure a secure 4 or 6-digit PIN code to protect application startup and quick session unlocks.
                 </Text>
 
+                {/* Section A: Always-visible PIN Configuration Form */}
+                <View style={{
+                  backgroundColor: isDarkMode ? "rgba(15, 23, 42, 0.6)" : "#F8FAFC",
+                  padding: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder, marginBottom: 16
+                }}>
+                  <Text style={[styles.cardSubTitle, { color: colors.textPrimary, marginBottom: 12, fontSize: 14, fontWeight: "700" }]}>
+                    {user?.has_pin ? "Update Existing Security PIN" : "Configure New Security PIN"}
+                  </Text>
+                  <View style={styles.gridRow}>
+                    <View style={styles.gridCol}>
+                      <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>New PIN Code (4 or 6 Digits)</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
+                        value={pinCode}
+                        onChangeText={setPinCode}
+                        placeholder="e.g. 1234 or 9876"
+                        placeholderTextColor={colors.textSecondary}
+                        keyboardType="numeric"
+                        secureTextEntry
+                        maxLength={6}
+                      />
+                    </View>
+                    <View style={styles.gridCol}>
+                      <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Confirm New PIN</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
+                        value={confirmPinCode}
+                        onChangeText={setConfirmPinCode}
+                        placeholder="Re-enter new PIN"
+                        placeholderTextColor={colors.textSecondary}
+                        keyboardType="numeric"
+                        secureTextEntry
+                        maxLength={6}
+                      />
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 12 }}>
+                    <Pressable
+                      onPress={handleSetupPin}
+                      onHoverIn={() => setHoveredBtn("pinSetup")}
+                      onHoverOut={() => setHoveredBtn(null)}
+                      style={({ pressed }: any) => [
+                        styles.btn,
+                        {
+                          backgroundColor: colors.accent,
+                          opacity: hoveredBtn === "pinSetup" ? 0.9 : 1,
+                          paddingHorizontal: 20,
+                          height: 38,
+                          borderRadius: 6,
+                        },
+                        pressed && { opacity: 0.9 },
+                      ]}
+                    >
+                    <Text style={[styles.btnText, { color: "#FFFFFF", fontWeight: "700" }]}>
+                      {user?.has_pin ? "Update Security PIN" : "Save Security PIN"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* Section B: Enable/Disable PIN Screen Lock */}
+              <View style={{ borderTopWidth: 1, borderTopColor: colors.cardBorder, paddingTop: 16, marginTop: 4 }}>
                 <Toggle
                   value={pinEnabled}
                   onChange={handleTogglePinLogin}
@@ -1311,585 +1467,541 @@ export default function SettingsScreen() {
                   onLabel="Active"
                   offLabel="Disabled"
                 />
-
-                {pinEnabled && (
-                  <View style={styles.pinForm}>
-                    <Text style={[styles.cardSubTitle, { color: colors.textPrimary, marginTop: 12 }]}>Set/Update System PIN</Text>
-                    <View style={styles.gridRow}>
-                      <View style={styles.gridCol}>
-                        <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>New PIN Code (4 or 6 Digits)</Text>
-                        <TextInput
-                          style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
-                          value={pinCode}
-                          onChangeText={setPinCode}
-                          placeholder="e.g. 1234"
-                          placeholderTextColor={colors.textSecondary}
-                          keyboardType="numeric"
-                          secureTextEntry
-                          maxLength={6}
-                        />
-                      </View>
-                      <View style={styles.gridCol}>
-                        <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Account Password Authorization</Text>
-                        <TextInput
-                          style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
-                          value={pinPassword}
-                          onChangeText={setPinPassword}
-                          placeholder="Enter your account password"
-                          placeholderTextColor={colors.textSecondary}
-                          secureTextEntry
-                        />
-                      </View>
-                    </View>
-                    <Pressable
-                      onPress={handleSetupPin}
-                      onHoverIn={() => setHoveredBtn("pinSetup")}
-                      onHoverOut={() => setHoveredBtn(null)}
-                      style={[
-                        styles.btn,
-                        { backgroundColor: hoveredBtn === "pinSetup" ? colors.accent : colors.btnBg, marginTop: 8 },
-                      ]}
-                    >
-                      <Text style={[styles.btnText, { color: hoveredBtn === "pinSetup" ? "#000000" : colors.btnText }]}>
-                        Update Security PIN
-                      </Text>
-                    </Pressable>
-                  </View>
-                )}
+                <Text style={{ fontSize: 12.5, color: colors.textSecondary, marginTop: 6, fontFamily: "Segoe UI Variable Text" }}>
+                  When active, the ERP system will require your 4/6-digit PIN screen lock on app startup or session unlock.
+                </Text>
               </View>
+            </View>
 
               {/* Card 3: Barcode settings */}
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Barcode Integration</Text>
-                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                  Enable EAN-13 barcode generation for products and support barcode scanner lookups in inventory and invoicing modules.
-                </Text>
-
-                <Toggle
-                  value={!!company?.settings?.enable_barcodes}
-                  onChange={async (nextVal) => {
-                    const currentSettings = company?.settings || {};
-                    setLoading(true);
-                    try {
-                      const updated = await authApi.updateCompanyProfile({
-                        settings: { ...currentSettings, enable_barcodes: nextVal }
-                      });
-                      setCompany(updated);
-                      setMessage({ type: "success", text: `Barcode support ${nextVal ? "enabled" : "disabled"} successfully!` });
-                    } catch (err: any) {
-                      setMessage({ type: "error", text: err.response?.data?.detail || "Failed to update barcode settings." });
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  label="Barcode Scanner & Generation Support"
-                  onLabel="Enabled"
-                  offLabel="Disabled"
-                />
-              </View>
-            </View>
-          )}
-
-          {activeTab === "sequences" && (
-            <View style={styles.tabWrapper}>
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <View style={{ flex: 1, marginRight: 16 }}>
-                    <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Document Numbering System</Text>
-                    <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                      Configure auto-generation patterns, suffixes, and padding sizes for invoicing, purchase bills, orders, and receipts.
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={handleResetSequences}
-                    style={({ hovered }: any) => [
-                      styles.btn,
-                      { height: 32, paddingHorizontal: 12, marginTop: 0, backgroundColor: hovered ? colors.accentLight : colors.btnBg, borderColor: colors.accent }
-                    ]}
-                  >
-                    <Text style={[styles.btnText, { color: colors.textPrimary, fontSize: 12.5 }]}>Reset Default Prefixes</Text>
-                  </Pressable>
-                </View>
-
-                {seqLoading ? (
-                  <View style={{ padding: 40, alignItems: "center" }}>
-                    <ActivityIndicator size="large" color={colors.accent} />
-                    <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 14 }}>Fetching document numbering patterns...</Text>
-                  </View>
-                ) : (
-                  <DataTable
-                    virtualized={false}
-                    data={sequences}
-                    columns={[
-                      { header: "DOCUMENT TYPE", accessorKey: "document_type", flex: 2 },
-                      { 
-                        header: "CURRENT PATTERN", 
-                        accessorKey: "id", 
-                        flex: 2.5,
-                        render: (row: Sequence) => {
-                          const numStr = String(row.next_value).padStart(row.padding, "0");
-                          const prefix = row.prefix || "";
-                          const suffix = row.suffix || "";
-                          return (
-                            <Text style={{ fontFamily: "Consolas", fontWeight: "700", fontSize: 13.5, color: colors.accent }}>
-                              {`${prefix}${numStr}${suffix}`}
-                            </Text>
-                          );
-                        }
-                      },
-                      { header: "PREFIX", accessorKey: "prefix", flex: 1.2, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.prefix || "—"}</Text> },
-                      { header: "SUFFIX", accessorKey: "suffix", flex: 1.2, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.suffix || "—"}</Text> },
-                      { header: "NEXT INDEX", accessorKey: "next_value", flex: 1, render: (row: Sequence) => <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>{row.next_value}</Text> },
-                      { header: "PADDING", accessorKey: "padding", flex: 0.8, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.padding}</Text> },
-                      {
-                        header: "STATUS",
-                        accessorKey: "is_active",
-                        flex: 1,
-                        render: (row: Sequence) => (
-                          <View style={{ alignSelf: "flex-start", backgroundColor: row.is_active ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
-                            <Text style={{ color: row.is_active ? colors.success : colors.error, fontSize: 11, fontWeight: "800" }}>
-                              {row.is_active ? "ACTIVE" : "INACTIVE"}
-                            </Text>
-                          </View>
-                        )
-                      },
-                      {
-                        header: "ACTION",
-                        accessorKey: "id",
-                        width: 80,
-                        render: (row: Sequence) => (
-                          <Pressable
-                            onPress={() => handleEditSequence(row)}
-                            style={({ hovered }: any) => [
-                              { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: colors.accent, justifyContent: "center", alignItems: "center" },
-                              hovered && { backgroundColor: colors.accentLight }
-                            ]}
-                          >
-                            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>Configure</Text>
-                          </Pressable>
-                        )
-                      }
-                    ]}
-                  />
-                )}
-              </View>
-            </View>
-          )}
-
-          {activeTab === "fiscal_years" && (
-            <View style={styles.tabWrapper}>
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <View style={{ flex: 1, marginRight: 16 }}>
-                    <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Financial Years Setup</Text>
-                    <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                      Define fiscal periods (April 1st to March 31st) for taxation, select active fiscal year, or execute year-end ledger closing procedures.
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => setIsNewFyModalOpen(true)}
-                    style={({ hovered }: any) => [
-                      styles.btn,
-                      { height: 32, paddingHorizontal: 12, marginTop: 0, backgroundColor: colors.accent, borderColor: colors.accent }
-                    ]}
-                  >
-                    <Text style={[styles.btnText, { color: "#FFFFFF", fontSize: 12.5, fontWeight: "700" }]}>+ Create New FY</Text>
-                  </Pressable>
-                </View>
-
-                {fyLoading ? (
-                  <View style={{ padding: 40, alignItems: "center" }}>
-                    <ActivityIndicator size="large" color={colors.accent} />
-                    <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 14 }}>Fetching financial years...</Text>
-                  </View>
-                ) : (
-                  <DataTable
-                    virtualized={false}
-                    data={fiscalYears}
-                    columns={[
-                      { 
-                        header: "LABEL", 
-                        accessorKey: "label", 
-                        flex: 1.5,
-                        render: (row: FiscalYear) => {
-                          const isActive = company?.current_fy_id === row.id;
-                          return (
-                            <Text style={{ fontWeight: "700", fontSize: 14, color: isActive ? colors.accent : colors.textPrimary }}>
-                              {row.label} {isActive && " (Current)"}
-                            </Text>
-                          );
-                        }
-                      },
-                      { 
-                        header: "START DATE", 
-                        accessorKey: "start_date", 
-                        flex: 1.2,
-                        render: (row: FiscalYear) => {
-                          const dateParts = row.start_date.split("-");
-                          const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.start_date;
-                          return <Text style={{ color: colors.textPrimary }}>{formattedDate}</Text>;
-                        }
-                      },
-                      { 
-                        header: "END DATE", 
-                        accessorKey: "end_date", 
-                        flex: 1.2,
-                        render: (row: FiscalYear) => {
-                          const dateParts = row.end_date.split("-");
-                          const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.end_date;
-                          return <Text style={{ color: colors.textPrimary }}>{formattedDate}</Text>;
-                        }
-                      },
-                      {
-                        header: "STATUS",
-                        accessorKey: "is_active",
-                        flex: 1.2,
-                        render: (row: FiscalYear) => {
-                          const isClosed = row.closed_at !== null;
-                          const isActive = company?.current_fy_id === row.id;
-                          
-                          if (isClosed) {
-                            return (
-                              <View style={{ alignSelf: "flex-start", backgroundColor: "rgba(239, 68, 68, 0.1)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
-                                <Text style={{ color: colors.error, fontSize: 11, fontWeight: "800" }}>LOCKED / CLOSED</Text>
-                              </View>
-                            );
-                          }
-                          
-                          return (
-                            <View style={{ alignSelf: "flex-start", backgroundColor: isActive ? "rgba(34, 197, 94, 0.12)" : "rgba(148, 163, 184, 0.15)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
-                              <Text style={{ color: isActive ? colors.success : colors.textSecondary, fontSize: 11, fontWeight: "800" }}>
-                                {isActive ? "ACTIVE" : "INACTIVE"}
-                              </Text>
-                            </View>
-                          );
-                        }
-                      },
-                      {
-                        header: "ACTIONS",
-                        accessorKey: "id",
-                        flex: 2,
-                        render: (row: FiscalYear) => {
-                          const isCurrent = company?.current_fy_id === row.id;
-                          const isClosed = row.closed_at !== null;
-                          
-                          if (isClosed) {
-                            const dateParts = row.closed_at.split("T")[0].split("-");
-                            const closedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.closed_at;
-                            return (
-                              <Text style={{ fontSize: 12, fontStyle: "italic", color: colors.textSecondary }}>
-                                Closed on {closedDate}
-                              </Text>
-                            );
-                          }
-                          
-                          return (
-                            <View style={{ flexDirection: "row", gap: 8 }}>
-                              {!isCurrent && (
-                                <Pressable
-                                  onPress={() => handleSetActiveFy(row.id)}
-                                  style={({ hovered }: any) => [
-                                    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: colors.accent, justifyContent: "center", alignItems: "center" },
-                                    hovered && { backgroundColor: colors.accentLight }
-                                  ]}
-                                >
-                                  <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>Set Current</Text>
-                                </Pressable>
-                              )}
-                              {isCurrent && (
-                                <Pressable
-                                  onPress={() => startCloseFyWizard(row)}
-                                  style={({ hovered }: any) => [
-                                    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, backgroundColor: colors.error, justifyContent: "center", alignItems: "center" },
-                                    hovered && { opacity: 0.8 }
-                                  ]}
-                                >
-                                  <Text style={{ fontSize: 12, fontWeight: "800", color: "#FFFFFF" }}>Close Year Wizard</Text>
-                                </Pressable>
-                              )}
-                            </View>
-                          );
-                        }
-                      }
-                    ]}
-                  />
-                )}
-              </View>
-            </View>
-          )}
-
-          {activeTab === "diagnostics" && (
-            <View style={styles.tabWrapper}>
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>System & Diagnostics Engine</Text>
-                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                  Run ping requests and inspect native UWP database sync states.
-                </Text>
-
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Backend base URL:</Text>
-                  <Text style={[styles.diagValue, { color: colors.textPrimary }]}>http://localhost:8000 (Local Host)</Text>
-                </View>
-
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Database sync status:</Text>
-                  <Text style={[styles.diagValue, { color: colors.success }]}>● Running / Heartbeat synced</Text>
-                </View>
-
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Ping Latency:</Text>
-                  <Text style={[styles.diagValue, { color: colors.textPrimary }]}>
-                    {diagLatency !== null ? `${diagLatency} ms (Checked at ${diagCheckTime})` : "Not verified"}
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={handleRunDiagnostics}
-                  disabled={diagChecking}
-                  onHoverIn={() => setHoveredBtn("runDiag")}
-                  onHoverOut={() => setHoveredBtn(null)}
-                  style={[
-                    styles.btn,
-                    { backgroundColor: hoveredBtn === "runDiag" ? colors.accent : colors.btnBg, marginTop: 12 },
-                  ]}
-                >
-                  {diagChecking ? (
-                    <ActivityIndicator size="small" color={colors.textPrimary} />
-                  ) : (
-                    <Text style={[styles.btnText, { color: hoveredBtn === "runDiag" ? "#000000" : colors.btnText }]}>
-                      Run Diagnostics Check
-                    </Text>
-                  )}
-                </Pressable>
-              </View>
-
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Application Environment Info</Text>
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>App Client Version:</Text>
-                  <Text style={[styles.diagValue, { color: colors.textPrimary }]}>v0.0.1 (React Native Windows x64)</Text>
-                </View>
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Database Engine:</Text>
-                  <Text style={[styles.diagValue, { color: colors.textPrimary }]}>PostgreSQL 16.3 (Local Server)</Text>
-                </View>
-                <View style={styles.diagnosticRow}>
-                  <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Core Host OS:</Text>
-                  <Text style={[styles.diagValue, { color: colors.textPrimary }]}>Windows Desktop WinUI</Text>
-                </View>
-              </View>
-
-              {/* Cache Reset section */}
-              <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
-                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Reset Application State & Restart</Text>
-                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
-                  Clears local storage values, active session tokens, and cached configurations. The application will restart and establish a fresh connection.
-                </Text>
-
-                <Pressable
-                  onPress={async () => {
-                    const auth = useAuthStore.getState();
-                    await auth.logout();
-                  }}
-                  onHoverIn={() => setHoveredBtn("reset")}
-                  onHoverOut={() => setHoveredBtn(null)}
-                  style={[
-                    styles.dangerBtn,
-                    { backgroundColor: hoveredBtn === "reset" ? colors.error : "transparent", borderColor: colors.error },
-                  ]}
-                >
-                  <Text style={[styles.dangerBtnText, { color: hoveredBtn === "reset" ? "#FFFFFF" : colors.error }]}>
-                    Reset Local Database & Restart App
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-
-      {/* ─── SEQUENCE CONFIG EDITOR MODAL ─── */}
-      <Modal
-        isOpen={isSeqModalOpen}
-        onClose={() => setIsSeqModalOpen(false)}
-        title={`Configure numbering: ${selectedSeq?.document_type || ""}`}
-        width={500}
-        scrollEnabled={false}
-        footerActions={
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <Pressable
-              onPress={() => setIsSeqModalOpen(false)}
-              style={({ hovered }: any) => [
-                { height: 32, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 4, paddingHorizontal: 16, justifyContent: "center" },
-                hovered && { backgroundColor: colors.btnBg }
-              ]}
-            >
-              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleSaveSequence}
-              disabled={loading}
-              style={({ hovered }: any) => [
-                { height: 32, borderRadius: 4, backgroundColor: colors.accent, paddingHorizontal: 16, justifyContent: "center" },
-                hovered && { opacity: 0.9 }
-              ]}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Text style={{ fontSize: 13, fontWeight: "800", color: "#FFFFFF" }}>Save Changes</Text>
-              )}
-            </Pressable>
-          </View>
-        }
-      >
-        <View style={{ gap: 14, minHeight: 280 }}>
-          {/* Preview Panel */}
-          <View style={{ padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
-            <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.5, marginBottom: 4 }}>FORMAT PREVIEW</Text>
-            <Text style={{ fontFamily: "Consolas", fontWeight: "900", fontSize: 20, color: colors.accent }}>
-              {`${seqPrefix}${String(seqNextValue || "1").padStart(parseInt(seqPadding) || 4, "0")}${seqSuffix}`}
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
+            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Barcode Integration</Text>
+            <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+              Enable EAN-13 barcode generation for products and support barcode scanner lookups in inventory and invoicing modules.
             </Text>
+
+            <Toggle
+              value={!!company?.settings?.enable_barcodes}
+              onChange={async (nextVal) => {
+                const currentSettings = company?.settings || {};
+                setLoading(true);
+                try {
+                  const updated = await authApi.updateCompanyProfile({
+                    settings: { ...currentSettings, enable_barcodes: nextVal }
+                  });
+                  setCompany(updated);
+                  setMessage({ type: "success", text: `Barcode support ${nextVal ? "enabled" : "disabled"} successfully!` });
+                } catch (err: any) {
+                  setMessage({ type: "error", text: err.response?.data?.detail || "Failed to update barcode settings." });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              label="Barcode Scanner & Generation Support"
+              onLabel="Enabled"
+              offLabel="Disabled"
+            />
+          </View>
+      </View>
+          )}
+
+      {activeTab === "sequences" && (
+        <View style={styles.tabWrapper}>
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Document Numbering System</Text>
+                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+                  Configure auto-generation patterns, suffixes, and padding sizes for invoicing, purchase bills, orders, and receipts.
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleResetSequences}
+                style={({ hovered }: any) => [
+                  styles.btn,
+                  { height: 32, paddingHorizontal: 12, marginTop: 0, backgroundColor: hovered ? colors.accentLight : colors.btnBg, borderColor: colors.accent }
+                ]}
+              >
+                <Text style={[styles.btnText, { color: colors.textPrimary, fontSize: 12.5 }]}>Reset Default Prefixes</Text>
+              </Pressable>
+            </View>
+
+            {seqLoading ? (
+              <View style={{ padding: 40, alignItems: "center" }}>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 14 }}>Fetching document numbering patterns...</Text>
+              </View>
+            ) : (
+              <DataTable
+                virtualized={false}
+                data={sequences}
+                columns={[
+                  { header: "DOCUMENT TYPE", accessorKey: "document_type", flex: 2 },
+                  {
+                    header: "CURRENT PATTERN",
+                    accessorKey: "id",
+                    flex: 2.5,
+                    render: (row: Sequence) => {
+                      const numStr = String(row.next_value).padStart(row.padding, "0");
+                      const prefix = row.prefix || "";
+                      const suffix = row.suffix || "";
+                      return (
+                        <Text style={{ fontFamily: "Consolas", fontWeight: "700", fontSize: 13.5, color: colors.accent }}>
+                          {`${prefix}${numStr}${suffix}`}
+                        </Text>
+                      );
+                    }
+                  },
+                  { header: "PREFIX", accessorKey: "prefix", flex: 1.2, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.prefix || "—"}</Text> },
+                  { header: "SUFFIX", accessorKey: "suffix", flex: 1.2, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.suffix || "—"}</Text> },
+                  { header: "NEXT INDEX", accessorKey: "next_value", flex: 1, render: (row: Sequence) => <Text style={{ color: colors.textPrimary, fontWeight: "700" }}>{row.next_value}</Text> },
+                  { header: "PADDING", accessorKey: "padding", flex: 0.8, render: (row: Sequence) => <Text style={{ color: colors.textPrimary }}>{row.padding}</Text> },
+                  {
+                    header: "STATUS",
+                    accessorKey: "is_active",
+                    flex: 1,
+                    render: (row: Sequence) => (
+                      <View style={{ alignSelf: "flex-start", backgroundColor: row.is_active ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ color: row.is_active ? colors.success : colors.error, fontSize: 11, fontWeight: "800" }}>
+                          {row.is_active ? "ACTIVE" : "INACTIVE"}
+                        </Text>
+                      </View>
+                    )
+                  },
+                  {
+                    header: "ACTION",
+                    accessorKey: "id",
+                    width: 80,
+                    render: (row: Sequence) => (
+                      <Pressable
+                        onPress={() => handleEditSequence(row)}
+                        style={({ hovered }: any) => [
+                          { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: colors.accent, justifyContent: "center", alignItems: "center" },
+                          hovered && { backgroundColor: colors.accentLight }
+                        ]}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>Configure</Text>
+                      </Pressable>
+                    )
+                  }
+                ]}
+              />
+            )}
+          </View>
+        </View>
+      )}
+
+      {activeTab === "fiscal_years" && (
+        <View style={styles.tabWrapper}>
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <View style={{ flex: 1, marginRight: 16 }}>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Financial Years Setup</Text>
+                <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+                  Define fiscal periods (April 1st to March 31st) for taxation, select active fiscal year, or execute year-end ledger closing procedures.
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setIsNewFyModalOpen(true)}
+                style={({ hovered }: any) => [
+                  styles.btn,
+                  { height: 32, paddingHorizontal: 12, marginTop: 0, backgroundColor: colors.accent, borderColor: colors.accent }
+                ]}
+              >
+                <Text style={[styles.btnText, { color: "#FFFFFF", fontSize: 12.5, fontWeight: "700" }]}>+ Create New FY</Text>
+              </Pressable>
+            </View>
+
+            {fyLoading ? (
+              <View style={{ padding: 40, alignItems: "center" }}>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 14 }}>Fetching financial years...</Text>
+              </View>
+            ) : (
+              <DataTable
+                virtualized={false}
+                data={fiscalYears}
+                columns={[
+                  {
+                    header: "LABEL",
+                    accessorKey: "label",
+                    flex: 1.5,
+                    render: (row: FiscalYear) => {
+                      const isActive = company?.current_fy_id === row.id;
+                      return (
+                        <Text style={{ fontWeight: "700", fontSize: 14, color: isActive ? colors.accent : colors.textPrimary }}>
+                          {row.label} {isActive && " (Current)"}
+                        </Text>
+                      );
+                    }
+                  },
+                  {
+                    header: "START DATE",
+                    accessorKey: "start_date",
+                    flex: 1.2,
+                    render: (row: FiscalYear) => {
+                      const dateParts = row.start_date.split("-");
+                      const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.start_date;
+                      return <Text style={{ color: colors.textPrimary }}>{formattedDate}</Text>;
+                    }
+                  },
+                  {
+                    header: "END DATE",
+                    accessorKey: "end_date",
+                    flex: 1.2,
+                    render: (row: FiscalYear) => {
+                      const dateParts = row.end_date.split("-");
+                      const formattedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.end_date;
+                      return <Text style={{ color: colors.textPrimary }}>{formattedDate}</Text>;
+                    }
+                  },
+                  {
+                    header: "STATUS",
+                    accessorKey: "is_active",
+                    flex: 1.2,
+                    render: (row: FiscalYear) => {
+                      const isClosed = row.closed_at !== null;
+                      const isActive = company?.current_fy_id === row.id;
+
+                      if (isClosed) {
+                        return (
+                          <View style={{ alignSelf: "flex-start", backgroundColor: "rgba(239, 68, 68, 0.1)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                            <Text style={{ color: colors.error, fontSize: 11, fontWeight: "800" }}>LOCKED / CLOSED</Text>
+                          </View>
+                        );
+                      }
+
+                      return (
+                        <View style={{ alignSelf: "flex-start", backgroundColor: isActive ? "rgba(34, 197, 94, 0.12)" : "rgba(148, 163, 184, 0.15)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                          <Text style={{ color: isActive ? colors.success : colors.textSecondary, fontSize: 11, fontWeight: "800" }}>
+                            {isActive ? "ACTIVE" : "INACTIVE"}
+                          </Text>
+                        </View>
+                      );
+                    }
+                  },
+                  {
+                    header: "ACTIONS",
+                    accessorKey: "id",
+                    flex: 2,
+                    render: (row: FiscalYear) => {
+                      const isCurrent = company?.current_fy_id === row.id;
+                      if (row.closed_at) {
+                        const dateParts = row.closed_at.split("T")[0].split("-");
+                        const closedDate = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : row.closed_at;
+                        return (
+                          <Text style={{ fontSize: 12, fontStyle: "italic", color: colors.textSecondary }}>
+                            Closed on {closedDate}
+                          </Text>
+                        );
+                      }
+
+                      return (
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          {!isCurrent && (
+                            <Pressable
+                              onPress={() => handleSetActiveFy(row.id)}
+                              style={({ hovered }: any) => [
+                                { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: colors.accent, justifyContent: "center", alignItems: "center" },
+                                hovered && { backgroundColor: colors.accentLight }
+                              ]}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>Set Current</Text>
+                            </Pressable>
+                          )}
+                          {isCurrent && (
+                            <Pressable
+                              onPress={() => startCloseFyWizard(row)}
+                              style={({ hovered }: any) => [
+                                { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, backgroundColor: colors.error, justifyContent: "center", alignItems: "center" },
+                                hovered && { opacity: 0.8 }
+                              ]}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: "800", color: "#FFFFFF" }}>Close Year Wizard</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    }
+                  }
+                ]}
+              />
+            )}
+          </View>
+        </View>
+      )}
+
+      {activeTab === "diagnostics" && (
+        <View style={styles.tabWrapper}>
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>System & Diagnostics Engine</Text>
+            <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+              Run ping requests and inspect native UWP database sync states.
+            </Text>
+
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Backend base URL:</Text>
+              <Text style={[styles.diagValue, { color: colors.textPrimary }]}>http://localhost:8000 (Local Host)</Text>
+            </View>
+
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Database sync status:</Text>
+              <Text style={[styles.diagValue, { color: colors.success }]}>● Running / Heartbeat synced</Text>
+            </View>
+
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Ping Latency:</Text>
+              <Text style={[styles.diagValue, { color: colors.textPrimary }]}>
+                {diagLatency !== null ? `${diagLatency} ms (Checked at ${diagCheckTime})` : "Not verified"}
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={handleRunDiagnostics}
+              disabled={diagChecking}
+              onHoverIn={() => setHoveredBtn("runDiag")}
+              onHoverOut={() => setHoveredBtn(null)}
+              style={[
+                styles.btn,
+                { backgroundColor: hoveredBtn === "runDiag" ? colors.accent : colors.btnBg, marginTop: 12 },
+              ]}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {diagChecking && <ActivityIndicator size="small" color={colors.textPrimary} style={{ width: 18, height: 18 }} />}
+                <Text style={[styles.btnText, { color: hoveredBtn === "runDiag" ? "#000000" : colors.btnText }]}>
+                  Run Diagnostics Check
+                </Text>
+              </View>
+            </Pressable>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Prefix Code</Text>
-              <TextInput
-                value={seqPrefix}
-                onChangeText={setSeqPrefix}
-                placeholder="e.g. INV/"
-                placeholderTextColor={colors.textSecondary}
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
-              />
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
+            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Application Environment Info</Text>
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>App Client Version:</Text>
+              <Text style={[styles.diagValue, { color: colors.textPrimary }]}>v{getCurrentAppVersion()} (React Native Windows x64)</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Suffix Code</Text>
-              <TextInput
-                value={seqSuffix}
-                onChangeText={setSeqSuffix}
-                placeholder="e.g. /2026"
-                placeholderTextColor={colors.textSecondary}
-                style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
-              />
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Database Engine:</Text>
+              <Text style={[styles.diagValue, { color: colors.textPrimary }]}>PostgreSQL 16.3 (Local Server)</Text>
+            </View>
+            <View style={styles.diagnosticRow}>
+              <Text style={[styles.diagLabel, { color: colors.textSecondary }]}>Core Host OS:</Text>
+              <Text style={[styles.diagValue, { color: colors.textPrimary }]}>Windows Desktop WinUI</Text>
             </View>
           </View>
 
-          <View>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Padding Length *</Text>
+          {/* Cache Reset section */}
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
+            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Reset Application State & Restart</Text>
+            <Text style={[styles.cardDesc, { color: colors.textSecondary }]}>
+              Clears local storage values, active session tokens, and cached configurations. The application will restart and establish a fresh connection.
+            </Text>
+
+            <Pressable
+              onPress={async () => {
+                const auth = useAuthStore.getState();
+                await auth.logout();
+              }}
+              onHoverIn={() => setHoveredBtn("reset")}
+              onHoverOut={() => setHoveredBtn(null)}
+              style={[
+                styles.dangerBtn,
+                { backgroundColor: hoveredBtn === "reset" ? colors.error : "transparent", borderColor: colors.error },
+              ]}
+            >
+              <Text style={[styles.dangerBtnText, { color: hoveredBtn === "reset" ? "#FFFFFF" : colors.error }]}>
+                Reset Local Database & Restart App
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </ScrollView>
+      </View >
+
+    {/* ─── SEQUENCE CONFIG EDITOR MODAL ─── */}
+    <Modal
+      isOpen={isSeqModalOpen}
+      onClose={() => setIsSeqModalOpen(false)}
+      title={`Configure numbering: ${selectedSeq?.document_type || ""}`}
+      width={500}
+      scrollEnabled={false}
+      footerActions={
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Pressable
+            onPress={() => setIsSeqModalOpen(false)}
+            style={({ hovered }: any) => [
+              { height: 32, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 4, paddingHorizontal: 16, justifyContent: "center" },
+              hovered && { backgroundColor: colors.btnBg }
+            ]}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleSaveSequence}
+            disabled={loading}
+            style={({ hovered }: any) => [
+              { height: 32, borderRadius: 4, backgroundColor: colors.accent, paddingHorizontal: 16, justifyContent: "center" },
+              hovered && { opacity: 0.9 }
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {loading && <ActivityIndicator size="small" color="#FFF" style={{ width: 18, height: 18 }} />}
+              <Text style={{ fontSize: 13, fontWeight: "800", color: "#FFFFFF" }}>Save Changes</Text>
+            </View>
+          </Pressable>
+        </View>
+      }
+    >
+      <View style={{ gap: 14, minHeight: 280 }}>
+        {/* Preview Panel */}
+        <View style={{ padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
+          <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.5, marginBottom: 4 }}>FORMAT PREVIEW</Text>
+          <Text style={{ fontFamily: "Consolas", fontWeight: "900", fontSize: 20, color: colors.accent }}>
+            {`${seqPrefix}${String(seqNextValue || "1").padStart(parseInt(seqPadding) || 4, "0")}${seqSuffix}`}
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Prefix Code</Text>
             <TextInput
-              value={seqPadding}
-              onChangeText={setSeqPadding}
-              placeholder="4"
+              value={seqPrefix}
+              onChangeText={setSeqPrefix}
+              placeholder="e.g. INV/"
               placeholderTextColor={colors.textSecondary}
-              keyboardType="numeric"
               style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
             />
           </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Suffix Code</Text>
+            <TextInput
+              value={seqSuffix}
+              onChangeText={setSeqSuffix}
+              placeholder="e.g. /2026"
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
+            />
+          </View>
+        </View>
 
-          <Toggle
-            value={seqIsActive}
-            onChange={setSeqIsActive}
-            label="Sequence Status"
-            onLabel="Enabled / Active"
-            offLabel="Disabled / Frozen"
+        <View>
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Padding Length *</Text>
+          <TextInput
+            value={seqPadding}
+            onChangeText={setSeqPadding}
+            placeholder="4"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="numeric"
+            style={[styles.input, { backgroundColor: colors.inputBg, color: colors.inputText, borderColor: colors.inputBorder }]}
           />
         </View>
-      </Modal>
 
-      {/* ─── NEW FINANCIAL YEAR CREATION MODAL ─── */}
-      <FullScreenModal
-        isOpen={isNewFyModalOpen}
-        onClose={() => setIsNewFyModalOpen(false)}
-        title="Create New Financial Year"
-        subtitle="Define a new financial cycle period for company billing, ledger calculations, and taxation compliance."
-        breadcrumb="SYSTEM / CONFIGURATION / SETTINGS"
-        scrollEnabled={true}
-        footerActions={
+        <Toggle
+          value={seqIsActive}
+          onChange={setSeqIsActive}
+          label="Sequence Status"
+          onLabel="Enabled / Active"
+          offLabel="Disabled / Frozen"
+        />
+      </View>
+    </Modal>
+
+    {/* ─── NEW FINANCIAL YEAR CREATION MODAL ─── */}
+    <FullScreenModal
+      isOpen={isNewFyModalOpen}
+      onClose={() => setIsNewFyModalOpen(false)}
+      title="Create New Financial Year"
+      subtitle="Define a new financial cycle period for company billing, ledger calculations, and taxation compliance."
+      breadcrumb="SYSTEM / CONFIGURATION / SETTINGS"
+      scrollEnabled={true}
+      footerActions={
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <Button
+            title="Cancel"
+            onPress={() => setIsNewFyModalOpen(false)}
+            variant="secondary"
+            size="large"
+            style={{ minWidth: 100 }}
+          />
+          <Button
+            title="Create Year"
+            onPress={handleCreateFiscalYear}
+            variant="primary"
+            size="large"
+            loading={loading}
+            loadingText="Creating Year..."
+            style={{ minWidth: 140 }}
+          />
+        </View>
+      }
+    >
+      <View style={{ maxWidth: 600, alignSelf: "center", width: "100%", gap: 16, marginTop: 12 }}>
+        <View style={{ gap: 4 }}>
+          <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.textSecondary }}>LABEL (e.g. FY 2026-27)</Text>
+          <TextInput
+            value={newFyLabel}
+            onChangeText={setNewFyLabel}
+            placeholder="e.g. FY 2026-27"
+            placeholderTextColor={colors.textSecondary}
+            style={{
+              height: 36,
+              borderWidth: 1,
+              borderColor: colors.inputBorder,
+              borderRadius: 4,
+              paddingHorizontal: 10,
+              backgroundColor: colors.inputBg,
+              color: colors.textPrimary,
+              fontFamily: "Segoe UI Variable Text",
+              fontSize: 14
+            }}
+          />
+        </View>
+
+        <DatePicker
+          value={newFyStart}
+          onChange={setNewFyStart}
+          label="START DATE (Must be April 1st)"
+        />
+
+        <DatePicker
+          value={newFyEnd}
+          onChange={setNewFyEnd}
+          label="END DATE (Must be March 31st)"
+        />
+
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+          <View style={{ flex: 1, marginRight: 16 }}>
+            <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>Set Active Immediately</Text>
+            <Text style={{ fontSize: 12, color: colors.textSecondary }}>Make this the default active accounting year for all new invoices and payments.</Text>
+          </View>
+          <Toggle
+            value={newFyActive}
+            onChange={setNewFyActive}
+            label=""
+          />
+        </View>
+      </View>
+    </FullScreenModal>
+
+    {/* ─── YEAR-END CLOSING COMPLIANCE WIZARD MODAL ─── */}
+    <FullScreenModal
+      isOpen={isCloseFyWizardOpen}
+      onClose={() => setIsCloseFyWizardOpen(false)}
+      title={`Year-End Closing Wizard — ${fyToClose?.label || ""}`}
+      subtitle="Lock current books, reconcile balances, and calibrate sequence numbers for the upcoming fiscal cycle."
+      breadcrumb="SYSTEM / CONFIGURATION / SETTINGS"
+      scrollEnabled={true}
+      footerActions={
+        <View style={{ flexDirection: "row", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+          <Text style={{ fontSize: 13, color: colors.textSecondary, fontWeight: "700", fontFamily: "Segoe UI Variable Text", letterSpacing: 0.5 }}>
+            STEP {closingStep} OF 4
+          </Text>
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Button
               title="Cancel"
-              onPress={() => setIsNewFyModalOpen(false)}
-              variant="secondary"
-              size="large"
-              style={{ minWidth: 100 }}
-            />
-            <Button
-              title="Create Year"
-              onPress={handleCreateFiscalYear}
-              variant="primary"
-              size="large"
-              loading={loading}
-              style={{ minWidth: 140 }}
-            />
-          </View>
-        }
-      >
-        <View style={{ maxWidth: 600, alignSelf: "center", width: "100%", gap: 16, marginTop: 12 }}>
-          <View style={{ gap: 4 }}>
-            <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.textSecondary }}>LABEL (e.g. FY 2026-27)</Text>
-            <TextInput
-              value={newFyLabel}
-              onChangeText={setNewFyLabel}
-              placeholder="e.g. FY 2026-27"
-              placeholderTextColor={colors.textSecondary}
-              style={{
-                height: 36,
-                borderWidth: 1,
-                borderColor: colors.inputBorder,
-                borderRadius: 4,
-                paddingHorizontal: 10,
-                backgroundColor: colors.inputBg,
-                color: colors.textPrimary,
-                fontFamily: "Segoe UI Variable Text",
-                fontSize: 14
-              }}
-            />
-          </View>
-
-          <DatePicker
-            value={newFyStart}
-            onChange={setNewFyStart}
-            label="START DATE (Must be April 1st)"
-          />
-
-          <DatePicker
-            value={newFyEnd}
-            onChange={setNewFyEnd}
-            label="END DATE (Must be March 31st)"
-          />
-
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-            <View style={{ flex: 1, marginRight: 16 }}>
-              <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>Set Active Immediately</Text>
-              <Text style={{ fontSize: 12, color: colors.textSecondary }}>Make this the default active accounting year for all new invoices and payments.</Text>
-            </View>
-            <Toggle
-              value={newFyActive}
-              onChange={setNewFyActive}
-              label=""
-            />
-          </View>
-        </View>
-      </FullScreenModal>
-
-      {/* ─── YEAR-END CLOSING COMPLIANCE WIZARD MODAL ─── */}
-      <FullScreenModal
-        isOpen={isCloseFyWizardOpen}
-        onClose={() => setIsCloseFyWizardOpen(false)}
-        title={`Year-End Closing Wizard — ${fyToClose?.label || ""}`}
-        subtitle="Lock current books, reconcile balances, and calibrate sequence numbers for the upcoming fiscal cycle."
-        breadcrumb="SYSTEM / CONFIGURATION / SETTINGS"
-        scrollEnabled={true}
-        footerActions={
-          <View style={{ flexDirection: "row", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-            <Text style={{ fontSize: 13, color: colors.textSecondary, fontWeight: "700", fontFamily: "Segoe UI Variable Text", letterSpacing: 0.5 }}>
-              STEP {closingStep} OF 4
-            </Text>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Button
-                title="Cancel"
-                onPress={() => setIsCloseFyWizardOpen(false)}
+              onPress={() => setIsCloseFyWizardOpen(false)}
                 variant="secondary"
                 size="large"
                 style={{ minWidth: 100 }}
@@ -1909,6 +2021,7 @@ export default function SettingsScreen() {
                   title="🔒 Lock & Close Year"
                   onPress={executeCloseFiscalYear}
                   loading={loading}
+                  loadingText="Locking Year..."
                   variant="danger"
                   size="large"
                   style={{ minWidth: 180 }}
@@ -1918,167 +2031,172 @@ export default function SettingsScreen() {
           </View>
         }
       >
-        <View style={{ maxWidth: 650, alignSelf: "center", width: "100%", gap: 16, marginTop: 12 }}>
-          {closingStep === 1 && (
-            <View style={{ gap: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 1: Pre-Closing Compliance Audit</Text>
-              <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                The compliance engine scans database sequences, subsidiary ledgers, and inventory valuations to ensure standard audit alignment before closure.
-              </Text>
-              
-              {auditLoading ? (
-                <View style={{ padding: 40, alignItems: "center" }}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                  <Text style={{ color: colors.textSecondary, marginTop: 8, fontSize: 13 }}>Analyzing ledger entries...</Text>
-                </View>
-              ) : (
-                <View style={{ gap: 10, marginTop: 8 }}>
-                  {auditResults.map((item, idx) => {
-                    const isSuccess = item.status === "SUCCESS";
-                    const isWarning = item.status === "WARNING";
-                    return (
-                      <View key={idx} style={{ flexDirection: "row", padding: 10, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, alignItems: "center" }}>
-                        <Text style={{ 
-                          fontFamily: "Segoe MDL2 Assets", 
-                          fontSize: 16, 
-                          color: isSuccess ? colors.success : isWarning ? "#F59E0B" : colors.error,
-                          marginRight: 12
-                        }}>
-                          {isSuccess ? "\uE8FB" : isWarning ? "\uE7BA" : "\uE711"}
-                        </Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>{item.label}</Text>
-                          <Text style={{ fontSize: 12, color: colors.textSecondary }}>{item.description}</Text>
-                        </View>
-                        <Text style={{ fontSize: 11, fontWeight: "800", color: isSuccess ? colors.success : isWarning ? "#F59E0B" : colors.error }}>
-                          {item.status}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-          )}
+  <View style={{ maxWidth: 650, alignSelf: "center", width: "100%", gap: 16, marginTop: 12 }}>
+    {closingStep === 1 && (
+      <View style={{ gap: 12 }}>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 1: Pre-Closing Compliance Audit</Text>
+        <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+          The compliance engine scans database sequences, subsidiary ledgers, and inventory valuations to ensure standard audit alignment before closure.
+        </Text>
 
-          {closingStep === 2 && (
-            <View style={{ gap: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 2: Trial Balance & Income Carryforward</Text>
-              <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                Verify estimated closing figures. Marking this year as closed will write a Closing Journal Entry transferring net profit/loss to Retained Earnings (Equity) and resetting Revenue/Expense balances to zero.
-              </Text>
-              
-              {balancesLoading ? (
-                <View style={{ padding: 40, alignItems: "center" }}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                </View>
-              ) : closingBalances ? (
-                <View style={{ gap: 12, marginTop: 10 }}>
-                  <View style={{ padding: 16, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 8, backgroundColor: "rgba(34, 197, 94, 0.05)" }}>
-                    <Text style={{ fontSize: 12, fontWeight: "700", color: colors.success, letterSpacing: 0.5 }}>ESTIMATED NET PROFIT FOR CARRYFORWARD</Text>
-                    <Text style={{ fontSize: 24, fontWeight: "800", color: colors.success, marginTop: 4 }}>
-                      ₹ {closingBalances.net_profit.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>This balance will credit Retained Earnings (Equity Code 3002) on March 31st.</Text>
+        {auditLoading ? (
+          <View style={{ padding: 40, alignItems: "center" }}>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text style={{ color: colors.textSecondary, marginTop: 8, fontSize: 13 }}>Analyzing ledger entries...</Text>
+          </View>
+        ) : (
+          <View style={{ gap: 10, marginTop: 8 }}>
+            {auditResults.map((item, idx) => {
+              const isSuccess = item.status === "SUCCESS";
+              const isWarning = item.status === "WARNING";
+              return (
+                <View key={idx} style={{ flexDirection: "row", padding: 10, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, alignItems: "center" }}>
+                  <Text style={{
+                    fontFamily: "Segoe MDL2 Assets",
+                    fontSize: 16,
+                    color: isSuccess ? colors.success : isWarning ? "#F59E0B" : colors.error,
+                    marginRight: 12
+                  }}>
+                    {isSuccess ? "\uE8FB" : isWarning ? "\uE7BA" : "\uE711"}
+                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>{item.label}</Text>
+                    <Text style={{ fontSize: 12, color: colors.textSecondary }}>{item.description}</Text>
                   </View>
-
-                  <View style={{ flexDirection: "row", gap: 12 }}>
-                    <View style={{ flex: 1, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary }}>LIQUID ASSETS</Text>
-                      <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 4 }}>
-                        ₹ {closingBalances.liquid_assets.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary }}>ACCOUNTS RECEIVABLE</Text>
-                      <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 4 }}>
-                        ₹ {closingBalances.accounts_receivable.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                  </View>
+                  <Text style={{ fontSize: 11, fontWeight: "800", color: isSuccess ? colors.success : isWarning ? "#F59E0B" : colors.error }}>
+                    {item.status}
+                  </Text>
                 </View>
-              ) : null}
-            </View>
-          )}
+              );
+            })}
+          </View>
+        )}
+      </View>
+    )}
 
-          {closingStep === 3 && (
-            <View style={{ gap: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 3: Document Sequence Calibration</Text>
-              <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                The wizard proposes resetting sequential counters back to 0001 under new prefixes (incorporating the next financial year) to keep documents legally consecutive.
+    {closingStep === 2 && (
+      <View style={{ gap: 12 }}>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 2: Trial Balance & Income Carryforward</Text>
+        <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+          Verify estimated closing figures. Marking this year as closed will write a Closing Journal Entry transferring net profit/loss to Retained Earnings (Equity) and resetting Revenue/Expense balances to zero.
+        </Text>
+
+        {balancesLoading ? (
+          <View style={{ padding: 40, alignItems: "center" }}>
+            <ActivityIndicator size="small" color={colors.accent} />
+          </View>
+        ) : closingBalances ? (
+          <View style={{ gap: 12, marginTop: 10 }}>
+            <View style={{ padding: 16, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 8, backgroundColor: "rgba(34, 197, 94, 0.05)" }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: colors.success, letterSpacing: 0.5 }}>ESTIMATED NET PROFIT FOR CARRYFORWARD</Text>
+              <Text style={{ fontSize: 24, fontWeight: "800", color: colors.success, marginTop: 4 }}>
+                ₹ {closingBalances.net_profit.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </Text>
-              
-              {calibLoading ? (
-                <View style={{ padding: 40, alignItems: "center" }}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                </View>
-              ) : (
-                <View style={{ gap: 10, marginTop: 8 }}>
-                  {seqCalibration.map((item, idx) => (
-                    <View key={idx} style={{ padding: 10, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <View>
-                        <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>{item.document_type}</Text>
-                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>Current: {item.current_pattern}</Text>
-                      </View>
-                      <View style={{ alignItems: "flex-end" }}>
-                        <Text style={{ fontSize: 13, fontWeight: "800", color: colors.accent }}>Proposed Pattern</Text>
-                        <Text style={{ fontSize: 12, fontWeight: "700", fontFamily: "Consolas", color: colors.accent }}>{item.proposed_pattern}</Text>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
+              <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>This balance will credit Retained Earnings (Equity Code 3002) on March 31st.</Text>
             </View>
-          )}
 
-          {closingStep === 4 && (
-            <View style={{ gap: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 4: Lock Period & Post Closing Entry</Text>
-              
-              <View style={{ padding: 12, borderWidth: 1, borderColor: "rgba(239, 68, 68, 0.2)", borderRadius: 6, backgroundColor: "rgba(239, 68, 68, 0.05)", gap: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: "800", color: colors.error }}>⚠️ CRITICAL AUDIT NOTICE</Text>
-                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                  Locking this fiscal year is a permanent action. All vouchers, ledger entries, and invoices posted between {fyToClose?.start_date.split("-").reverse().join("/")} and {fyToClose?.end_date.split("-").reverse().join("/")} will be locked against editing, cancellation, or deletion.
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <View style={{ flex: 1, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary }}>LIQUID ASSETS</Text>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 4 }}>
+                  ₹ {closingBalances.liquid_assets.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
               </View>
-
-              <View style={{ gap: 4, marginTop: 10 }}>
-                <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.textSecondary }}>CLOSING MEMO & NOTES</Text>
-                <TextInput
-                  value={closingNotes}
-                  onChangeText={setClosingNotes}
-                  placeholder="e.g. Audited by [Auditor Name] - books closed successfully."
-                  placeholderTextColor={colors.textSecondary}
-                  multiline
-                  style={{
-                    height: 80,
-                    borderWidth: 1,
-                    borderColor: colors.inputBorder,
-                    borderRadius: 4,
-                    padding: 10,
-                    backgroundColor: colors.inputBg,
-                    color: colors.textPrimary,
-                    fontFamily: "Segoe UI Variable Text",
-                    fontSize: 13.5,
-                    textAlignVertical: "top"
-                  }}
-                />
-              </View>
-
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, marginTop: 10 }}>
-                <View style={{ flex: 1, paddingRight: 10 }}>
-                  <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>Backup Database</Text>
-                  <Text style={{ fontSize: 11.5, color: colors.textSecondary }}>Create a complete PostgreSQL logical backup (*.bak) before locking.</Text>
-                </View>
-                <Toggle
-                  value={backupBeforeClose}
-                  onValueChange={setBackupBeforeClose}
-                />
+              <View style={{ flex: 1, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary }}>ACCOUNTS RECEIVABLE</Text>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary, marginTop: 4 }}>
+                  ₹ {closingBalances.accounts_receivable.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
               </View>
             </View>
-          )}
+          </View>
+        ) : null}
+      </View>
+    )}
+
+    {closingStep === 3 && (
+      <View style={{ gap: 12 }}>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 3: Document Sequence Calibration</Text>
+        <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+          The wizard proposes resetting sequential counters back to 0001 under new prefixes (incorporating the next financial year) to keep documents legally consecutive.
+        </Text>
+
+        {calibLoading ? (
+          <View style={{ padding: 40, alignItems: "center" }}>
+            <ActivityIndicator size="small" color={colors.accent} />
+          </View>
+        ) : (
+          <View style={{ gap: 10, marginTop: 8 }}>
+            {seqCalibration.map((item, idx) => (
+              <View key={idx} style={{ padding: 10, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>{item.document_type}</Text>
+                  <Text style={{ fontSize: 11, color: colors.textSecondary }}>Current: {item.current_pattern}</Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.accent }}>Proposed Pattern</Text>
+                  <Text style={{ fontSize: 12, fontWeight: "700", fontFamily: "Consolas", color: colors.accent }}>{item.proposed_pattern}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    )}
+
+    {closingStep === 4 && (
+      <View style={{ gap: 12 }}>
+        <Text style={{ fontSize: 16, fontWeight: "700", color: colors.textPrimary }}>Step 4: Lock Period & Post Closing Entry</Text>
+
+        <View style={{ padding: 12, borderWidth: 1, borderColor: "rgba(239, 68, 68, 0.2)", borderRadius: 6, backgroundColor: "rgba(239, 68, 68, 0.05)", gap: 4 }}>
+          <Text style={{ fontSize: 13, fontWeight: "800", color: colors.error }}>⚠️ CRITICAL AUDIT NOTICE</Text>
+          <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+            Locking this fiscal year is a permanent action. All vouchers, ledger entries, and invoices posted between {fyToClose?.start_date.split("-").reverse().join("/")} and {fyToClose?.end_date.split("-").reverse().join("/")} will be locked against editing, cancellation, or deletion.
+          </Text>
         </View>
-      </FullScreenModal>
+
+        <View style={{ gap: 4, marginTop: 10 }}>
+          <Text style={{ fontSize: 12.5, fontWeight: "700", color: colors.textSecondary }}>CLOSING MEMO & NOTES</Text>
+          <TextInput
+            value={closingNotes}
+            onChangeText={setClosingNotes}
+            placeholder="e.g. Audited by [Auditor Name] - books closed successfully."
+            placeholderTextColor={colors.textSecondary}
+            multiline
+            style={{
+              height: 80,
+              borderWidth: 1,
+              borderColor: colors.inputBorder,
+              borderRadius: 4,
+              padding: 10,
+              backgroundColor: colors.inputBg,
+              color: colors.textPrimary,
+              fontFamily: "Segoe UI Variable Text",
+              fontSize: 13.5,
+              textAlignVertical: "top"
+            }}
+          />
+        </View>
+
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12, borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 6, backgroundColor: colors.inputBg, marginTop: 10 }}>
+          <View style={{ flex: 1, paddingRight: 10 }}>
+            <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary }}>Backup Database</Text>
+            <Text style={{ fontSize: 11.5, color: colors.textSecondary }}>Create a complete PostgreSQL logical backup (*.bak) before locking.</Text>
+          </View>
+          <Toggle
+            value={backupBeforeClose}
+            onValueChange={setBackupBeforeClose}
+          />
+        </View>
+      </View>
+    )}
+      </View>
+    </FullScreenModal>
+      <ModuleHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        initialCategory={helpModalCategory}
+      />
     </View>
   );
 }
@@ -2173,6 +2291,27 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontFamily: "Segoe UI Variable Text",
     marginBottom: 8,
+  },
+  cardSubtitle: {
+    fontSize: 14.5,
+    fontFamily: "Segoe UI Variable Text",
+    marginBottom: 16,
+  },
+  formGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 16,
+  },
+  inputField: {
+    flex: 1,
+    minWidth: 240,
+    gap: 6,
+  },
+  label: {
+    fontSize: 13.5,
+    fontWeight: "600",
+    fontFamily: "Segoe UI Variable Text",
+    marginBottom: 6,
   },
   cardDesc: {
     fontSize: 15,

@@ -122,7 +122,7 @@ th, td {
 </head>
 
 <body>
-<div id="GSTR-1 return_10809" align=center x:publishsource="Excel">
+<div id="GSTR-1 return_10809" x:publishsource="Excel">
 
 <table border=0 cellpadding=0 cellspacing=0 width=1810 class=xl6310809 style='border-collapse:collapse;table-layout:fixed;width:100%'>
  <!-- Perfect column percentage distribution to eliminate overlapping -->
@@ -180,7 +180,10 @@ const reportData = JSON.parse(rawData);
 // Bind Company Info
 document.getElementById('company-name').textContent = reportData.company.name;
 document.getElementById('company-address').textContent = reportData.company.address;
-document.getElementById('company-gstin').textContent = 'GOODS AND SERVICES TAX IDENTIFICATION NUMBER: ' + reportData.company.gst_number;
+const gstStr = reportData.company.gst_number ? ('GSTIN: ' + reportData.company.gst_number) : '';
+const panStr = reportData.company.pan_number ? ('PAN: ' + reportData.company.pan_number) : (reportData.company.gst_number && reportData.company.gst_number.length >= 12 ? 'PAN: ' + reportData.company.gst_number.substring(2, 12) : '');
+const combinedIdStr = [gstStr, panStr].filter(Boolean).join('  |  ') || 'GSTIN: URP';
+document.getElementById('company-gstin').textContent = combinedIdStr;
 document.getElementById('report-title').textContent = 'GOODS AND SERVICES TAX MONTHLY ANALYSIS REPORT FROM : ' + reportData.period.start + ' TO : ' + reportData.period.end;
 
 const tbody = document.getElementById('report-body');

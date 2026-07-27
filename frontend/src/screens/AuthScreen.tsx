@@ -87,11 +87,10 @@ export default function AuthScreen() {
               state?.hovered && { opacity: 0.9 }
             ]}
           >
-            {isAuthenticating ? (
-              <ActivityIndicator color={colors.buttonText} size="small" />
-            ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {isAuthenticating && <ActivityIndicator color={colors.buttonText} size="small" style={{ width: 18, height: 18 }} />}
               <Text style={[styles.submitBtnText, { color: colors.buttonText }]}>LOG IN</Text>
-            )}
+            </View>
           </Pressable>
         </View>
       </View>

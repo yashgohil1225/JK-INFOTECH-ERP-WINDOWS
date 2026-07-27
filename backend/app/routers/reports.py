@@ -18,16 +18,18 @@ from app.database import get_db
 from app.middleware.auth import get_current_company
 from app.models import Company, Account, JournalEntryLine, JournalEntry, Invoice, PurchaseBill
 from app.services.reports import ReportService
+from app.core.redis import cache_manager
 
 router = APIRouter(prefix="/api/v1/reports", tags=["Reports"])
 
-def make_pdf_response(pdf_bytes: bytes, filename: str, service: ReportService) -> Response:
+def make_pdf_response(pdf_bytes: bytes, filename: str, service: Optional[ReportService] = None, cache_hit: bool = False) -> Response:
     import json
-    match_counts = getattr(service, "match_counts", [])
+    match_counts = getattr(service, "match_counts", []) if service else []
     headers = {
         "Content-Disposition": f'inline; filename="{filename}"',
-        "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches",
-        "X-PDF-Search-Matches": json.dumps(match_counts)
+        "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
+        "X-PDF-Search-Matches": json.dumps(match_counts),
+        "X-Cache": "HIT" if cache_hit else "MISS"
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
@@ -47,15 +49,22 @@ async def get_gst_summary(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:gst"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     service = ReportService(db, company.id)
     res = await service.get_gst_summary_data()
-    return {
+    data = {
         "total_sales_value": res["total_sales_value"],
         "output_tax": res["output_tax"],
         "total_purchases_value": res["total_purchases_value"],
         "itc_claimed": res["itc_claimed"],
         "net_tax_payable": res["net_tax_payable"]
     }
+    await cache_manager.set(cache_key, data, ttl_seconds=900)
+    return data
 
 # =============================================================
 # 1.5 GET /api/reports/gst/pdf (GST Summary PDF)
@@ -67,9 +76,15 @@ async def get_gst_summary_pdf(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:gst:pdf:{orientation}:{search or ''}"
+    cached_pdf = await cache_manager.get_bytes(cache_key)
+    if cached_pdf is not None:
+        return make_pdf_response(cached_pdf, "GST_Summary.pdf", service=None, cache_hit=True)
+
     service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
     pdf_bytes = await service.generate_gst_summary_pdf()
-    return make_pdf_response(pdf_bytes, "GST_Summary.pdf", service)
+    await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
+    return make_pdf_response(pdf_bytes, "GST_Summary.pdf", service, cache_hit=False)
 
 # =============================================================
 # 2. GET /api/reports/trial-balance
@@ -79,9 +94,16 @@ async def get_trial_balance(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:trial_balance"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     service = ReportService(db, company.id)
     res = await service.get_trial_balance_data()
-    return res["accounts"]
+    data = res["accounts"]
+    await cache_manager.set(cache_key, data, ttl_seconds=900)
+    return data
 
 # =============================================================
 # 2.5 GET /api/reports/trial-balance/pdf
@@ -93,9 +115,15 @@ async def get_trial_balance_pdf(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:trial_balance:pdf:{orientation}:{search or ''}"
+    cached_pdf = await cache_manager.get_bytes(cache_key)
+    if cached_pdf is not None:
+        return make_pdf_response(cached_pdf, "Trial_Balance.pdf", service=None, cache_hit=True)
+
     service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
     pdf_bytes = await service.generate_trial_balance_pdf()
-    return make_pdf_response(pdf_bytes, "Trial_Balance.pdf", service)
+    await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
+    return make_pdf_response(pdf_bytes, "Trial_Balance.pdf", service, cache_hit=False)
 
 # =============================================================
 # 3. GET /api/reports/daybook
@@ -107,10 +135,17 @@ async def get_daybook(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:daybook:{start_date or ''}:{end_date or ''}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     start = parse_date(start_date)
     end = parse_date(end_date)
     service = ReportService(db, company.id)
-    return await service.get_day_book(start, end)
+    res = await service.get_day_book(start, end)
+    await cache_manager.set(cache_key, res, ttl_seconds=900)
+    return res
 
 # =============================================================
 # 4. GET /api/reports/daybook/pdf
@@ -124,11 +159,19 @@ async def get_daybook_pdf(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:daybook:pdf:{start_date or ''}:{end_date or ''}:{orientation}:{search or ''}"
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
+    filename = f"Day_Book_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf"
+
+    cached_pdf = await cache_manager.get_bytes(cache_key)
+    if cached_pdf is not None:
+        return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
+
     service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
     pdf_bytes = await service.generate_day_book_pdf(start, end)
-    return make_pdf_response(pdf_bytes, f"Day_Book_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
+    await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
+    return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
 
 # =============================================================
 # 4.5 GET /api/reports/daybook/excel
@@ -165,10 +208,17 @@ async def get_profit_loss(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:profit_loss:{start_date or ''}:{end_date or ''}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
     service = ReportService(db, company.id)
-    return await service.get_profit_loss(start, end)
+    res = await service.get_profit_loss(start, end)
+    await cache_manager.set(cache_key, res, ttl_seconds=900)
+    return res
 
 # =============================================================
 # 6. GET /api/reports/profit-loss/pdf
@@ -184,9 +234,17 @@ async def get_profit_loss_pdf(
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
+    filename = f"Profit_Loss_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf"
+    cache_key = f"company:{company.id}:report:profit_loss:pdf:{start_date or ''}:{end_date or ''}:{orientation}:{search or ''}"
+
+    cached_pdf = await cache_manager.get_bytes(cache_key)
+    if cached_pdf is not None:
+        return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
+
     service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
     pdf_bytes = await service.generate_profit_loss_pdf(start, end)
-    return make_pdf_response(pdf_bytes, f"Profit_Loss_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
+    await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
+    return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
 
 # =============================================================
 # 6.5 GET /api/reports/profit-loss/excel
@@ -222,9 +280,16 @@ async def get_balance_sheet(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"company:{company.id}:report:balance_sheet:{as_of or ''}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     as_of_date = parse_date(as_of) or date.today()
     service = ReportService(db, company.id)
-    return await service.get_balance_sheet(as_of_date)
+    res = await service.get_balance_sheet(as_of_date)
+    await cache_manager.set(cache_key, res, ttl_seconds=900)
+    return res
 
 # =============================================================
 # 8. GET /api/reports/balance-sheet/pdf
@@ -240,9 +305,17 @@ async def get_balance_sheet_pdf(
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
+    filename = f"Balance_Sheet_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf"
+    cache_key = f"company:{company.id}:report:balance_sheet:pdf:{start_date or ''}:{end_date or ''}:{orientation}:{search or ''}"
+
+    cached_pdf = await cache_manager.get_bytes(cache_key)
+    if cached_pdf is not None:
+        return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
+
     service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
     pdf_bytes = await service.generate_balance_sheet_pdf(start, end)
-    return make_pdf_response(pdf_bytes, f"Balance_Sheet_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
+    await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
+    return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
 
 # =============================================================
 # 8.5 GET /api/reports/balance-sheet/excel
