@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "releaseNotes": "1. Official Release v1.2.0.\n2. Automatic background auto-update engine with zero-touch installer execution.\n3. Premium table header styling and performance enhancements.",
+  "version": "1.2.1",
+  "releaseNotes": "1. Official Release v1.2.1.\n2. Complete fresh client PC automated setup with UWP sandbox loopback exemption.\n3. Automatic background auto-update engine and performance enhancements.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.0/JK_Infotech_ERP_v1.2.0.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.1/JK_Infotech_ERP_v1.2.1.zip"
 }

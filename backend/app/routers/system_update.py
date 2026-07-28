@@ -169,10 +169,10 @@ def _get_current_installed_version() -> str:
         if os.path.exists(v_json):
             with open(v_json, "r") as f:
                 data = json.load(f)
-                return data.get("version", "1.2.0")
+                return data.get("version", "1.2.1")
     except Exception:
         pass
-    return "1.2.0"
+    return "1.2.1"
 
 # Auto Background Update Checker Engine
 def _background_auto_update_worker():
