@@ -30,8 +30,9 @@ Name: "{app}\pg_data"; Permissions: users-full
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Copy PostgreSQL folder (if present locally or embedded)
+; Copy PostgreSQL folder (from local project or system installation)
 Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "C:\Program Files\PostgreSQL\16\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 ; Copy Redis cache engine folder
 Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
@@ -56,7 +57,7 @@ Source: "Y:\JK Infotech ERP\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversio
 Source: "Y:\JK Infotech ERP\sideload.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Copy helper scripts folder
-Source: "Y:\JK Infotech ERP\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Y:\JK Infotech ERP\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -72,20 +73,20 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 ; 1. Always stop and unregister any legacy/stale PostgreSQL service registration to guarantee valid path
 Filename: "net.exe"; Parameters: "stop JK_Infotech_PostgreSQL"; Flags: runhidden
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden
+Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden skipifdoesntexist
 
 ; 1.5 Always stop and unregister any legacy/stale Redis service registration to guarantee valid path
 Filename: "net.exe"; Parameters: "stop JK_Infotech_Redis"; Flags: runhidden
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden
+Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden skipifdoesntexist
 
 ; 2. Initialize PostgreSQL Data Cluster database (Only if data folder does not exist)
-Filename: "{app}\pgsql\bin\initdb.exe"; Parameters: "-D ""{app}\pg_data"" -U postgres --auth-host=trust --auth-local=trust"; StatusMsg: "Initializing local database server..."; Flags: runhidden; Check: NotDataDirExists
+Filename: "{app}\pgsql\bin\initdb.exe"; Parameters: "-D ""{app}\pg_data"" -U postgres --auth-host=trust --auth-local=trust"; StatusMsg: "Initializing local database server..."; Flags: runhidden skipifdoesntexist; Check: NotDataDirExists
 
 ; 2.5 Grant LocalSystem full control over pg_data directory
 Filename: "icacls.exe"; Parameters: """{app}\pg_data"" /grant ""NT AUTHORITY\LocalSystem:(OI)(CI)F"" /T /q"; StatusMsg: "Configuring database directory permissions..."; Flags: runhidden
 
 ; 3. Register PostgreSQL as a native Windows Service with current installation path
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "register -N ""JK_Infotech_PostgreSQL"" -D ""{app}\pg_data"" -U LocalSystem"; StatusMsg: "Registering database engine services..."; Flags: runhidden
+Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "register -N ""JK_Infotech_PostgreSQL"" -D ""{app}\pg_data"" -U LocalSystem"; StatusMsg: "Registering database engine services..."; Flags: runhidden skipifdoesntexist
 Filename: "sc.exe"; Parameters: "config JK_Infotech_PostgreSQL start= auto"; StatusMsg: "Configuring database automatic startup..."; Flags: runhidden
 Filename: "sc.exe"; Parameters: "failure JK_Infotech_PostgreSQL reset= 86400 actions= restart/5000/restart/5000/restart/5000"; StatusMsg: "Configuring database auto-recovery rules..."; Flags: runhidden
 
@@ -93,7 +94,7 @@ Filename: "sc.exe"; Parameters: "failure JK_Infotech_PostgreSQL reset= 86400 act
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\tune-redis.ps1"" -RedisDir ""{app}\redis"""; StatusMsg: "Optimizing cache engine for client hardware..."; Flags: runhidden
 
 ; 3.5 Register Redis Cache Engine as a native Windows Service
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-install --service-name ""JK_Infotech_Redis"""; StatusMsg: "Registering cache engine service..."; Flags: runhidden
+Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-install --service-name ""JK_Infotech_Redis"""; StatusMsg: "Registering cache engine service..."; Flags: runhidden skipifdoesntexist
 Filename: "sc.exe"; Parameters: "config JK_Infotech_Redis start= auto"; StatusMsg: "Configuring cache service automatic startup..."; Flags: runhidden
 Filename: "sc.exe"; Parameters: "failure JK_Infotech_Redis reset= 86400 actions= restart/5000/restart/5000/restart/5000"; StatusMsg: "Configuring cache service auto-recovery rules..."; Flags: runhidden
 
@@ -102,7 +103,7 @@ Filename: "net.exe"; Parameters: "start JK_Infotech_PostgreSQL"; StatusMsg: "Sta
 Filename: "net.exe"; Parameters: "start JK_Infotech_Redis"; StatusMsg: "Starting cache engine service..."; Flags: runhidden
 
 ; 5. Create the 'jk_erp' database (fails silently if already exists, which is fine)
-Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden; Check: NotDataDirExists
+Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden skipifdoesntexist; Check: NotDataDirExists
 
 ; 5. Sideload Certificate to Trusted People store (requires admin elevation)
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{app}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople }"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden
@@ -114,16 +115,16 @@ Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""Chec
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\sideload.ps1"" -ClientPath ""{app}\client"""; StatusMsg: "Installing Windows desktop client interface..."; Flags: runhidden runasoriginaluser
 
 ; 8. Launch backend server background process
-Filename: "{app}\backend\backend.exe"; StatusMsg: "Starting application backend engine..."; Flags: nowait runhidden
+Filename: "{app}\backend\backend.exe"; StatusMsg: "Starting application backend engine..."; Flags: nowait runhidden skipifdoesntexist
 
 [UninstallRun]
 ; 1. Stop and Unregister PostgreSQL Service
 Filename: "net.exe"; Parameters: "stop JK_Infotech_PostgreSQL"; Flags: runhidden; RunOnceId: "StopPostgres"
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden; RunOnceId: "UnregisterPostgres"
+Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden skipifdoesntexist; RunOnceId: "UnregisterPostgres"
 
 ; 1.5 Stop and Unregister Redis Service
 Filename: "net.exe"; Parameters: "stop JK_Infotech_Redis"; Flags: runhidden; RunOnceId: "StopRedis"
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden; RunOnceId: "UnregisterRedis"
+Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden skipifdoesntexist; RunOnceId: "UnregisterRedis"
 
 ; 2. Uninstall the frontend UWP Application Package
 Filename: "powershell.exe"; Parameters: "-Command ""Get-AppxPackage *9428b0f2-9cad-4953-a4b8-da3e6a84d40a* | Remove-AppxPackage"""; Flags: runhidden; RunOnceId: "UninstallUWP"

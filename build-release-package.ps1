@@ -40,6 +40,22 @@ if (-not $isccPath) {
 Write-Host "[✓] Inno Setup Compiler found: $isccPath" -ForegroundColor Green
 
 # ---------------------------------------------------------------------
+# Step 1.5: Bundle PostgreSQL Engine Binaries if Missing
+# ---------------------------------------------------------------------
+$pgsqlLocal = Join-Path $WorkspaceRoot "pgsql"
+$pgSystem = "C:\Program Files\PostgreSQL\16"
+
+if (-not (Test-Path $pgsqlLocal) -and (Test-Path $pgSystem)) {
+    Write-Host "`n[1.5/4] Bundling PostgreSQL Engine from $pgSystem..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path $pgsqlLocal -Force | Out-Null
+    Copy-Item -Path (Join-Path $pgSystem "bin") -Destination (Join-Path $pgsqlLocal "bin") -Recurse -Force
+    Copy-Item -Path (Join-Path $pgSystem "lib") -Destination (Join-Path $pgsqlLocal "lib") -Recurse -Force
+    Copy-Item -Path (Join-Path $pgSystem "share") -Destination (Join-Path $pgsqlLocal "share") -Recurse -Force
+    Write-Host "[✓] PostgreSQL engine binaries bundled into $pgsqlLocal" -ForegroundColor Green
+}
+
+
+# ---------------------------------------------------------------------
 # Step 2: Build Python Backend Executable (PyInstaller)
 # ---------------------------------------------------------------------
 Write-Host "`n[1/4] Building Python Backend Executable (PyInstaller)..." -ForegroundColor Yellow
