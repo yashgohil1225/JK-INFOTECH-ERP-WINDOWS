@@ -96,7 +96,20 @@ async def startup_event():
                 "default_hsn_sac_code": "VARCHAR(50)",
                 "default_gst_rate":     "NUMERIC(15,2)",
             },
-
+            "customers": {
+                "default_tax_rate": "FLOAT",
+            },
+            "suppliers": {
+                "default_tax_rate": "FLOAT",
+            },
+            "purchase_order_items": {
+                "product_name": "VARCHAR(255)",
+                "product_sku":  "VARCHAR(100)",
+            },
+            "sales_order_items": {
+                "product_name": "VARCHAR(255)",
+                "product_sku":  "VARCHAR(100)",
+            },
             "purchase_bills": {
                 "cgst_amount": "NUMERIC(15,2) DEFAULT 0",
                 "sgst_amount": "NUMERIC(15,2) DEFAULT 0",
@@ -112,6 +125,7 @@ async def startup_event():
                 "tds_amount": "NUMERIC(15,2) DEFAULT 0",
             },
         }
+
 
         from app.database import async_engine
         async with async_engine.connect() as conn:
