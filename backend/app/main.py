@@ -17,8 +17,9 @@ from app.core.config import settings
 from app.database import sync_engine
 from app.models import Base
 from fastapi.exceptions import RequestValidationError, ResponseValidationError  # pyrefly: ignore [missing-import]
-from app.routers import auth, license, inventory, sales, purchase, banking, dashboard, analytics, parties, companies, sequences, audit, support, barcode, reports, search, backup, reports_share
+from app.routers import auth, license, inventory, sales, purchase, banking, dashboard, analytics, parties, companies, sequences, audit, support, barcode, reports, search, backup, reports_share, system_update
 from app.routers.companies import utils_router as companies_utils_router
+
 
 from fastapi.openapi.docs import get_swagger_ui_html  # pyrefly: ignore [missing-import]
 
@@ -413,6 +414,8 @@ app.include_router(reports.router)
 app.include_router(reports_share.router)
 app.include_router(search.router)
 app.include_router(backup.router)
+app.include_router(system_update.router)
+
 
 @app.get("/favicon.ico", include_in_schema=False)           
 async def favicon():
