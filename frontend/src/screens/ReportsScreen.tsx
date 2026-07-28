@@ -24,7 +24,8 @@ import { PdfPreviewModal } from "../components/ui/PdfPreviewModal";
 import { Button } from "../components/ui/Button";
 import { storage } from "../utils/storage";
 import { DatePicker } from "../components/ui/DatePicker";
-import { HelpModal } from "../components/ui/HelpModal";
+import { ModuleHelpModal as HelpModal } from "../components/ui/ModuleHelpModal";
+
 
 
 // ─── Helpers ──────────────────────────────────────────────────

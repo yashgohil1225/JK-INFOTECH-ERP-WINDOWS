@@ -19,7 +19,10 @@ router = APIRouter(
     tags=["System Updates"],
 )
 
-TEMP_UPDATES_DIR = os.path.join(os.getcwd(), "temp_updates")
+import tempfile
+
+TEMP_UPDATES_DIR = os.path.join(tempfile.gettempdir(), "JK_Infotech_Updates")
+
 
 # Global Download State Tracker
 DOWNLOAD_STATE = {
@@ -141,14 +144,15 @@ async def apply_update(data: ApplyUpdateRequest):
 
     batch_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
-start "" "{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-timeout /t 5 /nobreak > NUL
+powershell -Command "Start-Process -FilePath '{installer_path}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait"
+timeout /t 2 /nobreak > NUL
 if exist "{launcher_vbs}" (
     wscript.exe "{launcher_vbs}"
 )
 """
     with open(script_path, "w") as f:
         f.write(batch_content)
+
 
     # Launch detached update process
     subprocess.Popen(
