@@ -8,8 +8,9 @@ AppId={{9428b0f2-9cad-4953-a4b8-da3e6a84d40a}
 AppName=JK INFOTECH ERP
 AppVersion=1.0.9
 AppPublisher=JK Infotech
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
+
 DefaultDirName={autopf}\JK Infotech ERP
 DefaultGroupName=JK INFOTECH ERP
 DisableProgramGroupPage=yes
@@ -18,6 +19,9 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+CloseApplications=yes
+RestartApplications=no
+
 
 [Dirs]
 Name: "{app}\pg_data"; Permissions: users-full
@@ -26,17 +30,19 @@ Name: "{app}\pg_data"; Permissions: users-full
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Copy PostgreSQL folder
-Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs
+; Copy PostgreSQL folder (if present locally or embedded)
+Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 ; Copy Redis cache engine folder
-Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
 
 ; Copy compiled PyInstaller backend executable
-Source: "Y:\JK Infotech ERP\backend\dist\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion
+Source: "Y:\JK Infotech ERP\backend\dist\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Copy the UWP client MSIX package and dependencies
-Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.0.9.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.0.9.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
+Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.0.8.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
+
 
 Source: "Y:\JK Infotech ERP\backend\.env.example"; DestDir: "{app}\backend"; DestName: ".env"; Flags: onlyifdoesntexist
 
@@ -147,3 +153,24 @@ begin
   else
     Result := True;
 end;
+
+// Pre-Install hook: Gracefully terminate services and active app processes before file extraction
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  // 1. Stop active database and cache services if running
+  Exec('net.exe', 'stop JK_Infotech_PostgreSQL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('net.exe', 'stop JK_Infotech_Redis', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  
+  // 2. Terminate application processes to ensure no file handle locks during overwrite
+  Exec('taskkill.exe', '/F /IM backend.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM JKErpWindows.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM postgres.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM redis-server.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+  // Give Windows OS time to finalize file handle releases
+  Sleep(1000);
+end;
+

@@ -18,8 +18,16 @@ if (Test-Path $depsPath) {
     }
 }
 
-# Install the main MSIX package (no -DependencyPath to avoid locking conflicts)
+# Install the main MSIX package (with force shutdown flags for seamless update)
 $pkg = Get-ChildItem -Path "$ClientPath\*" -Include '*.msix', '*.msixbundle', '*.appx' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'VCLibs|Xaml' } | Select-Object -First 1
 if ($pkg) {
-    Add-AppxPackage -Path $pkg.FullName
+    try {
+        Add-AppxPackage -Path $pkg.FullName -ForceApplicationShutdown -ForceTargetAppShutdown -ErrorAction Stop
+    } catch {
+        Write-Warning "Add-AppxPackage initial attempt error: $_. Retrying standard install..."
+        try {
+            Add-AppxPackage -Path $pkg.FullName -ErrorAction SilentlyContinue
+        } catch {}
+    }
 }
+
