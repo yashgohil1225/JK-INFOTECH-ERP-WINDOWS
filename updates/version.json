@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "releaseNotes": "1. Official Release v1.1.5.\n2. Enhanced in-app auto update engine with User Temp directory fallback.\n3. Complete Windows 10 & Windows 11 compatibility enhancements.",
+  "version": "1.1.6",
+  "releaseNotes": "1. Official Release v1.1.6.\n2. Enhanced in-app auto update engine with User Temp directory fallback.\n3. Complete Windows 10 & Windows 11 compatibility enhancements.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.5/JK_Infotech_ERP_v1.1.5.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.6/JK_Infotech_ERP_v1.1.6.zip"
 }
