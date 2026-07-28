@@ -73,7 +73,7 @@ Name: "{group}\JK INFOTECH ERP"; Filename: "{sys}\wscript.exe"; Parameters: """{
 
 [Registry]
 ; Configure the Backend backend.exe executable to launch automatically when user logs in
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "JK_Infotech_ERP_Backend"; ValueData: """{app}\backend\backend.exe"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "JK_Infotech_ERP_Backend"; ValueData: """{app}\backend\backend.exe"""; Flags: uninsdeletevalue
 
 [Run]
 ; 1. Always stop and unregister any legacy/stale PostgreSQL service registration to guarantee valid path
@@ -110,8 +110,8 @@ Filename: "net.exe"; Parameters: "start JK_Infotech_Redis"; StatusMsg: "Starting
 ; 5. Create the 'jk_erp' database (fails silently if already exists, which is fine)
 Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden skipifdoesntexist; Check: NotDataDirExists
 
-; 5. Sideload Certificate to Trusted People store (requires admin elevation)
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{app}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople }"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden
+; 5. Sideload Certificate to Trusted People store
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{app}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople }"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden
 
 ; 6. Apply Network Loopback exemption (requires admin elevation)
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""CheckNetIsolation.exe LoopbackExempt -a -n=9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06"""; StatusMsg: "Configuring local network sandbox access..."; Flags: runhidden
