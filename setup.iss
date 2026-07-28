@@ -6,7 +6,7 @@
 [Setup]
 AppId={{9428b0f2-9cad-4953-a4b8-da3e6a84d40a}
 AppName=JK INFOTECH ERP
-AppVersion=1.1.9
+AppVersion=1.2.0
 AppPublisher=JK Infotech
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
@@ -16,7 +16,7 @@ DefaultGroupName=JK INFOTECH ERP
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DirExistsWarning=no
-OutputBaseFilename=JK_Infotech_ERP_Setup_v1.1.9
+OutputBaseFilename=JK_Infotech_ERP_Setup_v1.2.0
 
 
 
@@ -46,7 +46,7 @@ Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubd
 Source: "Y:\JK Infotech ERP\backend\dist\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Copy the UWP client MSIX package and dependencies
-Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.1.9.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.2.0.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 
 

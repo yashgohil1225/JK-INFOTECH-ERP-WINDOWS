@@ -1,6 +1,6 @@
 {
-  "version": "1.1.9",
-  "releaseNotes": "1. Official Release v1.1.9.\n2. Premium visual table header theme across all application tables.\n3. Zero-Touch background auto update engine enhancements.",
+  "version": "1.2.0",
+  "releaseNotes": "1. Official Release v1.2.0.\n2. Automatic background auto-update engine with zero-touch installer execution.\n3. Premium table header styling and performance enhancements.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.9/JK_Infotech_ERP_v1.1.9.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.0/JK_Infotech_ERP_v1.2.0.zip"
 }
