@@ -12,7 +12,9 @@ import { Modal } from "../ui/Modal";
 import { CalendarPicker } from "../ui/DatePicker";
 import { GlobalSearchModal } from "../ui/GlobalSearchModal";
 
-import { getCurrentAppVersion } from "../../services/CloudUpdateService";
+import { getCurrentAppVersion, checkForCloudUpdate } from "../../services/CloudUpdateService";
+import { UpdateModal } from "../ui/UpdateModal";
+
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -172,12 +174,26 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 : "GST: Unregistered"}
             </Text>
             <View style={styles.statusDivider} />
-            <Text style={[styles.statusText, { color: colors.statusBarText, fontWeight: "600" }]}>
-              v{getCurrentAppVersion()}
-            </Text>
+            <Pressable 
+              onPress={async () => {
+                const info = await checkForCloudUpdate();
+                if (!info || !info.hasUpdate) {
+                  Alert.alert("Software Up To Date", `You are running the latest version v${getCurrentAppVersion()}. No updates available.`);
+                }
+              }}
+              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Text style={[styles.statusText, { color: colors.accent, fontWeight: "700" }]}>
+                Check for Updates (v{getCurrentAppVersion()})
+              </Text>
+            </Pressable>
           </View>
         </View>
       )}
+
+      {/* AUTOMATIC CLOUD UPDATE MODAL */}
+      <UpdateModal checkOnMount={true} />
+
 
       {/* GLOBAL FULL-WINDOW LOADING OVERLAY */}
       {globalLoadingMessage && (
