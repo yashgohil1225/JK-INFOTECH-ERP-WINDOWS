@@ -151,10 +151,10 @@ export function DataTable<T extends { id?: string | number }>({
         cardBg: "#FFFFFF",
         cardBorder: "#E2E8F0",
         textPrimary: "#0F172A",
-        textSecondary: "#64748B",
+        textSecondary: "#475569",
         accent: "#0284C7",
-        divider: "#E2E8F0",
-        tableHeaderBg: "#F1F5F9",
+        divider: "#CBD5E1",
+        tableHeaderBg: "#EBF3FA",
         activeRowBg: "#E0F2FE",
         hoverRowBg: "#F1F5F9",
       };
@@ -166,7 +166,7 @@ export function DataTable<T extends { id?: string | number }>({
   };
 
   const renderHeader = () => (
-    <View style={[styles.headerRow, { backgroundColor: colors.tableHeaderBg, borderBottomColor: colors.divider, paddingLeft: 16, paddingRight: 32 }]}>
+    <View style={[styles.headerRow, { backgroundColor: colors.tableHeaderBg, borderBottomColor: colors.divider, borderBottomWidth: 2, paddingLeft: 16, paddingRight: 32 }]}>
       {columns.map((col, idx) => {
         const isSortable = col.accessorKey || col.accessorFn || col.header === "#";
         const isCurrentSortCol = sortColumn === (col.accessorKey ?? col.header);

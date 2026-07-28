@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $WorkspaceRoot = $PSScriptRoot
 
 Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "JK INFOTECH ERP v1.1.8 — Full Release Packaging" -ForegroundColor Cyan
+Write-Host "JK INFOTECH ERP v1.1.9 — Full Release Packaging" -ForegroundColor Cyan
 Write-Host "===================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------
@@ -82,7 +82,7 @@ try {
 # ---------------------------------------------------------------------
 # Step 3: Build Windows UWP App Release Package
 # ---------------------------------------------------------------------
-Write-Host "`n[2/4] Building Windows UWP Client (Release Mode v1.1.8.0)..." -ForegroundColor Yellow
+Write-Host "`n[2/4] Building Windows UWP Client (Release Mode v1.1.9.0)..." -ForegroundColor Yellow
 $frontendDir = Join-Path $WorkspaceRoot "frontend"
 Push-Location $frontendDir
 
@@ -90,14 +90,14 @@ try {
     # Build React Native Windows App Package
     npx react-native run-windows --logging --release --no-launch
     
-    $appxDir = Join-Path $frontendDir "windows\AppPackages\JKErpWindows\JKErpWindows_1.1.8.0_x64_Test"
+    $appxDir = Join-Path $frontendDir "windows\AppPackages\JKErpWindows\JKErpWindows_1.1.9.0_x64_Test"
     if (-not (Test-Path $appxDir)) {
         # Fallback check if output directory name differs slightly
-        $appxDirFallback = Get-ChildItem (Join-Path $frontendDir "windows\AppPackages\JKErpWindows") | Where-Object { $_.Name -like "*1.1.8*" } | Select-Object -First 1
+        $appxDirFallback = Get-ChildItem (Join-Path $frontendDir "windows\AppPackages\JKErpWindows") | Where-Object { $_.Name -like "*1.1.9*" } | Select-Object -First 1
         if ($appxDirFallback) {
             $appxDir = $appxDirFallback.FullName
         } else {
-            Write-Warning "AppPackages v1.1.8 folder not found automatically. Using available package."
+            Write-Warning "AppPackages v1.1.9 folder not found automatically. Using available package."
         }
     }
     Write-Host "[✓] Windows UWP app built at: $appxDir" -ForegroundColor Green
@@ -108,7 +108,7 @@ try {
 # ---------------------------------------------------------------------
 # Step 4: Compile Inno Setup Script
 # ---------------------------------------------------------------------
-Write-Host "`n[3/4] Compiling Inno Setup Installer (setup.iss)..." -ForegroundColor Yellow
+Write-Host "`n[3/4] Compiling Inno Setup Script (setup.iss)..." -ForegroundColor Yellow
 $setupIssPath = Join-Path $WorkspaceRoot "setup.iss"
 $outputDir = Join-Path $WorkspaceRoot "Output"
 
@@ -118,7 +118,7 @@ if (-not (Test-Path $outputDir)) {
 
 & $isccPath $setupIssPath
 
-$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v1.1.8.exe"
+$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v1.1.9.exe"
 if (-not (Test-Path $setupExePath)) {
     throw "Setup executable not found at $setupExePath after Inno Setup compilation."
 }
@@ -128,8 +128,8 @@ Write-Host "[✓] Setup installer compiled successfully: $setupExePath ($([math]
 # Step 5: Generate ZIP Updater File
 # ---------------------------------------------------------------------
 Write-Host "`n[4/4] Packaging ZIP Updater Archive..." -ForegroundColor Yellow
-$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v1.1.8.zip"
-$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v1.1.8.zip"
+$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v1.1.9.zip"
+$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v1.1.9.zip"
 
 
 

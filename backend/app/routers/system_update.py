@@ -143,8 +143,8 @@ def _background_auto_update_worker():
         latest_ver = data.get("version")
         download_url = data.get("downloadUrl")
         
-        # Compare version against 1.1.8
-        current_ver = "1.1.8"
+        # Compare version against 1.1.9
+        current_ver = "1.1.9"
         if latest_ver and download_url and _is_newer_ver(current_ver, latest_ver):
             print(f"[AutoUpdater] New version v{latest_ver} detected. Silently staging update in background...")
             _download_task(download_url, latest_ver)

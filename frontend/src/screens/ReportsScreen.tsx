@@ -330,8 +330,8 @@ export default function ReportsScreen() {
     : {
         background: "#F8FAFC", cardBg: "#FFFFFF", cardBorder: "#E2E8F0",
         textPrimary: "#0F172A", textSecondary: "#64748B", accent: "#0284C7",
-        inputBg: "#FFFFFF", inputBorder: "#CBD5E1", divider: "#E2E8F0",
-        tableHeaderBg: "#F1F5F9", activeRowBg: "#E0F2FE",
+        inputBg: "#FFFFFF", inputBorder: "#CBD5E1", divider: "#CBD5E1",
+        tableHeaderBg: "#EBF3FA", activeRowBg: "#E0F2FE",
         btnSecondaryBg: "#E2E8F0", btnSecondaryText: "#0F172A",
         categoryHeaderBg: "#F8FAFC", pdfBtnBg: "#BE123C", excelBtnBg: "#166534",
         stripeRow: "#F8FAFC",
