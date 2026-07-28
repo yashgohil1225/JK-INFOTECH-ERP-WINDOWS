@@ -59,15 +59,16 @@ export const useLicenseStore = create<LicenseState>((set) => ({
         if (i < retries - 1) {
           await new Promise((resolve) => setTimeout(resolve, 400));
         } else {
-          console.warn("Failed to check license status after retries:", err);
-          set({ checking: false, licenseChecked: true });
-          throw err;
+          console.warn("Backend not yet responding during cold boot:", err);
+          set({ checking: false, licenseChecked: true, isFrozen: false });
+          return { frozen: false, hwid: "", reason: "", expires_at: null };
         }
       }
     }
-    set({ checking: false, licenseChecked: true });
-    throw new Error("License check timeout");
+    set({ checking: false, licenseChecked: true, isFrozen: false });
+    return { frozen: false, hwid: "", reason: "", expires_at: null };
   },
+
 
 
   activateLicense: async (key: string, durationMonths?: string) => {

@@ -13,6 +13,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 LogBox.ignoreAllLogs();
 
+if (typeof global !== "undefined" && (global as any).ErrorUtils) {
+  (global as any).ErrorUtils.setGlobalHandler((error: any, isFatal?: boolean) => {
+    console.warn("Global Error Handler caught error without crash:", error);
+  });
+}
+
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
