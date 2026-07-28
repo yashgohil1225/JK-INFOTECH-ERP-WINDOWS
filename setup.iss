@@ -6,7 +6,7 @@
 [Setup]
 AppId={{9428b0f2-9cad-4953-a4b8-da3e6a84d40a}
 AppName=JK INFOTECH ERP
-AppVersion=1.2.5
+AppVersion=1.2.6
 AppPublisher=JK Infotech
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
@@ -16,7 +16,7 @@ DefaultGroupName=JK INFOTECH ERP
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DirExistsWarning=no
-OutputBaseFilename=JK_Infotech_ERP_Setup_v1.2.5
+OutputBaseFilename=JK_Infotech_ERP_Setup_v1.2.6
 
 
 
@@ -46,7 +46,7 @@ Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubd
 Source: "Y:\JK Infotech ERP\backend\dist\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; Copy the UWP client MSIX package and dependencies
-Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.2.5.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.2.6.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 
 
@@ -110,7 +110,7 @@ Filename: "net.exe"; Parameters: "start JK_Infotech_PostgreSQL"; StatusMsg: "Sta
 Filename: "net.exe"; Parameters: "start JK_Infotech_Redis"; StatusMsg: "Starting cache engine service..."; Flags: runhidden
 
 ; 5. Create the 'jk_erp' database (fails silently if already exists, which is fine)
-Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden skipifdoesntexist; Check: NotDataDirExists
+Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden skipifdoesntexist
 
 ; 5. Sideload Certificate to Trusted People store
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{app}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople }"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden

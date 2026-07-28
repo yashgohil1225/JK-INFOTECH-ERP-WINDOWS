@@ -1,6 +1,6 @@
 {
-  "version": "1.2.5",
-  "releaseNotes": "1. Official Release v1.2.5.\n2. Automated fresh client license activation screen routing engine.\n3. Instant < 0.1s desktop launcher response and startup auto-retry flow.",
+  "version": "1.2.6",
+  "releaseNotes": "1. Official Release v1.2.6.\n2. Guaranteed fresh client database creation & schema initialization engine.\n3. Automated fresh client license activation screen routing engine.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.5/JK_Infotech_ERP_v1.2.5.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.6/JK_Infotech_ERP_v1.2.6.zip"
 }

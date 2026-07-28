@@ -21,9 +21,11 @@ strRunPy = strAppDir & "\backend\run.py"
 ' 1. Launch UWP Desktop Client Interface INSTANTLY (0.1s response)
 WshShell.Run "cmd.exe /c start shell:AppsFolder\9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06!App", 0, False
 
-' 2. Auto-initialize PostgreSQL cluster if missing
+' 2. Auto-initialize PostgreSQL cluster & create database if missing
 If Not objFSO.FileExists(strPgVersion) Then
     WshShell.Run """" & strPgInit & """ -D """ & strPgData & """ -U postgres --auth-host=trust --auth-local=trust", 0, True
+    WshShell.Run """" & strPgCtl & """ -D """ & strPgData & """ -o ""-p 5432"" -l """ & strPgData & "\postgres.log"" start", 0, True
+    WshShell.Run """" & strCreateDb & """ -U postgres -h localhost jk_erp", 0, True
 End If
 
 ' 3. Start Database, Cache, and Backend Engine in parallel background
