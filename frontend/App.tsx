@@ -331,12 +331,18 @@ function AppContent() {
   }
 
   if (!isLoggedIn) {
+    const { error } = useAuthStore.getState();
     return (
       <View style={[styles.loaderContainer, { backgroundColor: isDarkMode ? "#1A1A1A" : "#F3F3F3" }]}>
         <ActivityIndicator size="large" color={isDarkMode ? "#FFFFFF" : "#1A1A1A"} />
         <Text style={[styles.loaderText, { color: isDarkMode ? "#FFFFFF" : "#1A1A1A", marginTop: 12 }]}>
           Connecting to local database...
         </Text>
+        {error ? (
+          <Text style={{ color: "#EF4444", marginTop: 10, fontSize: 13, fontWeight: "600", textAlign: "center", paddingHorizontal: 24 }}>
+            {error}
+          </Text>
+        ) : null}
         <Pressable
           onPress={() => {
             localAutoLogin().catch(() => {});
