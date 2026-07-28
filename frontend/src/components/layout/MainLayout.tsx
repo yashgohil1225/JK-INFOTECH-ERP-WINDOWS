@@ -25,7 +25,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { user, company } = useAuthStore();
   const rootRef = React.useRef<any>(null);
 
+  // Automatic background update check on application startup
   useEffect(() => {
+    const timer = setTimeout(() => {
+      checkForCloudUpdate().catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+
     const handleGlobalKey = (e: any) => {
       if (!e) return;
       const key = e.key;
