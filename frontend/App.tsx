@@ -343,17 +343,31 @@ function AppContent() {
             {error}
           </Text>
         ) : null}
-        <Pressable
-          onPress={() => {
-            localAutoLogin().catch(() => {});
-          }}
-          style={({ hovered }: any) => [
-            { marginTop: 20, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)" },
-            hovered && { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }
-          ]}
-        >
-          <Text style={{ color: isDarkMode ? "#FFFFFF" : "#1A1A1A", fontWeight: "700" }}>Retry Connection</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
+          <Pressable
+            onPress={() => {
+              localAutoLogin().catch(() => {});
+            }}
+            style={({ hovered }: any) => [
+              { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, borderWidth: 1, borderColor: isDarkMode ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.2)" },
+              hovered && { backgroundColor: isDarkMode ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)" }
+            ]}
+          >
+            <Text style={{ color: isDarkMode ? "#FFFFFF" : "#1A1A1A", fontWeight: "700" }}>Retry Connection</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              useLicenseStore.setState({ isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED", checking: false, licenseChecked: true });
+            }}
+            style={({ hovered }: any) => [
+              { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, backgroundColor: "#0284C7" },
+              hovered && { opacity: 0.9 }
+            ]}
+          >
+            <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Enter License Key</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }

@@ -31,13 +31,13 @@ export const useLicenseStore = create<LicenseState>((set) => ({
   activating: false,
   error: null,
 
-  checkLicenseStatus: async (retries = 15) => {
+  checkLicenseStatus: async (retries = 30) => {
     set({ checking: true, error: null });
     for (let i = 0; i < retries; i++) {
       try {
         const status = await licenseApi.getStatus();
         set({
-          isFrozen: status.frozen,
+          isFrozen: !!status.frozen,
           freezeReason: status.reason || "",
           hwid: status.hwid || "",
           expiresAt: status.expires_at,
@@ -46,27 +46,32 @@ export const useLicenseStore = create<LicenseState>((set) => ({
         });
         return status;
       } catch (err: any) {
+        const status = err.response?.status;
         const resData = err.response?.data;
-        if (err.response?.status === 451 || resData?.reason) {
+        const detail = String(resData?.detail || "").toLowerCase();
+
+        // 451 / 404 / 403 or UNREGISTERED indicates fresh un-activated installation -> Open License Screen
+        if (status === 451 || status === 404 || detail.includes("unregistered") || detail.includes("no_license") || detail.includes("license")) {
           set({
             isFrozen: true,
             freezeReason: resData?.reason || "SYSTEM_UNREGISTERED",
             checking: false,
             licenseChecked: true,
           });
-          throw err;
+          return { frozen: true, hwid: "", reason: resData?.reason || "SYSTEM_UNREGISTERED", expires_at: null };
         }
+
         if (i < retries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 400));
+          await new Promise((resolve) => setTimeout(resolve, 800));
         } else {
-          console.warn("Backend not yet responding during cold boot:", err);
-          set({ checking: false, licenseChecked: true, isFrozen: false });
-          return { frozen: false, hwid: "", reason: "", expires_at: null };
+          console.warn("Backend not responding after cold boot retries, defaulting to License Screen for activation:", err);
+          set({ checking: false, licenseChecked: true, isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED" });
+          return { frozen: true, hwid: "", reason: "SYSTEM_UNREGISTERED", expires_at: null };
         }
       }
     }
-    set({ checking: false, licenseChecked: true, isFrozen: false });
-    return { frozen: false, hwid: "", reason: "", expires_at: null };
+    set({ checking: false, licenseChecked: true, isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED" });
+    return { frozen: true, hwid: "", reason: "SYSTEM_UNREGISTERED", expires_at: null };
   },
 
 
