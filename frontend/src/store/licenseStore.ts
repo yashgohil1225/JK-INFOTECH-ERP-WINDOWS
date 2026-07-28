@@ -31,7 +31,7 @@ export const useLicenseStore = create<LicenseState>((set) => ({
   activating: false,
   error: null,
 
-  checkLicenseStatus: async (retries = 2) => {
+  checkLicenseStatus: async (retries = 15) => {
     set({ checking: true, error: null });
     for (let i = 0; i < retries; i++) {
       try {
@@ -57,7 +57,7 @@ export const useLicenseStore = create<LicenseState>((set) => ({
           throw err;
         }
         if (i < retries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 400));
         } else {
           console.warn("Failed to check license status after retries:", err);
           set({ checking: false, licenseChecked: true });
@@ -68,6 +68,7 @@ export const useLicenseStore = create<LicenseState>((set) => ({
     set({ checking: false, licenseChecked: true });
     throw new Error("License check timeout");
   },
+
 
   activateLicense: async (key: string, durationMonths?: string) => {
     set({ activating: true, error: null });

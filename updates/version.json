@@ -1,6 +1,8 @@
 {
-  "version": "1.0.9",
-  "releaseNotes": "1. Release v1.0.9.\n2. Spotlight Global Search (Ctrl+K).\n3. Full-screen module & setup help guides.\n4. Basic terminology standardization.\n5. High-density enterprise performance enhancements.",
+  "version": "1.1.1",
+  "releaseNotes": "1. Official Release v1.1.1.\n2. Instant 0.1s desktop shortcut app launch optimization.\n3. Resolved fresh-installation startup auto-close stability issue.\n4. Real-time in-app updater progress bar (0% -> 100%).\n5. One-click silent auto-installer & app restart engine.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.0.9/JK_Infotech_ERP_v1.0.9.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.1/JK_Infotech_ERP_v1.1.1.zip"
 }
+
+

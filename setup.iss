@@ -6,7 +6,7 @@
 [Setup]
 AppId={{9428b0f2-9cad-4953-a4b8-da3e6a84d40a}
 AppName=JK INFOTECH ERP
-AppVersion=1.0.9
+AppVersion=1.1.1
 AppPublisher=JK Infotech
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
@@ -14,7 +14,9 @@ ArchitecturesAllowed=x64compatible
 DefaultDirName={autopf}\JK Infotech ERP
 DefaultGroupName=JK INFOTECH ERP
 DisableProgramGroupPage=yes
-OutputBaseFilename=JK_Infotech_ERP_Setup_v1.0.9
+OutputBaseFilename=JK_Infotech_ERP_Setup_v1.1.1
+
+
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

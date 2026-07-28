@@ -118,7 +118,7 @@ if (-not (Test-Path $outputDir)) {
 
 & $isccPath $setupIssPath
 
-$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v1.0.9.exe"
+$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v1.1.1.exe"
 if (-not (Test-Path $setupExePath)) {
     throw "Setup executable not found at $setupExePath after Inno Setup compilation."
 }
@@ -128,8 +128,10 @@ Write-Host "[✓] Setup installer compiled successfully: $setupExePath ($([math]
 # Step 5: Generate ZIP Updater File
 # ---------------------------------------------------------------------
 Write-Host "`n[4/4] Packaging ZIP Updater Archive..." -ForegroundColor Yellow
-$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v1.0.9.zip"
-$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v1.0.9.zip"
+$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v1.1.1.zip"
+$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v1.1.1.zip"
+
+
 
 if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force }
 
