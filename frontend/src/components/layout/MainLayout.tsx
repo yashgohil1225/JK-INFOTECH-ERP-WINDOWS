@@ -161,7 +161,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
             <Text style={[styles.statusText, { color: colors.statusBarText, fontWeight: "600" }]}>System Online</Text>
             <View style={styles.statusDivider} />
             <Text style={[styles.statusText, { color: colors.textPrimary, fontWeight: "700" }]}>
-              {company?.name || "UPENDRABHAI KAINAIYALAL GOHIL"}
+              {company?.name || "No Active Workspace"}
+
             </Text>
           </View>
           <View style={styles.statusRight}>

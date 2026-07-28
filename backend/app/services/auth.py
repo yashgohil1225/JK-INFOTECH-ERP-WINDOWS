@@ -205,9 +205,10 @@ class AuthService:
             # 2. No user exists. Setup default company and user
             logger.info("No local user found. Performing auto-setup...")
             company = Company(
-                name="GOHIL UPENDRABHAI KAINAIYALAL",
+                name="My Business Entity",
                 is_active=True,
             )
+
             self.db.add(company)
             await self.db.flush() # Get company.id
 
