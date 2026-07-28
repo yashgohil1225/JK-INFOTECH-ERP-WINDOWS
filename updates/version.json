@@ -1,8 +1,6 @@
 {
-  "version": "1.1.1",
-  "releaseNotes": "1. Official Release v1.1.1.\n2. Instant 0.1s desktop shortcut app launch optimization.\n3. Resolved fresh-installation startup auto-close stability issue.\n4. Real-time in-app updater progress bar (0% -> 100%).\n5. One-click silent auto-installer & app restart engine.",
+  "version": "1.1.2",
+  "releaseNotes": "1. Official Release v1.1.2.\n2. In-app update & automatic application restart engine verification build.\n3. Complete Windows 10 & Windows 11 compatibility enhancements.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.1/JK_Infotech_ERP_v1.1.1.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.1.2/JK_Infotech_ERP_v1.1.2.zip"
 }
-
-
