@@ -33,4 +33,4 @@ End If
 WshShell.Run "powershell -WindowStyle Hidden -Command ""$count = 0; while (-not (Test-NetConnection -ComputerName localhost -Port 8000 -InformationLevel Quiet) -and $count -lt 20) { Start-Sleep -Milliseconds 500; $count++ }""", 0, True
 
 ' 4. Launch UWP Desktop Client Interface
-CreateObject("Shell.Application").ShellExecute "shell:AppsFolder\9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06!App"
+WshShell.Run "cmd.exe /c start shell:AppsFolder\9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06!App", 0, False
