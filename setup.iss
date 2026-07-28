@@ -11,7 +11,7 @@ AppPublisher=JK Infotech
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 
-DefaultDirName={autopf}\JK Infotech ERP
+DefaultDirName={localappdata}\JK Infotech ERP
 DefaultGroupName=JK INFOTECH ERP
 DisableProgramGroupPage=yes
 OutputBaseFilename=JK_Infotech_ERP_Setup_v1.1.8
@@ -21,7 +21,7 @@ OutputBaseFilename=JK_Infotech_ERP_Setup_v1.1.8
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 CloseApplications=yes
 RestartApplications=no
 

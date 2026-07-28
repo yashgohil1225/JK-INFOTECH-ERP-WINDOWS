@@ -128,27 +128,65 @@ async def get_download_progress():
     """Returns the current download percentage and installation readiness state."""
     return DOWNLOAD_STATE
 
+import json
+
+# Auto Background Update Checker Engine
+def _background_auto_update_worker():
+    """Silently checks for cloud updates on startup, downloads release, and stages for silent install on exit."""
+    time.sleep(10)  # Wait 10s after startup to avoid slowing boot
+    try:
+        url = "https://raw.githubusercontent.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/main/updates/version.json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'JK_Infotech_ERP_AutoUpdater'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            
+        latest_ver = data.get("version")
+        download_url = data.get("downloadUrl")
+        
+        # Compare version against 1.1.8
+        current_ver = "1.1.8"
+        if latest_ver and download_url and _is_newer_ver(current_ver, latest_ver):
+            print(f"[AutoUpdater] New version v{latest_ver} detected. Silently staging update in background...")
+            _download_task(download_url, latest_ver)
+    except Exception as e:
+        print(f"[AutoUpdater] Background check silent skip: {e}")
+
+def _is_newer_ver(current: str, latest: str) -> bool:
+    try:
+        c_parts = [int(p) for p in current.split('.')]
+        l_parts = [int(p) for p in latest.split('.')]
+        for i in range(max(len(c_parts), len(l_parts))):
+            c = c_parts[i] if i < len(c_parts) else 0
+            l = l_parts[i] if i < len(l_parts) else 0
+            if l > c: return True
+            if l < c: return False
+    except Exception:
+        pass
+    return False
+
+# Launch background checker thread on router load
+threading.Thread(target=_background_auto_update_worker, daemon=True).start()
+
 @router.post("/apply-update")
 async def apply_update(data: ApplyUpdateRequest):
-    """Executes the silent software update installer and restarts the application."""
+    """Executes the silent software update installer without UAC prompts."""
     global DOWNLOAD_STATE
     installer_path = data.installer_path or DOWNLOAD_STATE.get("local_file")
     
     if not installer_path or not os.path.exists(installer_path):
         raise HTTPException(status_code=404, detail="Downloaded update installer package not found.")
 
-    # Create a updater runner script that waits for current app to exit, installs update, and launches desktop app
     script_path = os.path.join(TEMP_UPDATES_DIR, "run_update.bat")
     app_dir = os.path.abspath(os.path.join(os.getcwd(), ".."))
     launcher_vbs = os.path.join(app_dir, "launcher.vbs")
 
     batch_content = f"""@echo off
-title JK INFOTECH ERP Auto Updater
+title JK INFOTECH ERP Silent Auto Updater
 timeout /t 2 /nobreak > NUL
 taskkill /F /IM JKErpWindows.exe /T > NUL 2>&1
 taskkill /F /IM backend.exe /T > NUL 2>&1
 timeout /t 1 /nobreak > NUL
-powershell -Command "Start-Process -FilePath '{installer_path}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Verb RunAs -Wait"
+"{installer_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 timeout /t 2 /nobreak > NUL
 if exist "{launcher_vbs}" (
     wscript.exe "{launcher_vbs}"
@@ -157,15 +195,12 @@ if exist "{launcher_vbs}" (
     with open(script_path, "w") as f:
         f.write(batch_content)
 
-
-    # Launch detached update process
     subprocess.Popen(
         f'cmd.exe /c start /min "" "{script_path}"',
         shell=True,
         creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
     )
 
-    # Exit python backend process after 1.5 seconds to release file locks
     def _shutdown():
         time.sleep(1.5)
         os._exit(0)
@@ -174,6 +209,7 @@ if exist "{launcher_vbs}" (
 
     return {
         "success": True,
-        "message": f"Version v{data.version} installation initiated. Application is updating...",
+        "message": f"Version v{data.version} silent update initiated.",
         "installer": installer_path
     }
+

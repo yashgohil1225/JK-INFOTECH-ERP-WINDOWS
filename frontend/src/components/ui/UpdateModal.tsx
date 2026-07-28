@@ -30,11 +30,9 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ checkOnMount = true })
   }, [checkOnMount]);
 
   const checkForUpdate = async () => {
-    const info = await checkForCloudUpdate();
-    if (info && info.hasUpdate) {
-      setUpdateInfo(info);
-      setIsVisible(true);
-    }
+    // Zero-Touch background updating mode active: silently managed by backend worker.
+    // Intrusive popup modal disabled to prevent user interruption.
+    return;
   };
 
   const startInAppDownload = async () => {
