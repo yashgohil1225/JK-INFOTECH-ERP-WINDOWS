@@ -30,9 +30,9 @@ Name: "{app}\pg_data"; Permissions: users-full
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Copy PostgreSQL folder (from local project or system installation)
+; Copy PostgreSQL folder (bundled bin, lib, share engine)
 Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
-Source: "C:\Program Files\PostgreSQL\16\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+
 
 ; Copy Redis cache engine folder
 Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
@@ -45,7 +45,8 @@ Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindo
 Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.0.8.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
 
 
-Source: "Y:\JK Infotech ERP\backend\.env.example"; DestDir: "{app}\backend"; DestName: ".env"; Flags: onlyifdoesntexist
+Source: "Y:\JK Infotech ERP\backend\.env.example"; DestDir: "{app}\backend"; DestName: ".env"; Flags: ignoreversion
+
 
 ; Copy branding icon for shortcuts
 Source: "Y:\JK Infotech ERP\JK INFOTECH branding assests\ico\jk-infotech-icon.ico"; DestDir: "{app}"; Flags: ignoreversion

@@ -92,9 +92,11 @@ async def startup_event():
         from sqlalchemy import text
         _expected_columns = {
             "companies": {
+                "legal_name":           "VARCHAR(255)",
                 "default_hsn_sac_code": "VARCHAR(50)",
                 "default_gst_rate":     "NUMERIC(15,2)",
             },
+
             "purchase_bills": {
                 "cgst_amount": "NUMERIC(15,2) DEFAULT 0",
                 "sgst_amount": "NUMERIC(15,2) DEFAULT 0",
