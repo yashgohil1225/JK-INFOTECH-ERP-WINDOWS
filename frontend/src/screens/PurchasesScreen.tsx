@@ -870,18 +870,7 @@ export default function PurchasesScreen() {
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: C.textPrimary }]}>Purchase Bills</Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable
-                onPress={() => {
-                  setHelpModalCategory("PURCHASES_GUIDE");
-                  setIsHelpModalOpen(true);
-                }}
-                style={({ hovered }: any) => [
-                  styles.newBtn,
-                  { backgroundColor: hovered ? (isDarkMode ? "#334155" : "#E2E8F0") : C.card, borderColor: C.border, borderWidth: 1 },
-                ]}
-              >
-                <Text style={[styles.newBtnText, { color: C.textPrimary }]}>❓ Help & Guide</Text>
-              </Pressable>
+
               <Pressable
                 onPress={() => {
                   setForm(blankForm());

@@ -403,7 +403,12 @@ export default function DashboardScreen() {
             Net balances across corporate cash registry and bank nodes.
           </Text>
 
-          <ScrollView style={styles.liquidityList} showsVerticalScrollIndicator={true}>
+          <ScrollView 
+            style={styles.liquidityList} 
+            contentContainerStyle={{ paddingRight: 18, paddingBottom: 10 }}
+            showsVerticalScrollIndicator={true}
+          >
+
             {liquidity.length > 0 ? (
               liquidity.map((item, idx) => {
                 const ratio = totalLiquidity > 0 ? (item.balance || 0) / totalLiquidity : 0;

@@ -433,15 +433,7 @@ export default function InventoryScreen() {
                   <Text style={{ fontSize: 13, fontWeight: "800", color: C.textPrimary }}>Bulk Barcodes</Text>
                 </Pressable>
               )}
-              <Button
-                title="❓ Help & Guide"
-                onPress={() => {
-                  setHelpModalCategory("INVENTORY_GUIDE");
-                  setIsHelpModalOpen(true);
-                }}
-                variant="secondary"
-                size="medium"
-              />
+
               <Button title="+ Add Product" onPress={openAdd} variant="primary" size="medium" />
             </View>
           </View>

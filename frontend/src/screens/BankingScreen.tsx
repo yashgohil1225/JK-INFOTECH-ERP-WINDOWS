@@ -252,15 +252,7 @@ export default function BankingScreen() {
           <Text style={[styles.breadcrumb, { color: colors.accent }]}>FINANCE / BANKING</Text>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>Banking & Treasury</Text>
-            <Button
-              title="❓ Help & Guide"
-              onPress={() => {
-                setHelpModalCategory("BANKING_GUIDE");
-                setIsHelpModalOpen(true);
-              }}
-              variant="secondary"
-              size="medium"
-            />
+
           </View>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Manage bank connections, cash boxes and internal equity capital.

@@ -373,15 +373,7 @@ export default function PartiesScreen() {
               {entityLabelPlural} Registry
             </Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
-              <Button
-                title="❓ Help & Guide"
-                onPress={() => {
-                  setHelpModalCategory("PARTIES_GUIDE");
-                  setIsHelpModalOpen(true);
-                }}
-                variant="secondary"
-                size="medium"
-              />
+
               <Button title={`+ Add ${entityLabel}`} onPress={openAdd} variant="primary" size="medium" />
             </View>
           </View>

@@ -24,6 +24,8 @@ import { PdfPreviewModal } from "../components/ui/PdfPreviewModal";
 import { Button } from "../components/ui/Button";
 import { storage } from "../utils/storage";
 import { DatePicker } from "../components/ui/DatePicker";
+import { HelpModal } from "../components/ui/HelpModal";
+
 
 // ─── Helpers ──────────────────────────────────────────────────
 const fmt = (n: number | undefined | null) => {
@@ -347,8 +349,9 @@ export default function ReportsScreen() {
   const [dataError, setDataError] = useState<string | null>(null);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>("financial");
-  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+
 
 
   // ── Data Queries ───────────────────────────────────────────
@@ -1112,11 +1115,20 @@ export default function ReportsScreen() {
         {/* Header — per AGENTS.md standard */}
         <View style={styles.masterHeader}>
           <Text style={[styles.breadcrumb, { color: colors.accent }]}>ERP / REPORTS</Text>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Reports Centre</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: 4 }}>
+            <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Reports Centre</Text>
+            <Button
+              title="❓ Help & Guide"
+              onPress={() => setIsHelpModalOpen(true)}
+              variant="secondary"
+              size="medium"
+            />
+          </View>
           <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
-            Financial, GST, ledger and inventory reports
+            Financial, GST, CA & Communication, ledger and inventory reports
           </Text>
         </View>
+
 
         <ScrollView style={styles.categoryList} showsVerticalScrollIndicator={true}>
           {REPORT_CATEGORIES.map((cat) => (
@@ -1374,7 +1386,14 @@ export default function ReportsScreen() {
           return `${apiClient.defaults.baseURL}${selectedReport.excelEndpoint(currentParams)}`;
         } : undefined}
       />
+
+      <HelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+        defaultCategory="REPORTS_GUIDE"
+      />
     </View>
+
   );
 }
 

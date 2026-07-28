@@ -269,10 +269,11 @@ export default function Sidebar() {
 
       {/* Grouped Menu Options */}
       <ScrollView
-        style={styles.scrollContainer}
-        showsVerticalScrollIndicator={true}
+        style={[styles.scrollContainer, { paddingRight: isSidebarCollapsed ? 0 : 8 }]}
+        showsVerticalScrollIndicator={!isSidebarCollapsed}
         indicatorStyle={isDarkMode ? "white" : "black"}
       >
+
         {navigationGroups.map((group, groupIdx) => (
           <View key={groupIdx} style={styles.groupContainer}>
             {!isSidebarCollapsed && (
