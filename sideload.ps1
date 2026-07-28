@@ -19,7 +19,8 @@ if (Test-Path $depsPath) {
 }
 
 # Install the main MSIX package (with force shutdown flags for seamless update)
-$pkg = Get-ChildItem -Path "$ClientPath\*" -Include '*.msix', '*.msixbundle', '*.appx' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'VCLibs|Xaml' } | Select-Object -First 1
+$pkg = Get-ChildItem -Path "$ClientPath\*" -Include '*.msix', '*.msixbundle', '*.appx' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'VCLibs|Xaml' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
 if ($pkg) {
     try {
         Add-AppxPackage -Path $pkg.FullName -ForceApplicationShutdown -ForceTargetAppShutdown -ErrorAction Stop
