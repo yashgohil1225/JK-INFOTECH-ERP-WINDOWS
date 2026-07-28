@@ -143,8 +143,12 @@ async def apply_update(data: ApplyUpdateRequest):
     launcher_vbs = os.path.join(app_dir, "launcher.vbs")
 
     batch_content = f"""@echo off
+title JK INFOTECH ERP Auto Updater
 timeout /t 2 /nobreak > NUL
-powershell -Command "Start-Process -FilePath '{installer_path}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait"
+taskkill /F /IM JKErpWindows.exe /T > NUL 2>&1
+taskkill /F /IM backend.exe /T > NUL 2>&1
+timeout /t 1 /nobreak > NUL
+powershell -Command "Start-Process -FilePath '{installer_path}' -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Verb RunAs -Wait"
 timeout /t 2 /nobreak > NUL
 if exist "{launcher_vbs}" (
     wscript.exe "{launcher_vbs}"
