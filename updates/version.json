@@ -1,6 +1,6 @@
 {
-  "version": "1.2.2",
-  "releaseNotes": "1. Official Release v1.2.2.\n2. Automated PostgreSQL cluster auto-init & database creation fallback engine.\n3. Complete fresh client PC automated setup with UWP sandbox loopback exemption.",
+  "version": "1.2.4",
+  "releaseNotes": "1. Official Release v1.2.4.\n2. Ultra-fast < 0.1s instant desktop app launch response.\n3. Intelligent 5-attempt background auto-retry for backend initialization.",
   "mandatory": false,
-  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.2/JK_Infotech_ERP_v1.2.2.zip"
+  "downloadUrl": "https://github.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/releases/download/v1.2.4/JK_Infotech_ERP_v1.2.4.zip"
 }

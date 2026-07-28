@@ -160,34 +160,45 @@ export const useAuthStore = create<AuthState>()(
 
       localAutoLogin: async () => {
         set({ isAuthenticating: true, isLoading: true, error: null });
-        try {
-          const response = await authApi.localAutoLogin();
-          await setTokens(response.tokens.access_token, response.tokens.refresh_token, true);
-          apiClient.defaults.headers.common["Authorization"] = `Bearer ${response.tokens.access_token}`;
+        
+        let lastErr: any = null;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            const response = await authApi.localAutoLogin();
+            await setTokens(response.tokens.access_token, response.tokens.refresh_token, true);
+            apiClient.defaults.headers.common["Authorization"] = `Bearer ${response.tokens.access_token}`;
 
-          const cos = await authApi.getMyCompanies().catch(() => [] as Company[]);
+            const cos = await authApi.getMyCompanies().catch(() => [] as Company[]);
 
-          const userPinEnabled = !!response.user.pin_login_enabled;
-          const sessionVerified = get().sessionVerified;
-          const shouldLock = userPinEnabled && !sessionVerified;
+            const userPinEnabled = !!response.user.pin_login_enabled;
+            const sessionVerified = get().sessionVerified;
+            const shouldLock = userPinEnabled && !sessionVerified;
 
-          set({
-            user: response.user,
-            company: response.company,
-            availableCompanies: cos,
-            dashboardData: null,
-            rememberMe: true,
-            loginAt: new Date().toISOString(),
-            isLoading: false,
-            isAuthenticating: false,
-            isLoggedIn: true,
-            isLocked: shouldLock,
-            sessionVerified: sessionVerified && !shouldLock
-          });
-        } catch (err: any) {
-          console.warn("[authStore] localAutoLogin failed:", err);
-          set({ isLoading: false, isAuthenticating: false, error: err.message, isLoggedIn: false });
+            set({
+              user: response.user,
+              company: response.company,
+              availableCompanies: cos,
+              dashboardData: null,
+              rememberMe: true,
+              loginAt: new Date().toISOString(),
+              isLoading: false,
+              isAuthenticating: false,
+              isLoggedIn: true,
+              isLocked: shouldLock,
+              sessionVerified: sessionVerified && !shouldLock,
+              error: null
+            });
+            return;
+          } catch (err: any) {
+            lastErr = err;
+            console.warn(`[authStore] localAutoLogin attempt ${attempt}/5 failed:`, err);
+            if (attempt < 5) {
+              await new Promise(resolve => setTimeout(resolve, 1200));
+            }
+          }
         }
+
+        set({ isLoading: false, isAuthenticating: false, error: lastErr?.message || "Connection failed to local backend server.", isLoggedIn: false });
       },
 
       // —— Register ——————————————————————————————————————————————
