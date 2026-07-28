@@ -13,7 +13,9 @@ ArchitecturesAllowed=x64compatible
 
 DefaultDirName={localappdata}\JK Infotech ERP
 DefaultGroupName=JK INFOTECH ERP
+DisableDirPage=yes
 DisableProgramGroupPage=yes
+DirExistsWarning=no
 OutputBaseFilename=JK_Infotech_ERP_Setup_v1.1.8
 
 
