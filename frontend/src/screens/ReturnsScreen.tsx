@@ -15,8 +15,10 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
@@ -54,11 +56,15 @@ function toISODate(uiDateStr: string): string {
 interface Customer {
   id: string;
   name: string;
+  gst_number?: string;
+  phone?: string;
 }
 
 interface Supplier {
   id: string;
   name: string;
+  gst_number?: string;
+  phone?: string;
 }
 
 interface Product {
@@ -103,6 +109,7 @@ interface ReturnNote {
 
 export default function ReturnsScreen() {
   const { isDarkMode } = useUIStore();
+  const { company } = useAuthStore();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<"SALES" | "PURCHASE">("SALES");
@@ -190,7 +197,7 @@ export default function ReturnsScreen() {
 
   // ── Query: Fetch Credit Notes (Sales Returns) ──
   const { data: creditNotes = [], isLoading: loadingCredit } = useQuery<ReturnNote[]>({
-    queryKey: ["credit_notes"],
+    queryKey: ["credit_notes", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/sales/credit-notes");
       return res.data;
@@ -200,7 +207,7 @@ export default function ReturnsScreen() {
 
   // ── Query: Fetch Debit Notes (Purchase Returns) ──
   const { data: debitNotes = [], isLoading: loadingDebit } = useQuery<ReturnNote[]>({
-    queryKey: ["debit_notes"],
+    queryKey: ["debit_notes", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/purchase/debit-notes");
       return res.data;
@@ -210,7 +217,7 @@ export default function ReturnsScreen() {
 
   // ── Query: Fetch dropdown entities ──
   const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["customers"],
+    queryKey: ["customers", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/customers");
       return res.data;
@@ -219,7 +226,7 @@ export default function ReturnsScreen() {
   });
 
   const { data: suppliers = [] } = useQuery<Supplier[]>({
-    queryKey: ["suppliers"],
+    queryKey: ["suppliers", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/suppliers");
       return res.data;
@@ -228,7 +235,7 @@ export default function ReturnsScreen() {
   });
 
   const { data: invoices = [] } = useQuery<Invoice[]>({
-    queryKey: ["invoices"],
+    queryKey: ["invoices", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/sales/invoices");
       return res.data;
@@ -237,7 +244,7 @@ export default function ReturnsScreen() {
   });
 
   const { data: bills = [] } = useQuery<PurchaseBill[]>({
-    queryKey: ["bills"],
+    queryKey: ["bills", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/purchase/bills");
       return res.data;
@@ -246,7 +253,7 @@ export default function ReturnsScreen() {
   });
 
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ["products"],
+    queryKey: ["products", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/inventory/products");
       return res.data;
@@ -263,11 +270,13 @@ export default function ReturnsScreen() {
       const res = await apiClient.post(endpoint, payload);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [activeTab === "SALES" ? "credit_notes" : "debit_notes"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+    onSuccess: (newNote: ReturnNote) => {
+      const qKey = [activeTab === "SALES" ? "credit_notes" : "debit_notes", company?.id];
+      queryClient.setQueryData<ReturnNote[]>(qKey, (old = []) => {
+        if (old.some(n => n.id === newNote.id)) return old;
+        return [newNote, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsCreating(false);
       setSelectedNote(null);
       setForm({ party_id: "", ref_id: "", note_date: toUIDate(new Date().toISOString().split("T")[0]), reason: "" });
@@ -819,6 +828,17 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     flexDirection: "row",
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 8,
+  },
+  addLineBtn: {
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 6,
+    borderStyle: "dashed",
+    alignItems: "center",
   },
   listPanel: {
     flex: 1,

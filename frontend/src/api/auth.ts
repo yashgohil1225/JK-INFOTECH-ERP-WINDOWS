@@ -68,6 +68,7 @@ export interface Company {
   settings?: any;
   is_gst_applicable?: boolean;
   current_fy_id?: string;
+  is_active?: boolean;
 }
 
 export interface Tokens {
@@ -162,6 +163,40 @@ export const authApi = {
 
   deleteCompany: async (company_id: string): Promise<void> => {
     await apiClient.delete(`/api/v1/companies/${company_id}`);
+  },
+
+  purgeCompany: async (company_id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/companies/${company_id}/purge`);
+  },
+
+  exportCompanyData: async (company_id: string, company_name: string): Promise<void> => {
+    const { NativeModules, Linking } = require("react-native");
+    const { storage } = require("../utils/storage");
+    const { PdfRenderer: pdfModule } = NativeModules || {};
+    const token = storage.getItemSync("access_token") || "";
+    const baseURL = apiClient.defaults.baseURL || "";
+    const downloadUrl = `${baseURL}/api/v1/companies/${company_id}/export?token=${encodeURIComponent(token)}`;
+
+    const timestamp = new Date().toISOString().split("T")[0];
+    const companyClean = (company_name || "Company")
+      .replace(/[^a-zA-Z0-9]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const suggestedName = `JK_ERP_Backup_${companyClean}_${timestamp}`;
+
+    if (pdfModule && pdfModule.SaveFileWithToken) {
+      await pdfModule.SaveFileWithToken(
+        downloadUrl,
+        suggestedName,
+        "JSON Backup File (*.json)",
+        ".json",
+        token
+      );
+    } else if (typeof globalThis !== "undefined" && (globalThis as any).window?.open) {
+      (globalThis as any).window.open(downloadUrl, "_blank");
+    } else {
+      Linking.openURL(downloadUrl);
+    }
   },
 
   setPin: async (data: SetPinRequest): Promise<{ message: string }> => {

@@ -10,13 +10,15 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert
+  Alert,
+  DeviceEventEmitter
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
 import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
@@ -43,6 +45,7 @@ interface Party {
   country: string;
   station?: string;
   opening_balance: number;
+  outstanding_balance?: number;
   opening_balance_type: string;
   is_active: boolean;
   default_tax_rate?: number;
@@ -192,17 +195,32 @@ export default function PartiesScreen() {
     : { bg: "#F8FAFC", surface: "#FFFFFF", border: "#E2E8F0", textPrimary: "#0F172A", textSecondary: "#64748B", accent: "#0284C7", divider: "#E2E8F0", statusActive: "#16A34A", statusInactive: "#DC2626", isDarkMode: false };
 
   const { data: parties = [], isLoading } = useQuery<Party[]>({
-    queryKey: [isCustomer ? "customers" : "suppliers"],
+    queryKey: [isCustomer ? "customers" : "suppliers", company?.id],
     queryFn: async () => { const res = await apiClient.get(apiEndpoint); return res.data; }
   });
 
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("openSearchResult", ({ targetScreen, targetId, title }) => {
+      if (targetScreen === "PARTIES" || targetScreen === "CUSTOMERS" || targetScreen === "VENDORS") {
+        if (title) setSearchQuery(title);
+        if (parties && parties.length > 0) {
+          const match = parties.find(p => p.id === targetId || p.name.toLowerCase() === (title || "").toLowerCase());
+          if (match) setSelectedParty(match);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [parties]);
+
   const createMutation = useMutation({
     mutationFn: async (payload: any) => { const res = await apiClient.post(apiEndpoint, payload); return res.data; },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [isCustomer ? "customers" : "suppliers"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+    onSuccess: (newParty: Party) => {
+      const qKey = [isCustomer ? "customers" : "suppliers", company?.id];
+      queryClient.setQueryData<Party[]>(qKey, (old = []) => {
+        if (old.some(p => p.id === newParty.id)) return old;
+        return [newParty, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsFormOpen(false);
       setFormData(blankForm(isCustomer));
       setFormTab(1);
@@ -213,12 +231,13 @@ export default function PartiesScreen() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => { const res = await apiClient.put(`${apiEndpoint}/${id}`, data); return res.data; },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: [isCustomer ? "customers" : "suppliers"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
-      setSelectedParty(data);
+    onSuccess: (updatedParty: Party) => {
+      const qKey = [isCustomer ? "customers" : "suppliers", company?.id];
+      queryClient.setQueryData<Party[]>(qKey, (old = []) =>
+        old.map(p => (p.id === updatedParty.id ? updatedParty : p))
+      );
+      invalidateAllQueries(queryClient);
+      setSelectedParty(updatedParty);
       setIsFormOpen(false);
       setIsFullScreenOpen(false);
     },
@@ -228,10 +247,7 @@ export default function PartiesScreen() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await apiClient.delete(`${apiEndpoint}/${id}`); },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [isCustomer ? "customers" : "suppliers"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       setSelectedParty(null);
     },
     onError: (err: any) => { Alert.alert("Cannot Delete", err.response?.data?.detail || "This record has linked transactions. Deactivate instead."); }
@@ -296,7 +312,8 @@ export default function PartiesScreen() {
   // ── Multi-field Effective Search ──
   const filteredParties = useMemo(() => {
     return parties.filter(p => {
-      const matchStatus = statusFilter === "ALL" || (statusFilter === "ACTIVE" && p.is_active) || (statusFilter === "INACTIVE" && !p.is_active);
+      const isActive = p.is_active !== false;
+      const matchStatus = statusFilter === "ALL" || (statusFilter === "ACTIVE" && isActive) || (statusFilter === "INACTIVE" && !isActive);
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
         !q ||
@@ -312,11 +329,11 @@ export default function PartiesScreen() {
     });
   }, [parties, searchQuery, statusFilter]);
 
-  const columns: ColumnDefinition[] = [
-    { header: "#", accessorKey: "id", width: 48, render: (_, idx) => <Text style={{ fontSize: 13.5, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>{(idx ?? 0) + 1}</Text> },
+  const columns: ColumnDefinition<Party>[] = [
+    { header: "#", accessorKey: "id", width: 48, render: (_: any, idx?: number) => <Text style={{ fontSize: 13.5, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>{(idx ?? 0) + 1}</Text> },
     {
       header: "NAME", accessorKey: "name", flex: 2.2,
-      render: (row) => (
+      render: (row: Party) => (
         <View>
           <Text style={{ fontSize: 14.5, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }} numberOfLines={1}>{row.name}</Text>
           {row.city ? <Text style={{ fontSize: 12, color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }} numberOfLines={1}>{row.city}{row.state ? `, ${row.state}` : ""}</Text> : null}
@@ -325,30 +342,46 @@ export default function PartiesScreen() {
     },
     {
       header: "GSTIN", accessorKey: "gst_number", flex: 1.8,
-      render: (row) => <Text style={{ fontSize: 13.5, color: row.gst_number ? C.textPrimary : C.textSecondary, fontFamily: "Segoe UI Variable Text" }} numberOfLines={1}>{row.gst_number || row.gst_treatment || "Unregistered"}</Text>
+      render: (row: Party) => <Text style={{ fontSize: 13.5, color: row.gst_number ? C.textPrimary : C.textSecondary, fontFamily: "Segoe UI Variable Text" }} numberOfLines={1}>{row.gst_number || row.gst_treatment || "Unregistered"}</Text>
     },
     {
       header: "PHONE", accessorKey: "phone", flex: 1.3,
-      render: (row) => <Text style={{ fontSize: 13.5, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{row.phone || row.mobile_no || "—"}</Text>
+      render: (row: Party) => <Text style={{ fontSize: 13.5, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{row.phone || row.mobile_no || "—"}</Text>
     },
     {
-      header: isCustomer ? "CREDIT" : "TERMS", accessorKey: "credit_limit", flex: 1.2, align: "right" as any,
-      render: (row) => isCustomer ? (
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ fontSize: 13.5, fontWeight: "600", color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>₹{Number(row.credit_limit || 0).toLocaleString("en-IN")}</Text>
-          <Text style={{ fontSize: 11, color: C.textSecondary }}>{row.credit_days || 0}d</Text>
-        </View>
-      ) : <Text style={{ fontSize: 13.5, color: C.textSecondary, textAlign: "right" }}>{row.payment_terms || "—"}</Text>
+      header: isCustomer ? "BALANCE / CREDIT" : "BALANCE / TERMS", accessorKey: "outstanding_balance", flex: 1.5, align: "right" as any,
+      render: (row: Party) => {
+        const out = Number(row.outstanding_balance ?? row.opening_balance ?? 0);
+        return (
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={{ fontSize: 13.5, fontWeight: "700", color: out > 0 ? (isCustomer ? C.accent : "#EF4444") : C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+              ₹{out.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            {isCustomer ? (
+              <Text style={{ fontSize: 11, color: C.textSecondary }}>
+                Lim: ₹{Number(row.credit_limit || 0).toLocaleString("en-IN")} | {row.credit_days || 0}d
+              </Text>
+            ) : (
+              <Text style={{ fontSize: 11, color: C.textSecondary }}>
+                Terms: {row.payment_terms || "Immediate"}
+              </Text>
+            )}
+          </View>
+        );
+      }
     },
     {
       header: "STATUS", accessorKey: "is_active", width: 90, align: "center" as any,
-      render: (row) => (
-        <View style={{ backgroundColor: row.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: "center" }}>
-          <Text style={{ fontSize: 11.5, fontWeight: "800", fontFamily: "Segoe UI Variable Text", color: row.is_active ? C.statusActive : C.statusInactive }}>
-            {row.is_active ? "ACTIVE" : "INACTIVE"}
-          </Text>
-        </View>
-      )
+      render: (row: Party) => {
+        const isActive = row.is_active !== false;
+        return (
+          <View style={{ backgroundColor: isActive ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, alignSelf: "center" }}>
+            <Text style={{ fontSize: 11.5, fontWeight: "800", fontFamily: "Segoe UI Variable Text", color: isActive ? C.statusActive : C.statusInactive }}>
+              {isActive ? "ACTIVE" : "INACTIVE"}
+            </Text>
+          </View>
+        );
+      }
     }
   ];
 

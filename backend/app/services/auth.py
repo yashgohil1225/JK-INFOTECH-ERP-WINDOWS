@@ -11,7 +11,9 @@ import bcrypt as _bcrypt
 from jose import JWTError, jwt
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+# pyrefly: ignore [missing-import]
 from sqlalchemy.exc import IntegrityError
+# pyrefly: ignore [missing-import]
 from twilio.rest import Client
 
 import logging
@@ -196,8 +198,13 @@ class AuthService:
         If any user exists, log in as the first available active user.
         If no user exists (first run), automatically register a default local user and company.
         """
-        # 1. Query for any existing user
-        stmt = select(User).order_by(User.last_login.desc().nulls_last(), User.created_at.asc())
+        # 1. Query for existing active user linked to an active company
+        stmt = (
+            select(User)
+            .join(Company, User.company_id == Company.id)
+            .where(User.is_active == True, Company.is_active == True)
+            .order_by(User.last_login.desc().nulls_last(), User.created_at.desc())
+        )
         result = await self.db.execute(stmt)
         user = result.scalars().first()
 

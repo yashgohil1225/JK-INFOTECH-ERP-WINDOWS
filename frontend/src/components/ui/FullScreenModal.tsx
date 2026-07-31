@@ -135,10 +135,9 @@ export function FullScreenModal({
   if (!visible) return null;
 
   return (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     <View
-      focusable={true}
-      onKeyDown={onKeyDown}
-      onKeyUp={onKeyUp}
+      {...({ focusable: true, onKeyDown, onKeyUp } as any)}
       style={[
         styles.masterContainer,
         {

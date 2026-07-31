@@ -16,6 +16,7 @@ class PartyBase(BaseModel):
     state: Optional[str] = None
     pincode: Optional[str] = None
     opening_balance: Decimal = Decimal("0")
+    outstanding_balance: Optional[Decimal] = Decimal("0.0")
     is_active: bool = True
     default_tax_rate: Optional[float] = None
     

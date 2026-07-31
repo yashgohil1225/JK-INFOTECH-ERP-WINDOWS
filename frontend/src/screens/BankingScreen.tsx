@@ -15,11 +15,13 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { Button } from "../components/ui/Button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 
 // ─── Helpers ──────────────────────────────────────────────────
 function toUIDate(isoDateStr: string): string {
@@ -71,6 +73,7 @@ interface Payment {
 // ─── Main Screen ───────────────────────────────────────────────
 export default function BankingScreen() {
   const { isDarkMode } = useUIStore();
+  const { company } = useAuthStore();
   const queryClient = useQueryClient();
 
   // Mode Selection
@@ -89,7 +92,7 @@ export default function BankingScreen() {
     source_account_id: "",
     destination_account_id: "",
     amount: "",
-    notes: "Capital Infusion Injection"
+    notes: "Capital Deposit"
   });
 
   // Fluent design palette based on Dark/Light mode
@@ -143,29 +146,41 @@ export default function BankingScreen() {
   // --- Fetch Queries ---
   // 1. Fetch only Bank/Cash Accounts
   const { data: accounts = [], isLoading: isLoadingAccounts } = useQuery<Account[]>({
-    queryKey: ["bankingAccounts"],
+    queryKey: ["bankingAccounts", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/banking/accounts");
       return res.data;
-    }
+    },
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 
   // 2. Fetch all accounts (needed for capital transfer source accounts, i.e. Equity/Capital accounts)
   const { data: allAccounts = [] } = useQuery<Account[]>({
-    queryKey: ["allAccounts"],
+    queryKey: ["allAccounts", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/banking/accounts/all");
       return res.data;
-    }
+    },
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 
   // 3. Fetch Payments
   const { data: payments = [], isLoading: isLoadingPayments } = useQuery<Payment[]>({
-    queryKey: ["payments"],
+    queryKey: ["payments", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/banking/payments");
       return res.data;
-    }
+    },
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
   });
 
   // Filter Equity source accounts (usually Capital Account or Retained Earnings)
@@ -173,24 +188,40 @@ export default function BankingScreen() {
     return allAccounts.filter(acc => acc.account_type === "EQUITY" || acc.name.toLowerCase().includes("capital"));
   }, [allAccounts]);
 
+  // Filter payments by selected account card
+  const displayedPayments = useMemo(() => {
+    if (!selectedAccount) return payments;
+    const isCash = selectedAccount.account_type === "CASH" || selectedAccount.name === "Cash In Hand";
+    const accNameLower = selectedAccount.name.toLowerCase().trim();
+    return payments.filter(p => {
+      if (isCash) {
+        return p.payment_method?.toUpperCase() === "CASH" || p.bank_account === "Cash In Hand";
+      } else {
+        if (p.bank_account && p.bank_account.toLowerCase().trim() === accNameLower) return true;
+        if ((!p.bank_account || p.bank_account === "None") && p.payment_method?.toUpperCase() !== "CASH") return true;
+        return false;
+      }
+    });
+  }, [payments, selectedAccount]);
+
   // --- Mutations ---
   const createAccountMutation = useMutation({
     mutationFn: async (newAcc: any) => {
       const res = await apiClient.post("/api/banking/accounts", newAcc);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bankingAccounts"] });
-      queryClient.invalidateQueries({ queryKey: ["allAccounts"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
-      Alert.alert("Success", "Treasury Account created successfully.");
+    onSuccess: (newAccount: Account) => {
+      queryClient.setQueryData<Account[]>(["bankingAccounts", company?.id], (old = []) => {
+        if (old.some(a => a.id === newAccount.id)) return old;
+        return [...old, newAccount];
+      });
+      invalidateAllQueries(queryClient);
+      Alert.alert("Success", "Bank / Cash Account created successfully.");
       setActiveRightTab("TRANSACTIONS");
       setAccountForm({ name: "", account_code: "", account_type: "BANK", opening_balance: "0" });
     },
     onError: (error: any) => {
-      Alert.alert("Error", error.response?.data?.detail || "Failed to create treasury account.");
+      Alert.alert("Error", error.response?.data?.detail || "Failed to create account.");
     }
   });
 
@@ -200,14 +231,10 @@ export default function BankingScreen() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bankingAccounts"] });
-      queryClient.invalidateQueries({ queryKey: ["payments"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
-      Alert.alert("Success", "Capital Transfer injection completed successfully.");
+      invalidateAllQueries(queryClient);
+      Alert.alert("Success", "Capital deposit completed successfully.");
       setActiveRightTab("TRANSACTIONS");
-      setTransferForm({ source_account_id: "", destination_account_id: "", amount: "", notes: "Capital Infusion Injection" });
+      setTransferForm({ source_account_id: "", destination_account_id: "", amount: "", notes: "Capital Deposit" });
     },
     onError: (error: any) => {
       Alert.alert("Error", error.response?.data?.detail || "Capital Transfer failed.");
@@ -249,18 +276,18 @@ export default function BankingScreen() {
       <View style={[styles.masterPane, { borderRightColor: colors.divider }]}>
         {/* Header Block */}
         <View style={styles.header}>
-          <Text style={[styles.breadcrumb, { color: colors.accent }]}>FINANCE / BANKING</Text>
+          <Text style={[styles.breadcrumb, { color: colors.accent }]}>BANK & CASH</Text>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={[styles.title, { color: colors.textPrimary }]}>Banking & Treasury</Text>
+            <Text style={[styles.title, { color: colors.textPrimary }]}>Bank & Cash Accounts</Text>
 
           </View>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Manage bank connections, cash boxes and internal equity capital.
+            Manage bank accounts, cash boxes, and money transfers.
           </Text>
         </View>
 
         {/* Treasury Cards list */}
-        <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 8 }]}>LIQUID TREASURY ACCOUNTS</Text>
+        <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 8 }]}>BANK & CASH ACCOUNTS</Text>
         {isLoadingAccounts ? (
           <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: 16 }} />
         ) : (
@@ -316,7 +343,7 @@ export default function BankingScreen() {
               setSelectedAccount(null);
             }}
           >
-            <Text style={styles.actionBtnText}>+ Create Account</Text>
+            <Text style={styles.actionBtnText}>+ Add Account</Text>
           </Pressable>
           <Pressable
             style={[styles.actionBtn, { backgroundColor: colors.btnSecondaryBg }]}
@@ -325,7 +352,7 @@ export default function BankingScreen() {
               setSelectedAccount(null);
             }}
           >
-            <Text style={[styles.actionBtnText, { color: colors.btnSecondaryText }]}>Capital Transfer</Text>
+            <Text style={[styles.actionBtnText, { color: colors.btnSecondaryText }]}>Fund Transfer</Text>
           </Pressable>
         </View>
       </View>
@@ -345,7 +372,7 @@ export default function BankingScreen() {
                   }
                 ]}
               >
-                Transactions Ledger
+                Transaction History
               </Text>
             </Pressable>
             <Pressable onPress={() => setActiveRightTab("TRANSFER")}>
@@ -358,7 +385,7 @@ export default function BankingScreen() {
                   }
                 ]}
               >
-                Capital Infusion
+                Capital / Deposit
               </Text>
             </Pressable>
           </View>
@@ -367,8 +394,18 @@ export default function BankingScreen() {
         {/* Tab Content Panels */}
         {activeRightTab === "TRANSACTIONS" && (
           <View style={styles.ledgerContainer}>
+            {selectedAccount && (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10, backgroundColor: isDarkMode ? "#1E293B" : "#F1F5F9", borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: colors.cardBorder }}>
+                <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.accent }}>
+                  Filtered by: {selectedAccount.name} ({displayedPayments.length} transactions)
+                </Text>
+                <Pressable onPress={() => setSelectedAccount(null)} style={({ hovered }: any) => [hovered && { opacity: 0.7 }]}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: "#EF4444", textDecorationLine: "underline" }}>Clear Filter</Text>
+                </Pressable>
+              </View>
+            )}
             <DataTable
-              data={payments}
+              data={displayedPayments}
               columns={[
                 {
                   header: "DATE",
@@ -459,8 +496,8 @@ export default function BankingScreen() {
                 }
               ]}
               isLoading={isLoadingPayments}
-              emptyMessage="No recorded treasury transactions."
-              loaderMessage="Loading treasury transactions..."
+              emptyMessage="No recorded transactions."
+              loaderMessage="Loading transactions..."
             />
           </View>
         )}
@@ -468,9 +505,9 @@ export default function BankingScreen() {
         {activeRightTab === "TRANSFER" && (
           <ScrollView style={styles.formScroll} contentContainerStyle={{ gap: 16 }}>
             <View>
-              <Text style={[styles.formTitle, { color: colors.textPrimary }]}>Capital Infusion Injection</Text>
+              <Text style={[styles.formTitle, { color: colors.textPrimary }]}>Capital / Direct Deposit</Text>
               <Text style={[styles.formSubtitle, { color: colors.textSecondary }]}>
-                Debit your liquid bank or cash account and Credit your equity capital account.
+                Deposit funds directly into your bank or cash account from owner capital or external sources.
               </Text>
             </View>
 
@@ -498,7 +535,7 @@ export default function BankingScreen() {
 
             {/* Destination Account (Bank/Cash) */}
             <View style={styles.formGroup}>
-              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Destination Account (Treasury Bank/Cash) *</Text>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Destination Account (Bank / Cash) *</Text>
               <View style={[styles.customPicker, { borderColor: colors.inputBorder, backgroundColor: colors.inputBg }]}>
                 <ScrollView style={{ maxHeight: 120 }}>
                   {accounts.map(acc => (
@@ -520,7 +557,7 @@ export default function BankingScreen() {
 
             {/* Amount */}
             <View style={styles.formGroup}>
-              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Injection Amount (₹) *</Text>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Deposit Amount (₹) *</Text>
               <TextInput
                 style={[styles.textInput, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.textPrimary }]}
                 placeholder="0.00"
@@ -551,7 +588,7 @@ export default function BankingScreen() {
             >
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {transferCapitalMutation.isPending && <ActivityIndicator color="#FFFFFF" size="small" style={{ width: 18, height: 18 }} />}
-                <Text style={styles.submitBtnText}>Post Capital Injection</Text>
+                <Text style={styles.submitBtnText}>Post Capital / Deposit</Text>
               </View>
             </Pressable>
           </ScrollView>
@@ -560,9 +597,9 @@ export default function BankingScreen() {
         {activeRightTab === "CREATE_ACCOUNT" && (
           <ScrollView style={styles.formScroll} contentContainerStyle={{ gap: 16 }}>
             <View>
-              <Text style={[styles.formTitle, { color: colors.textPrimary }]}>Create Treasury Account</Text>
+              <Text style={[styles.formTitle, { color: colors.textPrimary }]}>Add Bank or Cash Account</Text>
               <Text style={[styles.formSubtitle, { color: colors.textSecondary }]}>
-                Add a new bank ledger or cash drawer register node.
+                Add a new bank account or cash box.
               </Text>
             </View>
 
@@ -592,7 +629,7 @@ export default function BankingScreen() {
 
             {/* Account Type */}
             <View style={styles.formGroup}>
-              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Treasury Type</Text>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Account Type</Text>
               <View style={{ flexDirection: "row", gap: 10 }}>
                 {["BANK", "CASH"].map(type => (
                   <Pressable
@@ -632,7 +669,7 @@ export default function BankingScreen() {
             >
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 {createAccountMutation.isPending && <ActivityIndicator color="#FFFFFF" size="small" style={{ width: 18, height: 18 }} />}
-                <Text style={styles.submitBtnText}>Initialize Treasury Account</Text>
+                <Text style={styles.submitBtnText}>Create Account</Text>
               </View>
             </Pressable>
           </ScrollView>

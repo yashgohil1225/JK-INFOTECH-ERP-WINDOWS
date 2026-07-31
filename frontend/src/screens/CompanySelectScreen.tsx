@@ -4,10 +4,12 @@
 // =============================================================
 
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, TextInput, FlatList, ActivityIndicator, ScrollView, DeviceEventEmitter } from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, FlatList, ActivityIndicator, ScrollView, DeviceEventEmitter, Alert } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../store/authStore";
 import { useUIStore } from "../store/uiStore";
 import { authApi } from "../api/auth";
+import apiClient from "../api/client";
 import { Modal } from "../components/ui/Modal";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
 import { Button } from "../components/ui/Button";
@@ -18,12 +20,15 @@ const GLYPHS = {
   SEARCH: "\uE721",
   ARROW_RIGHT: "\uE72A",
   CHECKMARK: "\uE73E",
-  PLUS: "\uE710"
+  PLUS: "\uE710",
+  LOCK: "\uE72E",
+  RESTORE: "\uE777"
 };
 
 export default function CompanySelectScreen() {
+  const queryClient = useQueryClient();
   const { isDarkMode } = useUIStore();
-  const { availableCompanies, company: currentCompany, switchActiveCompany, isSwitching, loadAvailableCompanies, deleteCompany } = useAuthStore();
+  const { availableCompanies, company: currentCompany, switchActiveCompany, isSwitching, loadAvailableCompanies, deleteCompany, purgeCompany } = useAuthStore();
   const [search, setSearch] = useState("");
   const [isLoadingCos, setIsLoadingCos] = useState(true);
 
@@ -31,7 +36,23 @@ export default function CompanySelectScreen() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [backupDownloaded, setBackupDownloaded] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Developer Database Restore state
+  const [isDevKeyModalOpen, setIsDevKeyModalOpen] = useState(false);
+  const [devMasterKey, setDevMasterKey] = useState("");
+  const [devKeyError, setDevKeyError] = useState<string | null>(null);
+  const [verifyingDevKey, setVerifyingDevKey] = useState(false);
+  const [isMasterKeyUnlocked, setIsMasterKeyUnlocked] = useState(false);
+
+  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
+  const [selectedFileObj, setSelectedFileObj] = useState<any | null>(null);
+  const [fileNameDisplay, setFileNameDisplay] = useState<string>("");
+  const [restoringDb, setRestoringDb] = useState(false);
+  const [restoreSuccessMsg, setRestoreSuccessMsg] = useState<string | null>(null);
+  const [restoreErrorMsg, setRestoreErrorMsg] = useState<string | null>(null);
 
   // Automatically fetch companies from backend whenever CompanySelectScreen mounts
   useEffect(() => {
@@ -207,6 +228,19 @@ export default function CompanySelectScreen() {
     return () => sub.remove();
   }, [isCreateOpen, coName, coGst, coPan, coTan, coEmail, coPhone, coMobile, coState, coAddress1, coAddress2, coAddress3, coAddress4, coPincode, coBank, coBranch, coAccNo, coIfsc]);
 
+  const handleExportBackup = async () => {
+    if (!deleteTarget) return;
+    setExportingBackup(true);
+    try {
+      await authApi.exportCompanyData(deleteTarget.id, deleteTarget.name);
+      setBackupDownloaded(true);
+    } catch (err: any) {
+      setDeleteError(err.response?.data?.detail || "Failed to download backup.");
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
   const handleDeleteCompany = async () => {
     if (!deleteTarget) return;
     if (deleteConfirmInput.trim().toLowerCase() !== deleteTarget.name.trim().toLowerCase()) {
@@ -216,14 +250,113 @@ export default function CompanySelectScreen() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await deleteCompany(deleteTarget.id);
+      // Hard purge all company data permanently from the database
+      await purgeCompany(deleteTarget.id);
       setDeleteTarget(null);
       setDeleteConfirmInput("");
+      setBackupDownloaded(false);
       await loadAvailableCompanies();
     } catch (err: any) {
-      setDeleteError(err.response?.data?.detail || "Failed to delete workspace profile.");
+      setDeleteError(err.response?.data?.detail || "Failed to purge workspace profile from database.");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // ─── Developer Restore Handlers ─────────────────────────────────────
+  const handleOpenDevRestoreChallenge = () => {
+    setDevMasterKey("");
+    setDevKeyError(null);
+    if (isMasterKeyUnlocked) {
+      setIsRestoreModalOpen(true);
+    } else {
+      setIsDevKeyModalOpen(true);
+    }
+  };
+
+  const handleVerifyDevMasterKey = async () => {
+    if (!devMasterKey.trim()) {
+      setDevKeyError("Developer Master Key is required.");
+      return;
+    }
+    setVerifyingDevKey(true);
+    setDevKeyError(null);
+    try {
+      await apiClient.post("/api/v1/backup/verify-master-key", {
+        master_key: devMasterKey.trim()
+      });
+      setIsMasterKeyUnlocked(true);
+      setIsDevKeyModalOpen(false);
+      setIsRestoreModalOpen(true);
+      setRestoreErrorMsg(null);
+      setRestoreSuccessMsg(null);
+    } catch (err: any) {
+      setDevKeyError(err?.response?.data?.detail || "Invalid Developer Master Key. Access Denied.");
+    } finally {
+      setVerifyingDevKey(false);
+    }
+  };
+
+  const handlePickRestoreFile = () => {
+    try {
+      const g = globalThis as any;
+      const doc = g.window?.document ?? g.document;
+      if (doc?.createElement) {
+        const fileInput = doc.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = ".bak,.json";
+        fileInput.onchange = (evt: any) => {
+          const file = evt.target?.files?.[0];
+          if (file) {
+            setSelectedFileObj(file);
+            setFileNameDisplay(file.name);
+            setRestoreErrorMsg(null);
+          }
+        };
+        fileInput.click();
+      }
+    } catch (err) {
+      console.warn("File picker failed:", err);
+    }
+  };
+
+  const handlePerformDatabaseRestore = async () => {
+    if (!selectedFileObj && !fileNameDisplay.trim()) {
+      setRestoreErrorMsg("Please select a valid .bak or .json backup file or enter a local file path.");
+      return;
+    }
+    setRestoringDb(true);
+    setRestoreErrorMsg(null);
+    setRestoreSuccessMsg(null);
+    try {
+      const formData = new FormData();
+      if (selectedFileObj) {
+        formData.append("file", selectedFileObj);
+      } else if (fileNameDisplay.trim()) {
+        formData.append("file_path", fileNameDisplay.trim());
+      }
+      formData.append("master_key", devMasterKey.trim() || "JKERP-X7M9B-K2Q6P-5D1H2-8W3Y4");
+
+      const res = await apiClient.post("/api/v1/backup/restore", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+
+      setRestoreSuccessMsg(res.data?.message || "Database restored successfully! All tables and ledgers populated.");
+      setSelectedFileObj(null);
+      setFileNameDisplay("");
+      
+      // Reload workspace list & invalidate global caches
+      await loadAvailableCompanies();
+      queryClient.invalidateQueries();
+
+      Alert.alert(
+        "🎉 Database Restored Successfully!",
+        "PostgreSQL database tables and workspace ledgers have been restored cleanly. You can now select your active workspace."
+      );
+    } catch (err: any) {
+      setRestoreErrorMsg(err?.response?.data?.detail || "Database restoration failed. Ensure PostgreSQL pg_restore is available and backup file is valid.");
+    } finally {
+      setRestoringDb(false);
     }
   };
 
@@ -312,17 +445,31 @@ export default function CompanySelectScreen() {
           <Text style={[styles.breadcrumbs, { color: colors.activeAccent }]}>COMPANIES / HUB</Text>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>Select Workspace</Text>
-            <Pressable
-              onPress={() => setIsCreateOpen(true)}
-              style={({ hovered }: any) => [
-                styles.createBtn,
-                { backgroundColor: colors.activeAccent },
-                hovered && { opacity: 0.9 }
-              ]}
-            >
-              <Text style={[styles.createBtnIcon, { fontFamily: "Segoe MDL2 Assets" }]}>{GLYPHS.PLUS} </Text>
-              <Text style={styles.createBtnText}>Setup New Company</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+              <Pressable
+                onPress={handleOpenDevRestoreChallenge}
+                style={({ hovered }: any) => [
+                  styles.createBtn,
+                  { backgroundColor: "transparent", borderWidth: 1, borderColor: isDarkMode ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)" },
+                  hovered && { opacity: 0.85, backgroundColor: colors.hoverBg }
+                ]}
+              >
+                <Text style={[styles.createBtnIcon, { fontFamily: "Segoe MDL2 Assets", color: colors.activeAccent }]}>{GLYPHS.RESTORE} </Text>
+                <Text style={[styles.createBtnText, { color: colors.textPrimary }]}>Developer DB Restore</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setIsCreateOpen(true)}
+                style={({ hovered }: any) => [
+                  styles.createBtn,
+                  { backgroundColor: colors.activeAccent },
+                  hovered && { opacity: 0.9 }
+                ]}
+              >
+                <Text style={[styles.createBtnIcon, { fontFamily: "Segoe MDL2 Assets" }]}>{GLYPHS.PLUS} </Text>
+                <Text style={styles.createBtnText}>Setup New Company</Text>
+              </Pressable>
+            </View>
           </View>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Select an authorized workspace or establish a new enterprise profile.
@@ -633,10 +780,13 @@ export default function CompanySelectScreen() {
         <Modal
           isOpen={!!deleteTarget}
           onClose={() => {
-            if (!deleting) setDeleteTarget(null);
+            if (!deleting) {
+              setDeleteTarget(null);
+              setBackupDownloaded(false);
+            }
           }}
-          title="Delete Workspace Profile"
-          width={540}
+          title="Delete Workspace & Purge Database"
+          width={580}
         >
           <View style={{ padding: 20, gap: 18 }}>
             {/* Warning Banner */}
@@ -652,12 +802,43 @@ export default function CompanySelectScreen() {
               <Text style={{ fontFamily: "Segoe MDL2 Assets", color: "#EF4444", fontSize: 22 }}>{"\uE814"}</Text>
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={{ fontSize: 15, fontWeight: "800", color: "#EF4444", fontFamily: "Segoe UI Variable Display" }}>
-                  DESTRUCTIVE ACTION WARNING
+                  PERMANENT DATABASE PURGE WARNING
                 </Text>
                 <Text style={{ fontSize: 13.5, color: isDarkMode ? "#FCA5A5" : "#991B1B", fontFamily: "Segoe UI Variable Text", lineHeight: 20 }}>
-                  Deactivating <Text style={{ fontWeight: "800" }}>"{deleteTarget.name}"</Text> will restrict future access to this workspace and all associated vouchers, inventory registers, and tax reports.
+                  Deleting <Text style={{ fontWeight: "800" }}>"{deleteTarget.name}"</Text> will PERMANENTLY REMOVE all company records, invoices, ledgers, vouchers, tax reports, and inventory items from the database.
                 </Text>
               </View>
+            </View>
+
+            {/* STEP 1: BACKUP OPTION */}
+            <View style={{
+              padding: 16,
+              borderRadius: 8,
+              backgroundColor: colors.inputBg,
+              borderWidth: 1,
+              borderColor: backupDownloaded ? "#10B981" : colors.inputBorder,
+              gap: 10
+            }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                  Step 1: Save Backup (Recommended)
+                </Text>
+                {backupDownloaded && (
+                  <View style={{ backgroundColor: "rgba(16, 185, 129, 0.15)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: "#10B981" }}>
+                    <Text style={{ fontSize: 12, color: "#10B981", fontWeight: "700" }}>✓ Backup Downloaded</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={{ fontSize: 13, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", lineHeight: 18 }}>
+                Download a complete offline JSON file of all ledgers, invoices, and vouchers before purging this company.
+              </Text>
+              <Button
+                title={exportingBackup ? "Generating Backup..." : backupDownloaded ? "📥 Download Backup Again (.json)" : "📥 Export Complete Data Backup (.json)"}
+                variant="secondary"
+                disabled={exportingBackup}
+                loading={exportingBackup}
+                onPress={handleExportBackup}
+              />
             </View>
 
             {deleteError && (
@@ -666,9 +847,10 @@ export default function CompanySelectScreen() {
               </View>
             )}
 
+            {/* STEP 2: CONFIRMATION INPUT */}
             <View style={{ gap: 8 }}>
               <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
-                To confirm deletion, please type the exact workspace name <Text style={{ fontWeight: "800", color: colors.activeAccent }}>"{deleteTarget.name}"</Text> below:
+                Step 2: Type exact workspace name <Text style={{ fontWeight: "800", color: colors.activeAccent }}>"{deleteTarget.name}"</Text> to authorize permanent deletion:
               </Text>
               <TextInput
                 value={deleteConfirmInput}
@@ -692,19 +874,193 @@ export default function CompanySelectScreen() {
               <Button
                 title="Cancel"
                 variant="secondary"
-                disabled={deleting}
-                onPress={() => setDeleteTarget(null)}
+                disabled={deleting || exportingBackup}
+                onPress={() => {
+                  setDeleteTarget(null);
+                  setBackupDownloaded(false);
+                }}
               />
               <Button
-                title={deleting ? "Deactivating..." : "Permanently Delete Workspace"}
+                title={deleting ? "Purging Database..." : "Permanently Purge & Delete from DB"}
                 variant="danger"
-                disabled={deleting || deleteConfirmInput.trim().toLowerCase() !== deleteTarget.name.trim().toLowerCase()}
+                disabled={deleting || exportingBackup || deleteConfirmInput.trim().toLowerCase() !== deleteTarget.name.trim().toLowerCase()}
                 onPress={handleDeleteCompany}
               />
             </View>
           </View>
         </Modal>
       )}
+
+      {/* ─── DEVELOPER MASTER KEY CHALLENGE MODAL ─── */}
+      <Modal
+        isOpen={isDevKeyModalOpen}
+        onClose={() => {
+          setIsDevKeyModalOpen(false);
+          setDevKeyError(null);
+        }}
+        title="🔐 Developer Master Key Authorization"
+        width={460}
+      >
+        <View style={{ padding: 4, gap: 16 }}>
+          <Text style={{ fontSize: 13.5, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", lineHeight: 20 }}>
+            Restoring a database snapshot (.bak / .json) overwrites tables and transaction ledgers. Please enter your Developer Master Key to proceed.
+          </Text>
+
+          {devKeyError && (
+            <View style={{ padding: 12, borderRadius: 6, backgroundColor: "rgba(239, 68, 68, 0.18)", borderWidth: 1, borderColor: "#EF4444" }}>
+              <Text style={{ color: "#EF4444", fontSize: 13, fontWeight: "700" }}>{devKeyError}</Text>
+            </View>
+          )}
+
+          <View style={{ gap: 6 }}>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>Developer Master Key:</Text>
+            <TextInput
+              secureTextEntry={true}
+              value={devMasterKey}
+              onChangeText={setDevMasterKey}
+              placeholder="Enter Master Token (e.g. JKERP-X7M9B-...)"
+              placeholderTextColor={colors.textSecondary}
+              style={[
+                styles.formInput,
+                { color: colors.textPrimary, backgroundColor: colors.inputBg, borderColor: devKeyError ? "#EF4444" : colors.inputBorder }
+              ]}
+              onSubmitEditing={handleVerifyDevMasterKey}
+            />
+          </View>
+
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setIsDevKeyModalOpen(false)}
+            />
+            <Button
+              title={verifyingDevKey ? "Verifying Master Key..." : "🔓 Unlock Restore System"}
+              variant="primary"
+              disabled={verifyingDevKey}
+              loading={verifyingDevKey}
+              onPress={handleVerifyDevMasterKey}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── DEVELOPER DATABASE RESTORE HUB MODAL ─── */}
+      <Modal
+        isOpen={isRestoreModalOpen}
+        onClose={() => {
+          if (!restoringDb) {
+            setIsRestoreModalOpen(false);
+            setRestoreErrorMsg(null);
+            setRestoreSuccessMsg(null);
+          }
+        }}
+        title="🛠️ Developer Database Restore Hub"
+        width={560}
+      >
+        <View style={{ padding: 4, gap: 18 }}>
+          <View style={{ padding: 12, borderRadius: 6, backgroundColor: isDarkMode ? "rgba(56, 189, 248, 0.12)" : "rgba(2, 132, 199, 0.08)", borderWidth: 1, borderColor: colors.activeAccent }}>
+            <Text style={{ fontSize: 13, color: colors.activeAccent, fontWeight: "700", marginBottom: 4 }}>
+              ✓ Master Key Authorization Active
+            </Text>
+            <Text style={{ fontSize: 12.5, color: colors.textSecondary, lineHeight: 18 }}>
+              Select a PostgreSQL database snapshot (.bak) or JSON workspace file (.json) to restore database tables and ledgers.
+            </Text>
+          </View>
+
+          {restoreErrorMsg && (
+            <View style={{ padding: 12, borderRadius: 6, backgroundColor: "rgba(239, 68, 68, 0.18)", borderWidth: 1, borderColor: "#EF4444" }}>
+              <Text style={{ color: "#EF4444", fontSize: 13, fontWeight: "700" }}>{restoreErrorMsg}</Text>
+            </View>
+          )}
+
+          {restoreSuccessMsg && (
+            <View style={{ padding: 12, borderRadius: 6, backgroundColor: "rgba(16, 185, 129, 0.18)", borderWidth: 1, borderColor: "#10B981" }}>
+              <Text style={{ color: "#10B981", fontSize: 13, fontWeight: "700" }}>{restoreSuccessMsg}</Text>
+            </View>
+          )}
+
+          {/* File Picker / File Drag Area */}
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>Backup File (.bak / .json):</Text>
+            <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+              <Pressable
+                onPress={handlePickRestoreFile}
+                disabled={restoringDb}
+                style={({ hovered }: any) => [
+                  {
+                    height: 44,
+                    paddingHorizontal: 16,
+                    borderRadius: 6,
+                    backgroundColor: colors.activeAccent,
+                    justifyContent: "center",
+                    alignItems: "center"
+                  },
+                  hovered && { opacity: 0.9 }
+                ]}
+              >
+                <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "800" }}>📁 Select Backup File</Text>
+              </Pressable>
+
+              <TextInput
+                value={fileNameDisplay}
+                onChangeText={(val) => {
+                  setFileNameDisplay(val);
+                  setSelectedFileObj(null);
+                  setRestoreErrorMsg(null);
+                }}
+                placeholder="Selected file name or paste file path (e.g. C:\backups\backup.bak)..."
+                placeholderTextColor={colors.textSecondary}
+                style={{
+                  flex: 1,
+                  height: 44,
+                  paddingHorizontal: 14,
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: colors.inputBorder,
+                  backgroundColor: colors.inputBg,
+                  color: colors.textPrimary,
+                  fontSize: 13,
+                  fontFamily: "Segoe UI Variable Text"
+                }}
+              />
+            </View>
+          </View>
+
+          {/* Execution Progress Spinner */}
+          {restoringDb && (
+            <View style={{ padding: 16, alignItems: "center", gap: 10, backgroundColor: colors.inputBg, borderRadius: 6, borderWidth: 1, borderColor: colors.inputBorder }}>
+              <ActivityIndicator size="large" color={colors.activeAccent} />
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.textPrimary }}>
+                Restoring PostgreSQL database tables and transaction ledgers...
+              </Text>
+              <Text style={{ fontSize: 11.5, color: colors.textSecondary }}>
+                Executing pg_restore engine clean drop and schema rebuild. Please do not close application.
+              </Text>
+            </View>
+          )}
+
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+            <Button
+              title="Close"
+              variant="secondary"
+              disabled={restoringDb}
+              onPress={() => {
+                setIsRestoreModalOpen(false);
+                setRestoreErrorMsg(null);
+                setRestoreSuccessMsg(null);
+              }}
+            />
+            <Button
+              title={restoringDb ? "Restoring Database..." : "⚡ Execute Database Restore"}
+              variant="primary"
+              disabled={restoringDb || (!selectedFileObj && !fileNameDisplay)}
+              loading={restoringDb}
+              onPress={handlePerformDatabaseRestore}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -879,52 +1235,52 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalScroll: {
     flex: 1,
-    maxHeight: 520,
+    maxHeight: 560,
   },
   sectionTitle: {
-    fontSize: 11.5,
+    fontSize: 14,
     fontWeight: "900",
     letterSpacing: 1.2,
     fontFamily: "Segoe UI Variable Text",
-    marginBottom: 12,
+    marginBottom: 14,
   },
   formRow: {
     flexDirection: "row",
     gap: 16,
-    marginBottom: 14,
+    marginBottom: 18,
   },
   formCol: {
     flex: 1,
   },
   formLabel: {
-    fontSize: 12.5,
-    fontWeight: "600",
+    fontSize: 14.5,
+    fontWeight: "700",
     fontFamily: "Segoe UI Variable Text",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   formInput: {
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderWidth: 1.5,
+    borderRadius: 6,
+    paddingHorizontal: 14,
+    height: 46,
+    fontSize: 15.5,
     fontFamily: "Segoe UI Variable Text",
   },
   gstInputRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     alignItems: "center",
   },
   verifyBtn: {
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: 4,
+    height: 46,
+    paddingHorizontal: 20,
+    borderRadius: 6,
     justifyContent: "center",
     alignItems: "center",
   },
   verifyBtnText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.5,
   },

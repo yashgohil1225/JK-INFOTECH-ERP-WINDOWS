@@ -27,6 +27,7 @@ import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal"
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { Modal } from "../components/ui/Modal";
@@ -37,6 +38,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { DatePicker } from "../components/ui/DatePicker";
 import { PrinterIcon } from "../components/ui/Icons";
+import { AddBankAccountModal } from "../components/ui/AddBankAccountModal";
 import { storage } from "../utils/storage";
 import { sequencesApi } from "../api/sequences";
 
@@ -236,6 +238,7 @@ interface BankAccount {
   account_type: string;
   account_subtype?: string;
   opening_balance: number;
+  account_number?: string;
 }
 
 // ─── Main Screen ───────────────────────────────────────────────
@@ -495,16 +498,29 @@ export default function SalesScreen() {
 
   // ── Fetch invoices ──
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
-    queryKey: ["invoices"],
+    queryKey: ["invoices", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/sales/invoices");
       return res.data;
     },
   });
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("openSearchResult", ({ targetScreen, targetId, title }) => {
+      if (targetScreen === "SALES" || targetScreen === "INVOICE") {
+        if (title) setSearchQuery(title);
+        if (targetId && invoices && invoices.length > 0) {
+          const match = invoices.find(inv => inv.id === targetId || inv.invoice_number === title);
+          if (match) setSelectedInv(match);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [invoices]);
+
   // ── Fetch customers ──
   const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["customers"],
+    queryKey: ["customers", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/sales/customers");
       return res.data;
@@ -513,7 +529,7 @@ export default function SalesScreen() {
 
   // ── Fetch products ──
   const productsQuery = useQuery<Product[]>({
-    queryKey: ["products"],
+    queryKey: ["products", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/inventory/products");
       return res.data;
@@ -527,11 +543,12 @@ export default function SalesScreen() {
       const res = await apiClient.post("/api/sales/invoices", payload);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+    onSuccess: (newInv: Invoice) => {
+      queryClient.setQueryData<Invoice[]>(["invoices", company?.id], (old = []) => {
+        if (old.some(i => i.id === newInv.id)) return old;
+        return [newInv, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsCreatingInvoice(false);
       setSelectedInv(null);
       setEditingInvoiceId(null);
@@ -556,10 +573,7 @@ export default function SalesScreen() {
       return res.data;
     },
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       setIsCreatingInvoice(false);
       setEditingInvoiceId(null);
       setSelectedInv(data);
@@ -645,10 +659,7 @@ export default function SalesScreen() {
       await apiClient.delete(`/api/sales/invoices/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       setSelectedInv(null);
     },
     onError: (err: any) => {
@@ -686,12 +697,22 @@ export default function SalesScreen() {
 
   // Fetch liquid accounts for target selection
   const { data: bankAccounts = [] } = useQuery<BankAccount[]>({
-    queryKey: ["bankingAccounts"],
+    queryKey: ["bankingAccounts", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/banking/accounts");
       return res.data;
     },
   });
+
+  const [isAddBankModalOpen, setIsAddBankModalOpen] = useState(false);
+
+  const filteredBankAccounts = useMemo(() => {
+    return bankAccounts.filter(acc => {
+      const typeUpper = acc.account_type?.toUpperCase();
+      const subtypeUpper = acc.account_subtype?.toUpperCase();
+      return typeUpper !== "CASH" && subtypeUpper !== "CASH" && acc.name !== "Cash In Hand";
+    });
+  }, [bankAccounts]);
 
   // Create payment mutation
   const receivePaymentMutation = useMutation({
@@ -699,12 +720,27 @@ export default function SalesScreen() {
       const res = await apiClient.post("/api/banking/payments", payload);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (newPayment: any) => {
+      // ─── Optimistic instant cache update ────────────────────────────────
+      // 1. Push the new payment directly into the payments cache immediately
+      queryClient.setQueryData<any[]>(["payments", company?.id], (old = []) => {
+        if (old.some((p: any) => p.id === newPayment?.id)) return old;
+        return [newPayment, ...old];
+      });
+      // 2. Also push into invoice-specific payments list
+      queryClient.setQueryData<any[]>(["invoicePayments", paymentInvoice?.id], (old = []) => {
+        if (old.some((p: any) => p.id === newPayment?.id)) return old;
+        return [newPayment, ...old];
+      });
+      // 3. Force-refetch banking accounts immediately (balance update)
+      queryClient.invalidateQueries({ queryKey: ["bankingAccounts"] });
+      queryClient.invalidateQueries({ queryKey: ["allAccounts"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["invoicePayments", paymentInvoice?.id] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      // ────────────────────────────────────────────────────────────────────
+
       setIsPaymentModalOpen(false);
       Alert.alert("Success", "Payment receipt registered successfully.");
       if (paymentInvoice) {
@@ -2270,10 +2306,19 @@ export default function SalesScreen() {
                     <Pressable
                       key={m}
                       onPress={() => {
+                        const isCash = m === "CASH";
+                        let targetBank = paymentForm.bank_account;
+                        if (isCash) {
+                          targetBank = "Cash In Hand";
+                        } else {
+                          if (!targetBank || targetBank === "Cash In Hand" || !filteredBankAccounts.some(b => b.name === targetBank)) {
+                            targetBank = filteredBankAccounts[0]?.name || "";
+                          }
+                        }
                         setPaymentForm(f => ({
                           ...f,
                           payment_method: m,
-                          bank_account: m === "CASH" ? "Cash In Hand" : (f.bank_account === "Cash In Hand" ? "" : f.bank_account)
+                          bank_account: targetBank
                         }));
                       }}
                       style={({ hovered }: any) => [
@@ -2294,13 +2339,28 @@ export default function SalesScreen() {
               {/* Bank Account Dropdown */}
               {paymentForm.payment_method !== "CASH" && (
                 <View style={{ gap: 10, zIndex: 100, position: "relative" }}>
-                  <Text style={{ fontSize: 16, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>BANK ACCOUNT *</Text>
-                  {bankAccounts.length === 0 ? (
-                    <Text style={{ fontSize: 13, color: "#DC2626", fontFamily: "Segoe UI Variable Text" }}>No active bank accounts found. Create one in Banking first.</Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ fontSize: 16, fontWeight: "800", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>BANK ACCOUNT *</Text>
+                    <Pressable
+                      onPress={() => setIsAddBankModalOpen(true)}
+                      style={({ hovered }: any) => [hovered && { opacity: 0.7 }]}
+                    >
+                      <Text style={{ fontSize: 13.5, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Text", textDecorationLine: "underline" }}>
+                        + Add Bank Account
+                      </Text>
+                    </Pressable>
+                  </View>
+                  {filteredBankAccounts.length === 0 ? (
+                    <View style={{ gap: 6 }}>
+                      <Text style={{ fontSize: 13, color: "#DC2626", fontFamily: "Segoe UI Variable Text" }}>No active bank accounts found.</Text>
+                      <Pressable onPress={() => setIsAddBankModalOpen(true)}>
+                        <Text style={{ fontSize: 13.5, fontWeight: "800", color: C.accent, textDecorationLine: "underline" }}>+ Click here to add a bank account</Text>
+                      </Pressable>
+                    </View>
                   ) : (
                     <Dropdown
                       ref={paymentBankRef}
-                      options={bankAccounts.map(acc => ({
+                      options={filteredBankAccounts.map(acc => ({
                         value: acc.name,
                         label: acc.name,
                         sublabel: acc.account_number ? `Account No: ${acc.account_number}` : undefined
@@ -2309,6 +2369,8 @@ export default function SalesScreen() {
                       onChange={val => setPaymentForm(f => ({ ...f, bank_account: val }))}
                       onSubmitEditing={() => paymentRefNoRef.current?.focus()}
                       placeholder="Select target bank account..."
+                      onAddNew={() => setIsAddBankModalOpen(true)}
+                      addNewLabel="Add New Bank Account"
                     />
                   )}
                 </View>
@@ -2345,6 +2407,15 @@ export default function SalesScreen() {
           </View>
         </View>
       </FullScreenModal>
+
+      {/* QUICK ADD BANK ACCOUNT MODAL */}
+      <AddBankAccountModal
+        isOpen={isAddBankModalOpen}
+        onClose={() => setIsAddBankModalOpen(false)}
+        onAccountCreated={(newAcc) => {
+          setPaymentForm(f => ({ ...f, bank_account: newAcc.name }));
+        }}
+      />
 
       <PdfPreviewModal
         isOpen={isPreviewOpen}

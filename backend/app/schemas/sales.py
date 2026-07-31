@@ -16,6 +16,8 @@ class CustomerBase(BaseModel):
     state: Optional[str] = None
     credit_days: int = 0
     opening_balance: Decimal = Decimal("0.0")
+    outstanding_balance: Optional[Decimal] = Decimal("0.0")
+    is_active: bool = True
 
 class CustomerCreate(CustomerBase):
     pass

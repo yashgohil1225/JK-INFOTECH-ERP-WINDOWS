@@ -18,6 +18,7 @@ import {
   Image,
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { useQuery } from "@tanstack/react-query";
 import apiClient from "../api/client";
 import { PdfPreviewModal } from "../components/ui/PdfPreviewModal";
@@ -316,6 +317,7 @@ function KVRow({ label, value, colors }: { label: string; value: string; colors:
 // ─── Main Screen ──────────────────────────────────────────────
 export default function ReportsScreen() {
   const { isDarkMode } = useUIStore();
+  const { company } = useAuthStore();
 
   const colors = isDarkMode
     ? {
@@ -339,6 +341,7 @@ export default function ReportsScreen() {
 
   // ── State ──────────────────────────────────────────────────
   const [selectedReport, setSelectedReport] = useState<ReportMeta | null>(REPORT_CATEGORIES[0].reports[0]);
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [startDate, setStartDate] = useState(monthStart());
   const [endDate, setEndDate] = useState(today());
   const [asOf, setAsOf] = useState(today());
@@ -357,7 +360,7 @@ export default function ReportsScreen() {
 
   // ── Data Queries ───────────────────────────────────────────
   const { data: accounts = [] } = useQuery<any[]>({
-    queryKey: ["accounts_for_reports"],
+    queryKey: ["accounts_for_reports", company?.id],
     queryFn: async () => {
       try {
         const res = await apiClient.get("/api/v1/banking/accounts/all");
@@ -369,11 +372,11 @@ export default function ReportsScreen() {
     },
   });
   const { data: customers = [] } = useQuery<any[]>({
-    queryKey: ["customers_for_reports"],
+    queryKey: ["customers_for_reports", company?.id],
     queryFn: async () => (await apiClient.get("/api/customers")).data,
   });
   const { data: gstSummaryKpi } = useQuery<any>({
-    queryKey: ["gst_summary_kpi_header"],
+    queryKey: ["gst_summary_kpi_header", company?.id],
     queryFn: async () => {
       try {
         const res = await apiClient.get("/api/v1/reports/gst");
@@ -385,7 +388,7 @@ export default function ReportsScreen() {
     staleTime: 60000,
   });
   const { data: suppliers = [] } = useQuery<any[]>({
-    queryKey: ["suppliers_for_reports"],
+    queryKey: ["suppliers_for_reports", company?.id],
     queryFn: async () => (await apiClient.get("/api/suppliers")).data,
   });
 
@@ -654,70 +657,7 @@ export default function ReportsScreen() {
       );
     }
 
-    // GSTR-1 / GSTR-2
-    if ((key === "gstr1" || key === "gstr2") && reportData && (Array.isArray(reportData.b2b) || Array.isArray(reportData))) {
-      const records = Array.isArray(reportData) ? reportData : (reportData.b2b || []);
-      return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>{key === "gstr1" ? "GSTR-1" : "GSTR-2"} — {records.length} records</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2 }]}>Date</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Number</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2 }]}>Party</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Taxable</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Tax</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Total</Text>
-          </View>
-          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ paddingRight: 12 }}>
-            {records.map((r: any, i: number) => {
-              const dateVal = r.date || r.invoice_date || r.bill_date || "";
-              const docNo = r.inv_no || r.bill_no || r.invoice_number || r.bill_number || "";
-              const partyName = r.receiver_name || r.supplier_name || r.customer_name || "";
-              const taxable = r.taxable_value || r.subtotal || 0;
-              const tax = r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0)) || r.tax_amount || 0;
-              const totalVal = r.value || r.total || 0;
-              return (
-                <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                  <Text style={[styles.td, { color: colors.textSecondary, flex: 1.2 }]}>{dateVal}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5 }]}>{docNo}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 2 }]} numberOfLines={1}>{partyName}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(taxable)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(tax)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(totalVal)}</Text>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-      );
-    }
 
-    // GSTR-1/2 Summary
-    if ((key === "gstr1_summary" || key === "gstr2_summary") && Array.isArray(reportData)) {
-      return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>{key === "gstr1_summary" ? "GSTR-1 Summary" : "GSTR-2 Summary"} — {reportData.length} months</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2 }]}>Month</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1, textAlign: "center" }]}>Count</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Taxable</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Tax</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Total</Text>
-          </View>
-          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingRight: 12 }}>
-            {reportData.map((r: any, i: number) => (
-              <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 2 }]}>{r.month || r.period || ""}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1, textAlign: "center" }]}>{r.count || r.invoice_count || ""}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.taxable_value || r.subtotal)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.tax_amount)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total)}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      );
-    }
 
     // Sales by Customer
     if (key === "sales_by_customer" && Array.isArray(reportData)) {
@@ -1038,37 +978,147 @@ export default function ReportsScreen() {
     }
 
     // GSTR-1 / GSTR-2 Supplies Table
-    if ((key === "gstr1" || key === "gstr2") && Array.isArray(reportData)) {
+    if ((key === "gstr1" || key === "gstr2") && reportData) {
+      let records: any[] = [];
+      if (Array.isArray(reportData)) {
+        records = reportData;
+      } else if (key === "gstr1") {
+        const b2b = (reportData.b2b || []).map((r: any) => ({
+          date: r.date || r.invoice_date || "",
+          docNo: r.inv_no || r.invoice_number || "",
+          partyName: r.receiver_name || r.customer_name || "",
+          gstin: r.gstin || "",
+          taxable: Number(r.taxable_value || r.subtotal || 0),
+          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
+          total: Number(r.value || r.total || 0),
+          tag: "B2B"
+        }));
+        const b2cl = (reportData.b2cl || []).map((r: any) => ({
+          date: r.date || "",
+          docNo: r.inv_no || "",
+          partyName: r.receiver_name || "Unregistered (Large)",
+          gstin: "URP",
+          taxable: Number(r.taxable_value || 0),
+          tax: Number(r.total_tax || r.igst || 0),
+          total: Number(r.value || 0),
+          tag: "B2C Large"
+        }));
+        const b2cs = (reportData.b2cs || []).map((r: any) => {
+          const taxVal = Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0);
+          const taxables = Number(r.taxable_value || 0);
+          return {
+            date: "-",
+            docNo: `B2CS (${r.pos || "Local"})`,
+            partyName: `Rate: ${r.rate || 0}% (${r.pos || "Local"})`,
+            gstin: "URP",
+            taxable: taxables,
+            tax: taxVal,
+            total: taxables + taxVal,
+            tag: "B2C Small"
+          };
+        });
+        const cdnr = (reportData.cdnr || []).map((r: any) => ({
+          date: r.note_date || "",
+          docNo: r.note_no || "",
+          partyName: r.receiver_name || "",
+          gstin: r.gstin || "",
+          taxable: Number(r.taxable_value || 0),
+          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
+          total: Number(r.value || 0),
+          tag: "CDNR"
+        }));
+        const cdnur = (reportData.cdnur || []).map((r: any) => ({
+          date: r.note_date || "",
+          docNo: r.note_no || "",
+          partyName: r.receiver_name || "Unregistered",
+          gstin: "URP",
+          taxable: Number(r.taxable_value || 0),
+          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
+          total: Number(r.value || 0),
+          tag: "CDNUR"
+        }));
+        records = [...b2b, ...b2cl, ...b2cs, ...cdnr, ...cdnur];
+      } else if (key === "gstr2") {
+        const b2b = (reportData.b2b || []).map((r: any) => ({
+          date: r.date || r.bill_date || "",
+          docNo: r.bill_no || r.bill_number || "",
+          partyName: r.supplier_name || "",
+          gstin: r.gstin || "",
+          taxable: Number(r.taxable_value || r.subtotal || 0),
+          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
+          total: Number(r.value || r.total || 0),
+          tag: "B2B"
+        }));
+        const b2bur = (reportData.b2bur || []).map((r: any) => ({
+          date: r.date || "",
+          docNo: r.bill_no || "",
+          partyName: r.supplier_name || "Unregistered Supplier",
+          gstin: "URP",
+          taxable: Number(r.taxable_value || 0),
+          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
+          total: Number(r.value || 0),
+          tag: "B2BUR"
+        }));
+        records = [...b2b, ...b2bur];
+      }
+
+      const totTaxable = records.reduce((s: number, r: any) => s + Number(r.taxable ?? r.taxable_value ?? 0), 0);
+      const totTax = records.reduce((s: number, r: any) => s + Number(r.tax ?? r.total_tax ?? 0), 0);
+      const totTotal = records.reduce((s: number, r: any) => s + Number(r.total ?? r.value ?? 0), 0);
+
       return (
         <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>
-            {key === "gstr1" ? "GSTR-1 Outward Supplies" : "GSTR-2 Inward Supplies"} — {reportData.length} entries
-          </Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Date</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2 }]}>Document / Party</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Taxable</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>CGST</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>SGST</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>IGST</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Total</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>
+              {key === "gstr1" ? "GSTR-1 (Outward)" : "GSTR-2 (Inward)"} — {records.length} records
+            </Text>
+            {reportData?.period ? (
+              <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                Period: {reportData.period.start} to {reportData.period.end}
+              </Text>
+            ) : null}
           </View>
-          <ScrollView style={{ maxHeight: 320 }}>
-            {reportData.map((r: any, i: number) => (
-              <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <Text style={[styles.td, { color: colors.textSecondary, flex: 1.5 }]}>{r.date || r.invoice_date || r.bill_date || ""}</Text>
-                <View style={{ flex: 2 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.invoice_number || r.bill_number || r.party_name || ""}</Text>
-                  {r.gstin || r.customer_name ? <Text style={[styles.tdSub, { color: colors.textSecondary }]}>{r.customer_name || r.vendor_name || ""} {r.gstin ? `(${r.gstin})` : ""}</Text> : null}
+          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2 }]}>Date</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Number</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 2.2 }]}>Party / Details</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1, textAlign: "center" }]}>Type</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Taxable</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.4, textAlign: "right" }]}>Tax</Text>
+            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.6, textAlign: "right" }]}>Total</Text>
+          </View>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
+            {records.map((r: any, i: number) => {
+              const dateVal = r.date || r.invoice_date || r.bill_date || "";
+              const docNo = r.docNo || r.inv_no || r.bill_no || r.invoice_number || r.bill_number || "";
+              const partyName = r.partyName || r.receiver_name || r.supplier_name || r.customer_name || "";
+              const taxable = r.taxable ?? r.taxable_value ?? r.subtotal ?? 0;
+              const tax = r.tax ?? r.total_tax ?? (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0)) ?? 0;
+              const totalVal = r.total ?? r.value ?? 0;
+              const tag = r.tag || (r.gstin && r.gstin !== "URP" ? "B2B" : "B2C");
+              return (
+                <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
+                  <Text style={[styles.td, { color: colors.textSecondary, flex: 1.2 }]}>{dateVal}</Text>
+                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, fontWeight: "600" }]}>{docNo}</Text>
+                  <Text style={[styles.td, { color: colors.textPrimary, flex: 2.2 }]} numberOfLines={1}>{partyName}</Text>
+                  <View style={{ flex: 1, alignItems: "center" }}>
+                    <Text style={{ fontSize: 10, fontWeight: "700", color: colors.accent, backgroundColor: colors.activeRowBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                      {tag}
+                    </Text>
+                  </View>
+                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(taxable)}</Text>
+                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.4, textAlign: "right" }]}>{fmt(tax)}</Text>
+                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.6, textAlign: "right", fontWeight: "600" }]}>{fmt(totalVal)}</Text>
                 </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.taxable_value || r.subtotal)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmt(r.cgst || r.cgst_amount)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmt(r.sgst || r.sgst_amount)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmt(r.igst || r.igst_amount)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total || r.total_amount)}</Text>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
+          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
+            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 4.9 }]}>Totals</Text>
+            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(totTaxable)}</Text>
+            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.4, textAlign: "right" }]}>{fmt(totTax)}</Text>
+            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.6, textAlign: "right" }]}>{fmt(totTotal)}</Text>
+          </View>
         </View>
       );
     }
@@ -1115,16 +1165,16 @@ export default function ReportsScreen() {
       ]}>
         {/* Header — per AGENTS.md standard */}
         <View style={styles.masterHeader}>
-          <Text style={[styles.breadcrumb, { color: colors.accent }]}>ERP / REPORTS</Text>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginVertical: 4 }}>
-            <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Reports Centre</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={[styles.breadcrumb, { color: colors.accent }]}>ERP / REPORTS</Text>
             <Button
-              title="❓ Help & Guide"
+              title="❓ Help"
               onPress={() => setIsHelpModalOpen(true)}
               variant="secondary"
-              size="medium"
+              size="small"
             />
           </View>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary, marginTop: 4 }]}>Reports Centre</Text>
           <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
             Financial, GST, CA & Communication, ledger and inventory reports
           </Text>
@@ -1391,7 +1441,7 @@ export default function ReportsScreen() {
       <HelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
-        defaultCategory="REPORTS_GUIDE"
+        initialCategory="REPORTS_GUIDE"
       />
     </View>
 

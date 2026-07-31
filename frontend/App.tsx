@@ -11,10 +11,13 @@ import { useAuthStore } from "./src/store/authStore";
 import { useUIStore } from "./src/store/uiStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-LogBox.ignoreAllLogs();
+import { initAlertSoundInterceptor } from "./src/utils/sound";
 
-if (typeof global !== "undefined" && (global as any).ErrorUtils) {
-  (global as any).ErrorUtils.setGlobalHandler((error: any, isFatal?: boolean) => {
+LogBox.ignoreAllLogs();
+initAlertSoundInterceptor();
+
+if (typeof globalThis !== "undefined" && (globalThis as any).ErrorUtils) {
+  (globalThis as any).ErrorUtils.setGlobalHandler((error: any, isFatal?: boolean) => {
     console.warn("Global Error Handler caught error without crash:", error);
   });
 }
@@ -84,10 +87,29 @@ function AppContent() {
 
   // Preload saved theme on initial mount
   useEffect(() => {
-    storage.preload(["jk_theme_mode", "jk-erp-auth", "access_token"]).then(() => {
+    storage.preload(["jk_theme_mode", "jk-erp-auth", "access_token"]).then(async () => {
       const savedTheme = storage.getItemSync("jk_theme_mode") as any;
       if (savedTheme) {
         setThemeMode(savedTheme, systemColorScheme ?? null);
+      }
+
+      // ── ONE-TIME MIGRATION ────────────────────────────────────────────────
+      // Strip 'company' and 'availableCompanies' from the persisted auth store
+      // JSON so that a deleted company can never be shown from stale AsyncStorage.
+      // The correct company is always loaded fresh from the server on startup.
+      try {
+        const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+        const raw = await AsyncStorage.getItem("jk-erp-auth");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.state?.company || parsed?.state?.availableCompanies) {
+            delete parsed.state.company;
+            delete parsed.state.availableCompanies;
+            await AsyncStorage.setItem("jk-erp-auth", JSON.stringify(parsed));
+          }
+        }
+      } catch (_) {
+        // Non-critical — safe to ignore
       }
     });
   }, []);
@@ -96,28 +118,30 @@ function AppContent() {
     checkLicenseStatus().catch(() => {});
   }, []);
 
-  // Only attempt auto-login AFTER license check has completed and system is NOT frozen
+  // Always verify session and sanitize active company on app startup
   useEffect(() => {
-    let timer: any = null;
-
-    const attemptAutoLogin = () => {
+    if (licenseChecked && !isFrozen) {
       const state = useAuthStore.getState();
-      if (!isFrozen && licenseChecked && !state.isLoggedIn && !state.isAuthenticating) {
-        localAutoLogin().catch((err) => {
-          console.warn("Local auto login failed, retrying in 2.5s...", err);
+      if (state.isLoggedIn) {
+        state.loadMe().catch(() => {
+          state.localAutoLogin().catch(() => {});
         });
+      } else {
+        state.localAutoLogin().catch(() => {});
       }
-    };
-
-    if (licenseChecked && !isFrozen && !isLoggedIn) {
-      attemptAutoLogin();
-      timer = setInterval(attemptAutoLogin, 2500);
     }
+  }, [licenseChecked, isFrozen]);
 
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isFrozen, isLoggedIn, localAutoLogin, licenseChecked]);
+  // ── CRITICAL FIX: When the active company changes, clear ALL cached query data.
+  // This prevents data from a deleted/old company from showing after switching/deleting a company.
+  const companyId = company?.id;
+  useEffect(() => {
+    if (companyId) {
+      // Wipe the entire React Query cache so no stale data from a previous
+      // company bleeds into the newly active company's screens.
+      queryClient.clear();
+    }
+  }, [companyId]);
 
   // Refocus keyInputRef on mount, login, screen change, or modal close
   useEffect(() => {
@@ -133,50 +157,6 @@ function AppContent() {
       return () => timers.forEach(t => clearTimeout(t));
     }
   }, [isLoggedIn, company, activeScreen, isCreatingInvoice, isHelpOpen]);
-
-  // Window/Document-level keyboard event capture (for instant hotkey response on app launch before mouse click)
-  useEffect(() => {
-    const handleNativeWindowKeyDown = (e: any) => {
-      if (!e) return;
-      handleGlobalKeyDown({
-        nativeEvent: {
-          key: e.key,
-          code: e.code,
-          keyCode: e.keyCode,
-          ctrlKey: e.ctrlKey,
-          altKey: e.altKey,
-          shiftKey: e.shiftKey,
-        }
-      });
-    };
-
-    const targetWin: any = typeof window !== "undefined" ? window : null;
-    const targetDoc: any = typeof document !== "undefined" ? document : null;
-
-    if (targetWin?.addEventListener) {
-      targetWin.addEventListener("keydown", handleNativeWindowKeyDown, true);
-    }
-    if (targetDoc?.addEventListener) {
-      targetDoc.addEventListener("keydown", handleNativeWindowKeyDown, true);
-    }
-
-    return () => {
-      if (targetWin?.removeEventListener) {
-        targetWin.removeEventListener("keydown", handleNativeWindowKeyDown, true);
-      }
-      if (targetDoc?.removeEventListener) {
-        targetDoc.removeEventListener("removeEventListener", handleNativeWindowKeyDown, true);
-      }
-    };
-  }, [handleGlobalKeyDown]);
-
-  // Listen to showKeyboardHelp event
-  useEffect(() => {
-    const subHelp = DeviceEventEmitter.addListener("showKeyboardHelp", () => {
-      setIsHelpOpen(true);
-    });
-    return () => subHelp.remove();
-  }, []);
 
   const handleGlobalKeyDown = useCallback((e: any) => {
     if (!e) return;
@@ -277,6 +257,50 @@ function AppContent() {
       }
     }
   }, [isHelpOpen]);
+
+  // Window/Document-level keyboard event capture (for instant hotkey response on app launch before mouse click)
+  useEffect(() => {
+    const handleNativeWindowKeyDown = (e: any) => {
+      if (!e) return;
+      handleGlobalKeyDown({
+        nativeEvent: {
+          key: e.key,
+          code: e.code,
+          keyCode: e.keyCode,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          shiftKey: e.shiftKey,
+        }
+      });
+    };
+
+    const targetWin: any = (globalThis as any).window;
+    const targetDoc: any = (globalThis as any).document;
+
+    if (targetWin?.addEventListener) {
+      targetWin.addEventListener("keydown", handleNativeWindowKeyDown, true);
+    }
+    if (targetDoc?.addEventListener) {
+      targetDoc.addEventListener("keydown", handleNativeWindowKeyDown, true);
+    }
+
+    return () => {
+      if (targetWin?.removeEventListener) {
+        targetWin.removeEventListener("keydown", handleNativeWindowKeyDown, true);
+      }
+      if (targetDoc?.removeEventListener) {
+        targetDoc.removeEventListener("keydown", handleNativeWindowKeyDown, true);
+      }
+    };
+  }, [handleGlobalKeyDown]);
+
+  // Listen to showKeyboardHelp event
+  useEffect(() => {
+    const subHelp = DeviceEventEmitter.addListener("showKeyboardHelp", () => {
+      setIsHelpOpen(true);
+    });
+    return () => subHelp.remove();
+  }, []);
 
   const themeColors = isDarkMode
     ? { text: "#FFFFFF", bg: "transparent" } // Transparent allows Mica to show

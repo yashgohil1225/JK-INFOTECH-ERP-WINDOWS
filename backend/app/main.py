@@ -44,7 +44,7 @@ async def custom_swagger_ui_html():
 async def startup_event():
     # ── Playwright Browser Auto-Setup ──────────────────────────
     # Checks if Chromium is present on the client's PC and silently
-    # installs it in the background if missing.
+    # installs it in the background if missing without blocking startup.
     def install_browsers():
         try:
             import os
@@ -52,19 +52,29 @@ async def startup_event():
             if local_appdata:
                 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = os.path.join(local_appdata, "ms-playwright")
             
+            ms_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+            if ms_path and os.path.isdir(ms_path) and any("chromium" in d.lower() for d in os.listdir(ms_path)):
+                print("JK ERP: Playwright Chromium browser already installed.")
+                app.state.chromium_ready = True
+                return
+
+            print("JK ERP: Initiating background Playwright Chromium browser setup...")
+            app.state.chromium_ready = False
             # pyrefly: ignore [missing-import]
             from playwright.cli.main import main as playwright_main
-            print("JK ERP: Checking Playwright Chromium browser status...")
             try:
                 playwright_main(["install", "chromium"])
-                print("JK ERP: Playwright Chromium check complete.")
+                print("JK ERP: Playwright Chromium installation complete.")
+                app.state.chromium_ready = True
             except SystemExit:
-                pass
+                app.state.chromium_ready = True
         except Exception as e:
-            print(f"JK ERP: Failed to check/install Playwright browsers: {e}")
+            print(f"JK ERP: Playwright browser check exception: {e}")
+            app.state.chromium_ready = False
 
+    app.state.chromium_ready = False
     import threading
-    threading.Thread(target=install_browsers, daemon=True).start()
+    threading.Thread(target=install_browsers, daemon=True, name="chromium-installer").start()
 
     # Industrial Protocol: Ensure all table schemas are synchronized in a background thread
     print("JK ERP: Synchronizing Database Schema...")
@@ -176,6 +186,14 @@ async def startup_event():
         print(f"JK ERP: SYSTEM FROZEN. Reason: {app.state.freeze_reason}")
     else:
         print("JK ERP: SYSTEM ACTIVATED. Hardware bound successfully.")
+
+    # Launch Auto-Backup Background Scheduler Task
+    try:
+        from app.services.auto_backup_service import start_auto_backup_scheduler
+        asyncio.create_task(start_auto_backup_scheduler())
+        print("JK ERP: Auto-Backup & Cloud Sync Scheduler initialized.")
+    except Exception as backup_err:
+        print(f"JK ERP: Auto-Backup Scheduler initialization failed: {backup_err}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -315,14 +333,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         with open("error.log", "a", encoding="utf-8") as f:
             f.write(f"\n--- VALIDATION_ERROR at {datetime.now()} ---\n")
             f.write(f"Errors: {exc.errors()}\n")
-            f.write(f"Body: {exc.body}\n")
+            f.write(f"Body: {str(exc.body)}\n")
             f.write("-" * 50 + "\n")
     except:
         pass
     print(f"VALIDATION ERROR: {exc.errors()}")
+    
+    body_repr = str(exc.body) if exc.body is not None else None
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
+        content={"detail": exc.errors(), "body": body_repr},
         headers=get_cors_headers(request)
     )
 

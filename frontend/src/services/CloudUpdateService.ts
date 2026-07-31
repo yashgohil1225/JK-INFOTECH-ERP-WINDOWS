@@ -17,39 +17,8 @@ export const getCurrentAppVersion = (): string => {
 };
 
 export const checkForCloudUpdate = async (customUrl?: string): Promise<UpdateInfo | null> => {
-  const currentVer = getCurrentAppVersion();
-  const updateUrl = customUrl || DEFAULT_UPDATE_URL;
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout for quick offline check
-
-    const res = await fetch(updateUrl, {
-      signal: controller.signal,
-      headers: { "Cache-Control": "no-cache" }
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    if (!data || !data.version) return null;
-
-    const latestVer = data.version;
-    const hasUpdate = isNewerVersion(currentVer, latestVer);
-
-    return {
-      hasUpdate,
-      latestVersion: latestVer,
-      currentVersion: currentVer,
-      releaseNotes: data.releaseNotes || "Performance and stability improvements.",
-      mandatory: !!data.mandatory,
-      downloadUrl: data.downloadUrl || ""
-    };
-  } catch (error) {
-    // Client is offline or server unreachable — fail silently
-    return null;
-  }
+  // Auto-updates disabled per user system preference
+  return null;
 };
 
 // Simple semver comparison helper (e.g., "1.0.1" > "1.0.0")

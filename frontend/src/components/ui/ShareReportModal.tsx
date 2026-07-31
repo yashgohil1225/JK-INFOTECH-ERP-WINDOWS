@@ -144,7 +144,7 @@ export function ShareReportModal({
       isOpen={isOpen}
       onClose={onClose}
       title={`Share ${reportTitle}`}
-      maxWidth={540}
+      width={540}
     >
       <View style={{ gap: 16 }}>
         {/* Tab Switcher */}

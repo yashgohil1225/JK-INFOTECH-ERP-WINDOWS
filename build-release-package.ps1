@@ -5,9 +5,10 @@
 
 $ErrorActionPreference = "Stop"
 $WorkspaceRoot = $PSScriptRoot
+$AppVersion = "1.2.8"
 
 Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "JK INFOTECH ERP v1.2.6 — Full Release Packaging" -ForegroundColor Cyan
+Write-Host "JK INFOTECH ERP v$AppVersion — Full Release Packaging" -ForegroundColor Cyan
 Write-Host "===================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------
@@ -20,7 +21,6 @@ $isccCandidates = @(
     "C:\Program Files\Inno Setup 6\ISCC.exe",
     "ISCC.exe"
 )
-
 
 $isccPath = $null
 foreach ($path in $isccCandidates) {
@@ -35,7 +35,7 @@ foreach ($path in $isccCandidates) {
 }
 
 if (-not $isccPath) {
-    Write-Error "Inno Setup Compiler (ISCC.exe) was not found in standard paths. Please ensure Inno Setup 6 is installed."
+    Write-Error "Inno Setup Compiler (ISCC.exe) was not found in standard paths. Please ensure Inno Setup 6 or 7 is installed."
 }
 Write-Host "[✓] Inno Setup Compiler found: $isccPath" -ForegroundColor Green
 
@@ -53,7 +53,6 @@ if (-not (Test-Path $pgsqlLocal) -and (Test-Path $pgSystem)) {
     Copy-Item -Path (Join-Path $pgSystem "share") -Destination (Join-Path $pgsqlLocal "share") -Recurse -Force
     Write-Host "[✓] PostgreSQL engine binaries bundled into $pgsqlLocal" -ForegroundColor Green
 }
-
 
 # ---------------------------------------------------------------------
 # Step 2: Build Python Backend Executable (PyInstaller)
@@ -82,7 +81,7 @@ try {
 # ---------------------------------------------------------------------
 # Step 3: Build Windows UWP App Release Package
 # ---------------------------------------------------------------------
-Write-Host "`n[2/4] Building Windows UWP Client (Release Mode v1.2.6.0)..." -ForegroundColor Yellow
+Write-Host "`n[2/4] Building Windows UWP Client (Release Mode v${AppVersion}.0)..." -ForegroundColor Yellow
 $frontendDir = Join-Path $WorkspaceRoot "frontend"
 Push-Location $frontendDir
 
@@ -90,14 +89,14 @@ try {
     # Build React Native Windows App Package
     npx react-native run-windows --logging --release --no-launch
     
-    $appxDir = Join-Path $frontendDir "windows\AppPackages\JKErpWindows\JKErpWindows_1.2.6.0_x64_Test"
+    $appxDir = Join-Path $frontendDir "windows\AppPackages\JKErpWindows\JKErpWindows_${AppVersion}.0_x64_Test"
     if (-not (Test-Path $appxDir)) {
         # Fallback check if output directory name differs slightly
-        $appxDirFallback = Get-ChildItem (Join-Path $frontendDir "windows\AppPackages\JKErpWindows") | Where-Object { $_.Name -like "*1.2.6*" } | Select-Object -First 1
+        $appxDirFallback = Get-ChildItem (Join-Path $frontendDir "windows\AppPackages\JKErpWindows") | Where-Object { $_.Name -like "*${AppVersion}*" } | Select-Object -First 1
         if ($appxDirFallback) {
             $appxDir = $appxDirFallback.FullName
         } else {
-            Write-Warning "AppPackages v1.2.6 folder not found automatically. Using available package."
+            Write-Warning "AppPackages v$AppVersion folder not found automatically. Using available package."
         }
     }
     Write-Host "[✓] Windows UWP app built at: $appxDir" -ForegroundColor Green
@@ -118,7 +117,7 @@ if (-not (Test-Path $outputDir)) {
 
 & $isccPath $setupIssPath
 
-$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v1.2.6.exe"
+$setupExePath = Join-Path $outputDir "JK_Infotech_ERP_Setup_v${AppVersion}.exe"
 if (-not (Test-Path $setupExePath)) {
     throw "Setup executable not found at $setupExePath after Inno Setup compilation."
 }
@@ -128,11 +127,8 @@ Write-Host "[✓] Setup installer compiled successfully: $setupExePath ($([math]
 # Step 5: Generate ZIP Updater File
 # ---------------------------------------------------------------------
 Write-Host "`n[4/4] Packaging ZIP Updater Archive..." -ForegroundColor Yellow
-$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v1.2.6.zip"
-$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v1.2.6.zip"
-
-
-
+$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v${AppVersion}.zip"
+$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v${AppVersion}.zip"
 
 if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force }
 

@@ -21,6 +21,7 @@ import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal"
 import { useAuthStore, getAccessToken } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
@@ -32,6 +33,7 @@ import { DatePicker } from "../components/ui/DatePicker";
 import { Input } from "../components/ui/Input";
 import { PrinterIcon } from "../components/ui/Icons";
 import { sequencesApi } from "../api/sequences";
+import { AddBankAccountModal } from "../components/ui/AddBankAccountModal";
 
 // ─── Helpers ──────────────────────────────────────────────────
 function toUIDate(isoDateStr: string): string {
@@ -382,16 +384,29 @@ export default function PurchasesScreen() {
 
   // ── Query: Fetch bills ──
   const { data: bills = [], isLoading } = useQuery<PurchaseBill[]>({
-    queryKey: ["purchase_bills"],
+    queryKey: ["purchase_bills", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/purchase/bills");
       return res.data;
     },
   });
 
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("openSearchResult", ({ targetScreen, targetId, title }) => {
+      if (targetScreen === "PURCHASES" || targetScreen === "PURCHASE_BILL") {
+        if (title) setSearchQuery(title);
+        if (targetId && bills && bills.length > 0) {
+          const match = bills.find(b => b.id === targetId || b.bill_number === title);
+          if (match) setSelectedBill(match);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [bills]);
+
   // ── Query: Fetch suppliers ──
   const { data: suppliers = [], refetch: refetchSuppliers } = useQuery<Supplier[]>({
-    queryKey: ["suppliers"],
+    queryKey: ["suppliers", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/suppliers");
       return res.data;
@@ -400,7 +415,7 @@ export default function PurchasesScreen() {
 
   // ── Query: Fetch products ──
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ["products"],
+    queryKey: ["products", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/inventory/products");
       return res.data;
@@ -420,12 +435,22 @@ export default function PurchasesScreen() {
 
   // ── Query: Fetch liquid accounts ──
   const { data: bankAccounts = [] } = useQuery<BankAccount[]>({
-    queryKey: ["bankingAccounts"],
+    queryKey: ["bankingAccounts", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/banking/accounts");
       return res.data;
     },
   });
+
+  const [isAddBankModalOpen, setIsAddBankModalOpen] = useState(false);
+
+  const filteredBankAccounts = useMemo(() => {
+    return bankAccounts.filter(acc => {
+      const typeUpper = acc.account_type?.toUpperCase();
+      const subtypeUpper = acc.account_subtype?.toUpperCase();
+      return typeUpper !== "CASH" && subtypeUpper !== "CASH" && acc.name !== "Cash In Hand";
+    });
+  }, [bankAccounts]);
 
   // ── Mutation: Create bill ──
   const createMutation = useMutation({
@@ -433,11 +458,12 @@ export default function PurchasesScreen() {
       const res = await apiClient.post("/api/purchase/bills", payload);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+    onSuccess: (newBill: PurchaseBill) => {
+      queryClient.setQueryData<PurchaseBill[]>(["purchase_bills", company?.id], (old = []) => {
+        if (old.some(b => b.id === newBill.id)) return old;
+        return [newBill, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsCreating(false);
       setEditingBillId(null);
       setSelectedBill(null);
@@ -457,14 +483,14 @@ export default function PurchasesScreen() {
       const res = await apiClient.put(`/api/purchase/bills/${id}`, payload);
       return res.data;
     },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+    onSuccess: (updatedBill: PurchaseBill) => {
+      queryClient.setQueryData<PurchaseBill[]>(["purchase_bills", company?.id], (old = []) =>
+        old.map(b => (b.id === updatedBill.id ? updatedBill : b))
+      );
+      invalidateAllQueries(queryClient);
       setIsCreating(false);
       setEditingBillId(null);
-      setSelectedBill(data);
+      setSelectedBill(updatedBill);
       setForm(blankForm());
       setLines([blankLine()]);
       setFormStep(1);
@@ -481,10 +507,7 @@ export default function PurchasesScreen() {
       await apiClient.delete(`/api/purchase/bills/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       setSelectedBill(null);
       Alert.alert("Success", "Purchase Bill record deleted.");
     },
@@ -499,10 +522,7 @@ export default function PurchasesScreen() {
       await apiClient.delete(`/api/banking/payments/${id}`);
     },
     onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
-      queryClient.invalidateQueries({ queryKey: ["billPayments", selectedBill?.id] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       Alert.alert("Success", "Payment record deleted successfully.");
 
       if (selectedBill) {
@@ -531,9 +551,27 @@ export default function PurchasesScreen() {
       const res = await apiClient.post("/api/banking/payments", payload);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (newPayment: any) => {
+      // ─── Optimistic instant cache update ────────────────────────────────
+      // 1. Push new payment into payments cache immediately
+      queryClient.setQueryData<any[]>(["payments", company?.id], (old = []) => {
+        if (old.some((p: any) => p.id === newPayment?.id)) return old;
+        return [newPayment, ...old];
+      });
+      // 2. Push into bill-specific payments list
+      queryClient.setQueryData<any[]>(["billPayments", selectedBill?.id], (old = []) => {
+        if (old.some((p: any) => p.id === newPayment?.id)) return old;
+        return [newPayment, ...old];
+      });
+      // 3. Force-refetch banking accounts immediately (balance update)
+      queryClient.invalidateQueries({ queryKey: ["bankingAccounts"] });
+      queryClient.invalidateQueries({ queryKey: ["allAccounts"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["purchase_bills"] });
-      queryClient.invalidateQueries({ queryKey: ["billPayments", selectedBill?.id] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      // ────────────────────────────────────────────────────────────────────
+
       setIsPaymentModalOpen(false);
       setPaymentForm({
         amount: "",
@@ -1759,19 +1797,52 @@ export default function PurchasesScreen() {
                 { value: "CHEQUE", label: "Cheque" },
               ]}
               value={paymentForm.payment_method}
-              onChange={(val) => setPaymentForm(p => ({ ...p, payment_method: val || "BANK_TRANSFER" }))}
+              onChange={(val) => {
+                const method = val || "BANK_TRANSFER";
+                const isCash = method === "CASH";
+                let targetBank = paymentForm.bank_account;
+                if (isCash) {
+                  targetBank = "Cash In Hand";
+                } else {
+                  if (!targetBank || targetBank === "Cash In Hand" || !filteredBankAccounts.some(b => b.name === targetBank)) {
+                    targetBank = filteredBankAccounts[0]?.name || "";
+                  }
+                }
+                setPaymentForm(p => ({ ...p, payment_method: method, bank_account: targetBank }));
+              }}
             />
           </View>
 
-          {bankAccounts.length > 0 && (
+          {paymentForm.payment_method !== "CASH" && (
             <View>
-              <Text style={[styles.inputLabel, { color: C.textSecondary, marginBottom: 6 }]}>PAID FROM BANK / CASH ACCOUNT</Text>
-              <Dropdown
-                options={bankAccounts.map(b => ({ value: b.id, label: b.name, sublabel: b.account_type }))}
-                value={paymentForm.bank_account}
-                onChange={(val) => setPaymentForm(p => ({ ...p, bank_account: val || "" }))}
-                placeholder="Select account..."
-              />
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <Text style={[styles.inputLabel, { color: C.textSecondary }]}>PAID FROM BANK ACCOUNT *</Text>
+                <Pressable
+                  onPress={() => setIsAddBankModalOpen(true)}
+                  style={({ hovered }: any) => [hovered && { opacity: 0.7 }]}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: C.accent, textDecorationLine: "underline" }}>
+                    + Add Bank Account
+                  </Text>
+                </Pressable>
+              </View>
+              {filteredBankAccounts.length === 0 ? (
+                <View style={{ gap: 6, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 13, color: "#DC2626" }}>No active bank accounts found.</Text>
+                  <Pressable onPress={() => setIsAddBankModalOpen(true)}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: C.accent, textDecorationLine: "underline" }}>+ Click here to add a bank account</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Dropdown
+                  options={filteredBankAccounts.map(b => ({ value: b.name, label: b.name, sublabel: b.account_code || b.account_type }))}
+                  value={paymentForm.bank_account}
+                  onChange={(val) => setPaymentForm(p => ({ ...p, bank_account: val || "" }))}
+                  placeholder="Select bank account..."
+                  onAddNew={() => setIsAddBankModalOpen(true)}
+                  addNewLabel="Add New Bank Account"
+                />
+              )}
             </View>
           )}
 
@@ -1805,6 +1876,15 @@ export default function PurchasesScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* QUICK ADD BANK ACCOUNT MODAL */}
+      <AddBankAccountModal
+        isOpen={isAddBankModalOpen}
+        onClose={() => setIsAddBankModalOpen(false)}
+        onAccountCreated={(newAcc) => {
+          setPaymentForm(p => ({ ...p, bank_account: newAcc.name }));
+        }}
+      />
 
       {/* QUICK ADD VENDOR / SUPPLIER DIALOG */}
       <FullScreenModal

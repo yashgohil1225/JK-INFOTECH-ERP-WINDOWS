@@ -100,7 +100,11 @@ const styles = StyleSheet.create({
     fontFamily: "Segoe UI Variable Text",
   },
   textInput: {
-    paddingVertical: 8,
+    height: 44,
+    paddingTop: 11,
+    paddingBottom: 11,
+    lineHeight: 20,
+    textAlignVertical: "center",
     borderWidth: 2,
     borderRadius: 6,
     paddingHorizontal: 10,

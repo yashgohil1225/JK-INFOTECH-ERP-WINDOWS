@@ -12,13 +12,15 @@ import {
   Pressable,
   Alert,
   TextInput,
-  Image
+  Image,
+  DeviceEventEmitter
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
 import { ModuleHelpModal, HelpCategory } from "../components/ui/ModuleHelpModal";
 import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
@@ -150,9 +152,22 @@ export default function InventoryScreen() {
 
   // ── Queries ──
   const { data: products = [], isLoading } = useQuery<Product[]>({
-    queryKey: ["products"],
+    queryKey: ["products", company?.id],
     queryFn: async () => { const res = await apiClient.get("/api/inventory/products"); return res.data; }
   });
+
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("openSearchResult", ({ targetScreen, targetId, title }) => {
+      if (targetScreen === "INVENTORY" || targetScreen === "PRODUCT") {
+        if (title) setSearchQuery(title);
+        if (products && products.length > 0) {
+          const match = products.find(p => p.id === targetId || p.name.toLowerCase() === (title || "").toLowerCase());
+          if (match) setSelectedProduct(match);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [products]);
 
   // ── Mutations ──
   const createMutation = useMutation({
@@ -167,8 +182,12 @@ export default function InventoryScreen() {
       }
       return created;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+    onSuccess: (newProd: Product) => {
+      queryClient.setQueryData<Product[]>(["products", company?.id], (old = []) => {
+        if (old.some(p => p.id === newProd.id)) return old;
+        return [newProd, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsFormOpen(false); setFormData(blankForm()); setFormTab(1); setIsFullScreenOpen(false);
     },
     onError: (err: any) => { Alert.alert("Error", err.response?.data?.detail || "Failed to create product."); }
@@ -179,16 +198,25 @@ export default function InventoryScreen() {
       const res = await apiClient.put(`/api/inventory/products/${id}`, data);
       return res.data;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      setSelectedProduct(data); setIsFormOpen(false); setIsFullScreenOpen(false);
+    onSuccess: (updatedProd: Product) => {
+      queryClient.setQueryData<Product[]>(["products", company?.id], (old = []) =>
+        old.map(p => (p.id === updatedProd.id ? updatedProd : p))
+      );
+      invalidateAllQueries(queryClient);
+      setSelectedProduct(updatedProd); setIsFormOpen(false); setIsFullScreenOpen(false);
     },
     onError: (err: any) => { Alert.alert("Error", err.response?.data?.detail || "Update failed."); }
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => { await apiClient.delete(`/api/inventory/products/${id}`); },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["products"] }); setSelectedProduct(null); },
+    onSuccess: (_, id: string) => {
+      queryClient.setQueryData<Product[]>(["products", company?.id], (old = []) =>
+        old.filter(p => p.id !== id)
+      );
+      invalidateAllQueries(queryClient);
+      setSelectedProduct(null);
+    },
     onError: (err: any) => { Alert.alert("Cannot Delete", err.response?.data?.detail || "Product has linked transactions."); }
   });
 

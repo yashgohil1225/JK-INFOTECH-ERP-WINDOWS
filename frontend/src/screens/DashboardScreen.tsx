@@ -38,6 +38,7 @@ const preloadKpiIcons = () => {
 };
 preloadKpiIcons();
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
 import {
@@ -59,6 +60,7 @@ const fmt = (n: number | undefined | null) => {
 
 export default function DashboardScreen() {
   const { isDarkMode, setActiveScreen, setGlobalSearchOpen } = useUIStore();
+  const { company } = useAuthStore();
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -107,33 +109,39 @@ export default function DashboardScreen() {
 
   // ── Data Queries ───────────────────────────────────────────
   const { data: kpis, isLoading: isKpiLoading } = useQuery({
-    queryKey: ["dashboard_kpis"],
+    queryKey: ["dashboard_kpis", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/analytics/kpis");
       return res.data;
     },
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: salesTrend = [], isLoading: isTrendLoading } = useQuery<any[]>({
-    queryKey: ["dashboard_sales_trend"],
+    queryKey: ["dashboard_sales_trend", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/analytics/sales-trend");
       return res.data;
     },
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: liquidity = [], isLoading: isLiquidityLoading } = useQuery<any[]>({
-    queryKey: ["dashboard_liquidity"],
+    queryKey: ["dashboard_liquidity", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/analytics/liquidity");
       return res.data;
     },
     staleTime: 0,
     refetchOnMount: "always",
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const isLoading = isKpiLoading || isTrendLoading || isLiquidityLoading;
@@ -160,7 +168,7 @@ export default function DashboardScreen() {
       <View style={[styles.centerBox, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.accent} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          Loading corporate telemetry metrics...
+          Loading business overview...
         </Text>
       </View>
     );
@@ -173,17 +181,54 @@ export default function DashboardScreen() {
       showsVerticalScrollIndicator={true}
     >
       {/* ── Screen Header Block ────────────────────────────────── */}
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 16 }}>
+        {/* Left: Title & Subtitle */}
         <View style={styles.header}>
           <Text style={[styles.breadcrumb, { color: colors.accent }]}>
-            DASHBOARD / ANALYTICS
+            DASHBOARD / OVERVIEW
           </Text>
           <Text style={[styles.title, { color: colors.textPrimary }]}>
-            Business Overview & Dashboard
+            Business Overview & Performance
           </Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Live sales metrics, cash balance, and business performance summary.
+            Live sales, receivables, payables, and bank & cash balances.
           </Text>
+        </View>
+
+        {/* Center: Inline Compact Brand Support Badge (Dead Center) */}
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              backgroundColor: colors.cardBg,
+              borderWidth: 1,
+              borderColor: isDarkMode ? "rgba(56, 189, 248, 0.3)" : "rgba(2, 132, 199, 0.25)",
+              borderRadius: 8,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              elevation: 1
+            }}
+          >
+            <Text style={{ fontSize: 18 }}>🎧</Text>
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                  JK INFOTECH SUPPORT
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.accent, fontFamily: "Consolas" }}>
+                  ✉️ support@jkinfotech.com
+                </Text>
+                <Text style={{ fontSize: 13.5, color: colors.textSecondary }}>|</Text>
+                <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                  📞 +91 9714043495
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
 
         {/* Upper Right Global Universal Search Widget */}
@@ -201,7 +246,7 @@ export default function DashboardScreen() {
               borderRadius: 8,
               paddingHorizontal: 16,
               paddingVertical: 10,
-              minWidth: 350,
+              minWidth: 320,
               gap: 10,
               elevation: 2,
               cursor: "pointer" as any,
@@ -240,9 +285,22 @@ export default function DashboardScreen() {
             Total Sales Revenue
           </Text>
           <View style={styles.kpiFooter}>
-            <Text style={[styles.kpiFooterText, { color: colors.success }]}>
-              ▲ +12.4% vs last month
-            </Text>
+            {(() => {
+              const growth = kpis?.monthly_growth ?? 0;
+              const isPositive = growth > 0;
+              const isNegative = growth < 0;
+              const formatted = isPositive
+                ? `▲ +${growth.toFixed(1)}% vs last month`
+                : isNegative
+                  ? `▼ ${growth.toFixed(1)}% vs last month`
+                  : `0.0% vs last month`;
+              const growthColor = isPositive ? colors.success : isNegative ? colors.error : colors.textSecondary;
+              return (
+                <Text style={[styles.kpiFooterText, { color: growthColor }]}>
+                  {formatted}
+                </Text>
+              );
+            })()}
           </View>
         </Pressable>
 
@@ -316,7 +374,7 @@ export default function DashboardScreen() {
           </Text>
           <View style={styles.kpiFooter}>
             <Text style={[styles.kpiFooterText, { color: colors.success }]}>
-              Registry accounts sync
+              Active business accounts
             </Text>
           </View>
         </Pressable>
@@ -397,14 +455,14 @@ export default function DashboardScreen() {
           ]}
         >
           <Text style={[styles.cardTitle, { color: colors.textPrimary, marginBottom: 4 }]}>
-            Liquidity & Treasury
+            Bank & Cash Balances
           </Text>
           <Text style={[styles.cardDesc, { color: colors.textSecondary, marginBottom: 12 }]}>
-            Net balances across corporate cash registry and bank nodes.
+            Current balances across your bank accounts and cash in hand.
           </Text>
 
-          <ScrollView 
-            style={styles.liquidityList} 
+          <ScrollView
+            style={styles.liquidityList}
             contentContainerStyle={{ paddingRight: 18, paddingBottom: 10 }}
             showsVerticalScrollIndicator={true}
           >
@@ -447,7 +505,7 @@ export default function DashboardScreen() {
             ) : (
               <View style={styles.noLiquidityContainer}>
                 <Text style={[styles.noLiquidityText, { color: colors.textSecondary }]}>
-                  No active bank or cash accounts detected.
+                  No active bank or cash accounts found.
                 </Text>
               </View>
             )}
@@ -455,7 +513,7 @@ export default function DashboardScreen() {
 
           <View style={[styles.liqTotalRow, { borderTopColor: colors.divider }]}>
             <Text style={[styles.liqTotalLabel, { color: colors.textSecondary }]}>
-              NET LIQUID CAPITAL
+              TOTAL BANK & CASH BALANCE
             </Text>
             <Text style={[styles.liqTotalValue, { color: colors.accent }]}>
               {fmt(totalLiquidity)}
@@ -503,15 +561,15 @@ export default function DashboardScreen() {
             {
               id: "BANK_CASH",
               icon: "🏦",
-              title: "Treasury Logs",
-              desc: "Perform bank reconcile logs and cash deposits",
+              title: "Bank & Cash",
+              desc: "Manage bank accounts, deposits and transfers",
               target: "BANK_CASH",
               key: "F9",
             },
             {
               id: "VENDORS",
               icon: "🏢",
-              title: "Vendor Registry",
+              title: "Vendor Directory",
               desc: "Manage suppliers, payment terms, and vendor payables",
               target: "VENDORS",
               key: "Shift+F8",
@@ -519,7 +577,7 @@ export default function DashboardScreen() {
             {
               id: "CUSTOMERS",
               icon: "👥",
-              title: "Customer Registry",
+              title: "Customer Directory",
               desc: "Manage customers, credit limits, and receivables",
               target: "CUSTOMERS",
               key: "F8",
@@ -527,7 +585,7 @@ export default function DashboardScreen() {
             {
               id: "REPORTS",
               icon: "📊",
-              title: "Audit Reports",
+              title: "Financial Reports",
               desc: "Run complete P&L statements and tax filings",
               target: "REPORTS",
               key: "F6",
@@ -569,7 +627,7 @@ export default function DashboardScreen() {
                   }}>
                     <Text style={{
                       fontSize: 12.5,
-                      fontWeight: "850",
+                      fontWeight: "800",
                       color: colors.accent,
                       fontFamily: "Segoe UI Variable Display"
                     }}>

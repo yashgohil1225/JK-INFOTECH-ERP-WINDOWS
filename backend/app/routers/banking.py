@@ -65,13 +65,19 @@ async def compute_dynamic_balances(db: AsyncSession, company_id: UUID, accounts:
         acc.opening_balance = current_balance
     return accounts
 
+from app.core.redis import cache_manager
+
 # --- Accounts ---
 @router.get("/accounts", response_model=List[AccountSchema])
 async def list_accounts(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
-    # Fetch Bank and Cash nodes
+    cache_key = f"banking_accounts:{company.id}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     result = await db.execute(
         select(Account)
         .where(
@@ -85,7 +91,9 @@ async def list_accounts(
     )
     accounts = result.scalars().all()
     await compute_dynamic_balances(db, company.id, accounts)
-    return accounts
+    out = [AccountSchema.model_validate(acc).model_dump() for acc in accounts]
+    await cache_manager.set(cache_key, out, ttl_seconds=60)
+    return out
 
 @router.post("/accounts", response_model=AccountSchema)
 async def create_account(
@@ -100,6 +108,10 @@ async def create_account(
     db.add(new_account)
     await db.commit()
     await db.refresh(new_account)
+
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"analytics:{company.id}")
+    await cache_manager.invalidate_prefix(f"company:{company.id}:report")
     return new_account
 
 @router.get("/accounts/all", response_model=List[AccountSchema])
@@ -108,6 +120,11 @@ async def list_all_accounts(
     company: Company = Depends(get_current_company)
 ):
     """Fetch all accounts in the chart of accounts for selection."""
+    cache_key = f"all_accounts:{company.id}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     result = await db.execute(
         select(Account)
         .where(Account.company_id == company.id)
@@ -115,7 +132,9 @@ async def list_all_accounts(
     )
     accounts = result.scalars().all()
     await compute_dynamic_balances(db, company.id, accounts)
-    return accounts
+    out = [AccountSchema.model_validate(acc).model_dump() for acc in accounts]
+    await cache_manager.set(cache_key, out, ttl_seconds=60)
+    return out
 
 # --- Payments ---
 @router.get("/payments", response_model=List[PaymentSchema])
@@ -175,6 +194,11 @@ async def delete_payment(
     await db.delete(payment)
     await db.commit()
 
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"analytics:{company.id}")
+    await cache_manager.invalidate_prefix(f"company:{company.id}:report")
+
 
 @router.post("/payments", response_model=PaymentSchema)
 async def create_payment(
@@ -232,6 +256,11 @@ async def create_payment(
     db.add(new_payment)
     await db.commit()
     await db.refresh(new_payment)
+
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"analytics:{company.id}")
+    await cache_manager.invalidate_prefix(f"company:{company.id}:report")
     return new_payment
 
 # --- Capital Transfer ---
@@ -299,5 +328,9 @@ async def transfer_capital(
     db.add(new_payment)
     await db.commit()
     await db.refresh(new_payment)
-    
+
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"analytics:{company.id}")
+    await cache_manager.invalidate_prefix(f"company:{company.id}:report")
     return new_payment

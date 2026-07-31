@@ -3,17 +3,21 @@
 // File : src/components/layout/MainLayout.tsx
 // =============================================================
 
-import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, DeviceEventEmitter } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, DeviceEventEmitter, TextInput } from "react-native";
 import Sidebar from "./Sidebar";
 import { useUIStore } from "../../store/uiStore";
 import { useAuthStore } from "../../store/authStore";
 import { Modal } from "../ui/Modal";
-import { CalendarPicker } from "../ui/DatePicker";
+import { CalendarPicker, DatePicker } from "../ui/DatePicker";
 import { GlobalSearchModal } from "../ui/GlobalSearchModal";
+import { FullScreenModal } from "../ui/FullScreenModal";
+import { Button } from "../ui/Button";
 
 import { getCurrentAppVersion, checkForCloudUpdate } from "../../services/CloudUpdateService";
 import { UpdateModal } from "../ui/UpdateModal";
+import { fiscalYearsApi } from "../../api/fiscalYears";
+import { ModalStackManager } from "../../utils/modalStackManager";
 
 
 interface MainLayoutProps {
@@ -24,6 +28,33 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const { isDarkMode, activeScreen, setActiveScreen, isSidebarCollapsed, isCreatingInvoice, isPrintPreviewOpen, isFullScreenOpen, isGlobalSearchOpen, setGlobalSearchOpen, globalLoadingMessage, globalLoadingSubtext, activeDatePicker, setActiveDatePicker } = useUIStore();
   const { user, company } = useAuthStore();
   const rootRef = React.useRef<any>(null);
+
+  // ── Auto-focus root view on mount so keyboard shortcuts work immediately ──
+  // On fresh app start the OS focus is on the native window frame/title bar.
+  // Programmatically focusing the root React View transfers keyboard focus
+  // into the content area so keydown events are dispatched without needing
+  // the user to click anything first.
+  useEffect(() => {
+    const focusRoot = () => {
+      try {
+        // 1. Focus the React Native root view (RN for Windows native bridge)
+        if (rootRef.current?.focus) {
+          rootRef.current.focus();
+        }
+        // 2. Focus the web window (WebView2 / Hermes JS layer)
+        const g = globalThis as any;
+        const win = g.window ?? g;
+        if (win?.focus) win.focus();
+      } catch (_) {}
+    };
+
+    // Focus immediately on mount
+    focusRoot();
+    // Also attempt after a short frame delay to handle async native mount
+    const t1 = setTimeout(focusRoot, 100);
+    const t2 = setTimeout(focusRoot, 500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   // Automatic background update check on application startup
   useEffect(() => {
@@ -41,6 +72,38 @@ export default function MainLayout({ children }: MainLayoutProps) {
       const ctrl = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const alt = e.altKey;
+
+      // ESC key -> Step-by-step backward closing (LIFO modal stack) then backward screen navigation
+      if (key === "Escape" || key === "Esc") {
+        // 1. Close top-most modal in LIFO stack first
+        const modalClosed = ModalStackManager.popAndClose();
+        if (modalClosed) {
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+
+        // 2. Close active date picker if open
+        if (useUIStore.getState().activeDatePicker) {
+          if (e.preventDefault) e.preventDefault();
+          setActiveDatePicker(null);
+          return;
+        }
+
+        // 3. Close global search modal if open
+        if (useUIStore.getState().isGlobalSearchOpen) {
+          if (e.preventDefault) e.preventDefault();
+          setGlobalSearchOpen(false);
+          return;
+        }
+
+        // 4. Backward screen navigation (Return to Dashboard if on another screen)
+        const currentScreen = useUIStore.getState().activeScreen;
+        if (currentScreen !== "DASHBOARD") {
+          if (e.preventDefault) e.preventDefault();
+          setActiveScreen("DASHBOARD");
+          return;
+        }
+      }
 
       // Ctrl + K -> Global Search
       if (ctrl && (key === "k" || key === "K")) {
@@ -101,19 +164,44 @@ export default function MainLayout({ children }: MainLayoutProps) {
       }
     };
 
-    if (typeof window !== "undefined" && window.addEventListener) {
-      window.addEventListener("keydown", handleGlobalKey);
+    const g = globalThis as any;
+    const win: any = g.window ?? g;
+    // Register on both window AND document — in React Native for Windows
+    // (WebView2 / Hermes) document is the correct keyboard event target once
+    // the content area has native focus. Registering on both guarantees
+    // keydown fires on fresh launch and after focus is returned from dialogs.
+    if (win?.addEventListener) {
+      win.addEventListener("keydown", handleGlobalKey, true);
+    }
+    const doc: any = g.window?.document ?? g.document;
+    if (doc?.addEventListener) {
+      doc.addEventListener("keydown", handleGlobalKey, true);
     }
 
     const sub = DeviceEventEmitter.addListener("globalKeyDown", handleGlobalKey);
 
     return () => {
-      if (typeof window !== "undefined" && window.removeEventListener) {
-        window.removeEventListener("keydown", handleGlobalKey);
+      if (win?.removeEventListener) {
+        win.removeEventListener("keydown", handleGlobalKey, true);
+      }
+      if (doc?.removeEventListener) {
+        doc.removeEventListener("keydown", handleGlobalKey, true);
       }
       sub.remove();
     };
   }, [setActiveScreen, setGlobalSearchOpen]);
+
+  // ── Re-focus root when active screen changes ──────────────────────────────
+  // If a modal, dialog, or native OS prompt steals keyboard focus, navigating
+  // to another screen re-establishes it so shortcuts resume working.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        if (rootRef.current?.focus) rootRef.current.focus();
+      } catch (_) {}
+    }, 80);
+    return () => clearTimeout(t);
+  }, [activeScreen]);
 
   const colors = isDarkMode
     ? {
@@ -142,7 +230,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
     };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.mainBg }]}>
+    <View
+      ref={rootRef}
+      focusable={true}
+      accessible={false}
+      style={[styles.container, { backgroundColor: colors.mainBg, outline: "none" } as any]}
+    >
 
       {/* 3. WORKSPACE CORE */}
       <View focusable={false} style={styles.workspaceWrapper}>
@@ -183,25 +276,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 : "GST: Unregistered"}
             </Text>
             <View style={styles.statusDivider} />
-            <Pressable 
-              onPress={async () => {
-                const info = await checkForCloudUpdate();
-                if (!info || !info.hasUpdate) {
-                  Alert.alert("Software Up To Date", `You are running the latest version v${getCurrentAppVersion()}. No updates available.`);
-                }
-              }}
-              style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-            >
-              <Text style={[styles.statusText, { color: colors.accent, fontWeight: "700" }]}>
-                Check for Updates (v{getCurrentAppVersion()})
-              </Text>
-            </Pressable>
+            <Text style={[styles.statusText, { color: colors.statusBarText, fontWeight: "600" }]}>
+              Version v{getCurrentAppVersion()} (Offline / Manual Backup Mode)
+            </Text>
           </View>
         </View>
       )}
-
-      {/* AUTOMATIC CLOUD UPDATE MODAL */}
-      <UpdateModal checkOnMount={true} />
 
 
       {/* GLOBAL FULL-WINDOW LOADING OVERLAY */}
@@ -244,7 +324,154 @@ export default function MainLayout({ children }: MainLayoutProps) {
         isOpen={isGlobalSearchOpen}
         onClose={() => setGlobalSearchOpen(false)}
       />
+
+      {/* First-Time Company Setup Financial Year Prompt Modal */}
+      <FirstTimeFyModal />
     </View>
+  );
+}
+
+function FirstTimeFyModal() {
+  const { company, loadMe } = useAuthStore();
+  const [isOpen, setIsOpen] = useState(false);
+  const [fyLabel, setFyLabel] = useState("");
+  const [fyStart, setFyStart] = useState("");
+  const [fyEnd, setFyEnd] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const calculateDefaultDatesFromPc = useCallback(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1; // 1-12
+
+    let startYear = year;
+    let endYear = year + 1;
+    if (month < 4) {
+      startYear = year - 1;
+      endYear = year;
+    }
+
+    const start = `${startYear}-04-01`;
+    const end = `${endYear}-03-31`;
+    const label = `FY ${startYear}-${String(endYear).slice(-2)}`;
+
+    setFyStart(start);
+    setFyEnd(end);
+    setFyLabel(label);
+  }, []);
+
+  const checkCompanyFiscalYears = useCallback(async () => {
+    if (!company?.id) return;
+    try {
+      const list = await fiscalYearsApi.getFiscalYears();
+      if (!list || list.length === 0) {
+        calculateDefaultDatesFromPc();
+        setIsOpen(true);
+      } else {
+        setIsOpen(false);
+      }
+    } catch (err) {
+      console.warn("Failed to check company fiscal years:", err);
+    }
+  }, [company?.id, calculateDefaultDatesFromPc]);
+
+  useEffect(() => {
+    checkCompanyFiscalYears();
+  }, [company?.id, checkCompanyFiscalYears]);
+
+  const handleConfirmFy = async () => {
+    if (!fyLabel.trim() || !fyStart || !fyEnd) {
+      Alert.alert("Validation Alert", "Please specify FY Label, Start Date, and End Date.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await fiscalYearsApi.createFiscalYear({
+        label: fyLabel.trim(),
+        start_date: fyStart,
+        end_date: fyEnd,
+        is_active: true
+      });
+      setIsOpen(false);
+      Alert.alert(
+        "Financial Year Activated! 🎉",
+        `Financial Year '${fyLabel}' (${fyStart.split("-").reverse().join("/")} to ${fyEnd.split("-").reverse().join("/")}) is now set as the active accounting year for ${company?.name || "your company"}.`,
+        [{ text: "Start Workspace Operations", style: "default" }]
+      );
+      await loadMe();
+    } catch (err: any) {
+      Alert.alert("Error", err.response?.data?.detail || "Failed to initialize financial year.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <FullScreenModal
+      isOpen={isOpen}
+      onClose={() => {}}
+      title={`Initialize Financial Year — ${company?.name || "Company"}`}
+      subtitle="Financial Year setup is required before creating invoices, purchase bills, or ledger entries."
+      breadcrumb="WORKSPACE INITIALIZATION / FINANCIAL YEAR"
+      scrollEnabled={true}
+      footerActions={
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", width: "100%" }}>
+          <Button
+            title={`Initialize ${fyLabel || "Financial Year"} & Start Operations`}
+            onPress={handleConfirmFy}
+            variant="primary"
+            size="large"
+            loading={loading}
+            loadingText="Activating Financial Year..."
+            style={{ minWidth: 280 }}
+          />
+        </View>
+      }
+    >
+      <View style={{ maxWidth: 600, alignSelf: "center", width: "100%", gap: 16, marginTop: 12 }}>
+        <View style={{
+          backgroundColor: "rgba(56, 189, 248, 0.1)",
+          borderWidth: 1,
+          borderColor: "#38BDF8",
+          borderRadius: 8,
+          padding: 16
+        }}>
+          <Text style={{ fontSize: 14.5, fontWeight: "700", color: "#0284C7", marginBottom: 4 }}>
+            ℹ️ PC Date Detection: Current Financial Year Suggestion
+          </Text>
+          <Text style={{ fontSize: 13, color: "#334155", lineHeight: 18 }}>
+            Based on your computer's date ({new Date().toLocaleDateString("en-IN")}), your primary financial cycle has been automatically calculated below. You can confirm or adjust dates as per your business requirements.
+          </Text>
+        </View>
+
+        <View style={{ gap: 4 }}>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: "#64748B" }}>FINANCIAL YEAR LABEL</Text>
+          <TextInput
+            value={fyLabel}
+            onChangeText={setFyLabel}
+            placeholder="e.g. FY 2026-27"
+            style={{
+              height: 44, borderWidth: 1.5, borderColor: "#CBD5E1", borderRadius: 6, paddingHorizontal: 14, fontSize: 15.5
+            }}
+          />
+        </View>
+
+        <DatePicker
+          value={fyStart}
+          onChange={setFyStart}
+          label="START DATE (Must be April 1st)"
+        />
+
+        <DatePicker
+          value={fyEnd}
+          onChange={setFyEnd}
+          label="END DATE (Must be March 31st)"
+        />
+      </View>
+    </FullScreenModal>
   );
 }
 

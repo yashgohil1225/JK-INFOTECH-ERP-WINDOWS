@@ -13,8 +13,9 @@ from app.database import get_db
 from app.middleware.auth import get_current_company, get_current_user
 from app.models import Company, User, FiscalYear, JournalEntry, JournalEntryLine, Account
 from app.schemas.auth import CompanyResponse, CompanyUpdate, FiscalYearCreate, FiscalYearResponse, FiscalYearCloseRequest
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+# pyrefly: ignore [missing-import]
 from sqlalchemy import select, func
 
 router = APIRouter(
@@ -163,7 +164,342 @@ async def search_hsn_sac(q: str = ""):
 
 
 # =============================================================
-# DELETE /api/companies/{id}
+# GET /api/companies/{id}/export  — full JSON backup of one company
+# =============================================================
+@router.get("/{id}/export")
+async def export_company_data(
+    id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Exports all data belonging to a company as a downloadable JSON file.
+    Includes: company profile, users, customers, suppliers, products,
+    invoices, purchase bills, payments, banking accounts, journal entries,
+    fiscal years, and sequences.
+    """
+    import uuid as _uuid
+    import json
+    from fastapi.responses import Response
+    from datetime import datetime, date
+    from decimal import Decimal
+
+    try:
+        company_uuid = _uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid company ID format")
+
+    # Auth: must be admin of this company OR superadmin
+    admin_check = await db.execute(
+        select(User).where(
+            (User.email == current_user.email) | (User.phone == current_user.phone),
+            User.company_id == company_uuid
+        )
+    )
+    if not current_user.is_superadmin and not admin_check.scalars().first():
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    # Load company
+    co_res = await db.execute(select(Company).where(Company.id == company_uuid))
+    company = co_res.scalars().first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    def serialize(obj):
+        """Recursively serialize SQLAlchemy model instance to dict."""
+        if obj is None:
+            return None
+        if isinstance(obj, list):
+            return [serialize(o) for o in obj]
+        if hasattr(obj, "__table__"):
+            result = {}
+            for col in obj.__table__.columns:
+                val = getattr(obj, col.name, None)
+                if isinstance(val, (_uuid.UUID,)):
+                    val = str(val)
+                elif isinstance(val, (datetime, date)):
+                    val = val.isoformat()
+                elif isinstance(val, Decimal):
+                    val = float(val)
+                result[col.name] = val
+            return result
+        return obj
+
+    # Import all models needed
+    from app.models import (
+        Customer, Supplier, Product, ProductCategory,
+        Invoice, InvoiceItem, PurchaseBill, PurchaseBillItem,
+        Payment, Account, JournalEntry, JournalEntryLine,
+        FiscalYear, DocumentSequence, SalesOrder, SalesOrderItem,
+        PurchaseOrder, PurchaseOrderItem, CreditNote, CreditNoteItem,
+        DebitNote, DebitNoteItem, TaxRate, Batch, StockEntry, AuditLog,
+    )
+
+    async def fetch_all(model, *filters):
+        res = await db.execute(select(model).where(*filters))
+        return res.scalars().all()
+
+    cid = company_uuid
+
+    # Fetch all related data
+    users_data         = await fetch_all(User, User.company_id == cid)
+    customers_data     = await fetch_all(Customer, Customer.company_id == cid)
+    suppliers_data     = await fetch_all(Supplier, Supplier.company_id == cid)
+    categories_data    = await fetch_all(ProductCategory, ProductCategory.company_id == cid)
+    products_data      = await fetch_all(Product, Product.company_id == cid)
+    tax_rates_data     = await fetch_all(TaxRate, TaxRate.company_id == cid)
+    accounts_data      = await fetch_all(Account, Account.company_id == cid)
+    fiscal_years_data  = await fetch_all(FiscalYear, FiscalYear.company_id == cid)
+    sequences_data     = await fetch_all(DocumentSequence, DocumentSequence.company_id == cid)
+    invoices_data      = await fetch_all(Invoice, Invoice.company_id == cid)
+    invoice_ids        = [i.id for i in invoices_data]
+    invoice_items_data = await fetch_all(InvoiceItem, InvoiceItem.invoice_id.in_(invoice_ids)) if invoice_ids else []
+    purchase_bills_data     = await fetch_all(PurchaseBill, PurchaseBill.company_id == cid)
+    pb_ids                  = [b.id for b in purchase_bills_data]
+    purchase_bill_items_data = await fetch_all(PurchaseBillItem, PurchaseBillItem.bill_id.in_(pb_ids)) if pb_ids else []
+    payments_data       = await fetch_all(Payment, Payment.company_id == cid)
+    sales_orders_data   = await fetch_all(SalesOrder, SalesOrder.company_id == cid)
+    so_ids              = [s.id for s in sales_orders_data]
+    so_items_data       = await fetch_all(SalesOrderItem, SalesOrderItem.order_id.in_(so_ids)) if so_ids else []
+    purchase_orders_data = await fetch_all(PurchaseOrder, PurchaseOrder.company_id == cid)
+    po_ids               = [p.id for p in purchase_orders_data]
+    po_items_data        = await fetch_all(PurchaseOrderItem, PurchaseOrderItem.order_id.in_(po_ids)) if po_ids else []
+    credit_notes_data   = await fetch_all(CreditNote, CreditNote.company_id == cid)
+    cn_ids              = [c.id for c in credit_notes_data]
+    cn_items_data       = await fetch_all(CreditNoteItem, CreditNoteItem.credit_note_id.in_(cn_ids)) if cn_ids else []
+    debit_notes_data    = await fetch_all(DebitNote, DebitNote.company_id == cid)
+    dn_ids              = [d.id for d in debit_notes_data]
+    dn_items_data       = await fetch_all(DebitNoteItem, DebitNoteItem.debit_note_id.in_(dn_ids)) if dn_ids else []
+    journal_entries_data = await fetch_all(JournalEntry, JournalEntry.company_id == cid)
+    je_ids               = [j.id for j in journal_entries_data]
+    je_lines_data        = await fetch_all(JournalEntryLine, JournalEntryLine.entry_id.in_(je_ids)) if je_ids else []
+    batches_data         = []
+    stock_entries_data   = []
+    for product in products_data:
+        b = await fetch_all(Batch, Batch.product_id == product.id)
+        batches_data.extend(b)
+        for batch in b:
+            s = await fetch_all(StockEntry, StockEntry.batch_id == batch.id)
+            stock_entries_data.extend(s)
+    audit_logs_data = await fetch_all(AuditLog, AuditLog.company_id == cid)
+
+    backup_payload = {
+        "backup_metadata": {
+            "app": "JK Infotech ERP",
+            "version": "1.0",
+            "exported_at": datetime.utcnow().isoformat() + "Z",
+            "company_id": str(cid),
+            "company_name": company.name,
+        },
+        "company": serialize(company),
+        "users": serialize(users_data),
+        "customers": serialize(customers_data),
+        "suppliers": serialize(suppliers_data),
+        "product_categories": serialize(categories_data),
+        "products": serialize(products_data),
+        "batches": serialize(batches_data),
+        "stock_entries": serialize(stock_entries_data),
+        "tax_rates": serialize(tax_rates_data),
+        "accounts": serialize(accounts_data),
+        "fiscal_years": serialize(fiscal_years_data),
+        "document_sequences": serialize(sequences_data),
+        "invoices": serialize(invoices_data),
+        "invoice_items": serialize(invoice_items_data),
+        "purchase_bills": serialize(purchase_bills_data),
+        "purchase_bill_items": serialize(purchase_bill_items_data),
+        "payments": serialize(payments_data),
+        "sales_orders": serialize(sales_orders_data),
+        "sales_order_items": serialize(so_items_data),
+        "purchase_orders": serialize(purchase_orders_data),
+        "purchase_order_items": serialize(po_items_data),
+        "credit_notes": serialize(credit_notes_data),
+        "credit_note_items": serialize(cn_items_data),
+        "debit_notes": serialize(debit_notes_data),
+        "debit_note_items": serialize(dn_items_data),
+        "journal_entries": serialize(journal_entries_data),
+        "journal_entry_lines": serialize(je_lines_data),
+        "audit_logs": serialize(audit_logs_data),
+    }
+
+    json_bytes = json.dumps(backup_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in company.name)[:40]
+    filename = f"JK_ERP_Backup_{safe_name}_{timestamp}.json"
+
+    return Response(
+        content=json_bytes,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# =============================================================
+# DELETE /api/companies/{id}/purge  — permanent hard-delete
+# =============================================================
+@router.delete("/{id}/purge", status_code=status.HTTP_204_NO_CONTENT)
+async def purge_company(
+    id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    PERMANENTLY deletes a company and ALL its data from the database.
+    This action is IRREVERSIBLE. Always export a backup first.
+    Only the company admin or superadmin can perform this action.
+    """
+    import uuid as _uuid
+    from sqlalchemy import delete as sql_delete
+    from app.models import (
+        Customer, Supplier, Product, ProductCategory,
+        Invoice, InvoiceItem, PurchaseBill, PurchaseBillItem,
+        Payment, Account, JournalEntry, JournalEntryLine,
+        FiscalYear, DocumentSequence, SalesOrder, SalesOrderItem,
+        PurchaseOrder, PurchaseOrderItem, CreditNote, CreditNoteItem,
+        DebitNote, DebitNoteItem, TaxRate, Batch, StockEntry, AuditLog,
+        Role, UserRole, RolePermission,
+    )
+
+    try:
+        company_uuid = _uuid.UUID(id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid company ID format")
+
+    # Authorization check
+    admin_check = await db.execute(
+        select(User).where(
+            (User.email == current_user.email) | (User.phone == current_user.phone),
+            User.company_id == company_uuid
+        )
+    )
+    if not current_user.is_superadmin and not admin_check.scalars().first():
+        raise HTTPException(status_code=403, detail="You must be an authorized admin of this company to permanently delete it.")
+
+    co_res = await db.execute(select(Company).where(Company.id == company_uuid))
+    company = co_res.scalars().first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # ── Delete in dependency order (children first) ──────────────
+
+    # Journal entry lines → Journal entries
+    je_res = await db.execute(select(JournalEntry.id).where(JournalEntry.company_id == company_uuid))
+    je_ids = [r[0] for r in je_res.fetchall()]
+    if je_ids:
+        await db.execute(sql_delete(JournalEntryLine).where(JournalEntryLine.entry_id.in_(je_ids)))
+    await db.execute(sql_delete(JournalEntry).where(JournalEntry.company_id == company_uuid))
+
+    # Invoice items → Invoices
+    inv_res = await db.execute(select(Invoice.id).where(Invoice.company_id == company_uuid))
+    inv_ids = [r[0] for r in inv_res.fetchall()]
+    if inv_ids:
+        await db.execute(sql_delete(InvoiceItem).where(InvoiceItem.invoice_id.in_(inv_ids)))
+    await db.execute(sql_delete(Invoice).where(Invoice.company_id == company_uuid))
+
+    # Purchase bill items → Bills
+    pb_res = await db.execute(select(PurchaseBill.id).where(PurchaseBill.company_id == company_uuid))
+    pb_ids = [r[0] for r in pb_res.fetchall()]
+    if pb_ids:
+        await db.execute(sql_delete(PurchaseBillItem).where(PurchaseBillItem.bill_id.in_(pb_ids)))
+    await db.execute(sql_delete(PurchaseBill).where(PurchaseBill.company_id == company_uuid))
+
+    # Credit note items → Credit notes
+    cn_res = await db.execute(select(CreditNote.id).where(CreditNote.company_id == company_uuid))
+    cn_ids = [r[0] for r in cn_res.fetchall()]
+    if cn_ids:
+        await db.execute(sql_delete(CreditNoteItem).where(CreditNoteItem.credit_note_id.in_(cn_ids)))
+    await db.execute(sql_delete(CreditNote).where(CreditNote.company_id == company_uuid))
+
+    # Debit note items → Debit notes
+    dn_res = await db.execute(select(DebitNote.id).where(DebitNote.company_id == company_uuid))
+    dn_ids = [r[0] for r in dn_res.fetchall()]
+    if dn_ids:
+        await db.execute(sql_delete(DebitNoteItem).where(DebitNoteItem.debit_note_id.in_(dn_ids)))
+    await db.execute(sql_delete(DebitNote).where(DebitNote.company_id == company_uuid))
+
+    # Payments
+    await db.execute(sql_delete(Payment).where(Payment.company_id == company_uuid))
+
+    # Sales order items → Sales orders
+    so_res = await db.execute(select(SalesOrder.id).where(SalesOrder.company_id == company_uuid))
+    so_ids = [r[0] for r in so_res.fetchall()]
+    if so_ids:
+        await db.execute(sql_delete(SalesOrderItem).where(SalesOrderItem.order_id.in_(so_ids)))
+    await db.execute(sql_delete(SalesOrder).where(SalesOrder.company_id == company_uuid))
+
+    # Purchase order items → Purchase orders
+    po_res = await db.execute(select(PurchaseOrder.id).where(PurchaseOrder.company_id == company_uuid))
+    po_ids = [r[0] for r in po_res.fetchall()]
+    if po_ids:
+        await db.execute(sql_delete(PurchaseOrderItem).where(PurchaseOrderItem.order_id.in_(po_ids)))
+    await db.execute(sql_delete(PurchaseOrder).where(PurchaseOrder.company_id == company_uuid))
+
+    # Accounts
+    await db.execute(sql_delete(Account).where(Account.company_id == company_uuid))
+
+    # Stock entries → Batches → Products → Categories
+    prod_res = await db.execute(select(Product.id).where(Product.company_id == company_uuid))
+    prod_ids = [r[0] for r in prod_res.fetchall()]
+    if prod_ids:
+        batch_res = await db.execute(select(Batch.id).where(Batch.product_id.in_(prod_ids)))
+        batch_ids = [r[0] for r in batch_res.fetchall()]
+        if batch_ids:
+            await db.execute(sql_delete(StockEntry).where(StockEntry.batch_id.in_(batch_ids)))
+        await db.execute(sql_delete(Batch).where(Batch.product_id.in_(prod_ids)))
+    await db.execute(sql_delete(Product).where(Product.company_id == company_uuid))
+    await db.execute(sql_delete(ProductCategory).where(ProductCategory.company_id == company_uuid))
+
+    # Customers, Suppliers, TaxRates
+    await db.execute(sql_delete(Customer).where(Customer.company_id == company_uuid))
+    await db.execute(sql_delete(Supplier).where(Supplier.company_id == company_uuid))
+    await db.execute(sql_delete(TaxRate).where(TaxRate.company_id == company_uuid))
+
+    # Audit logs
+    await db.execute(sql_delete(AuditLog).where(AuditLog.company_id == company_uuid))
+
+    # Document sequences (cascade handled by relationship)
+    await db.execute(sql_delete(DocumentSequence).where(DocumentSequence.company_id == company_uuid))
+
+    # Fiscal years — unset company.current_fy_id first to avoid FK conflict
+    company.current_fy_id = None
+    await db.flush()
+    await db.execute(sql_delete(FiscalYear).where(FiscalYear.company_id == company_uuid))
+
+    # Support tickets & callback requests
+    from app.models import SupportTicket, CallbackRequest, UserSession
+    await db.execute(sql_delete(SupportTicket).where(SupportTicket.company_id == company_uuid))
+    await db.execute(sql_delete(CallbackRequest).where(CallbackRequest.company_id == company_uuid))
+
+    # User roles & User sessions → Users
+    user_res = await db.execute(select(User.id).where(User.company_id == company_uuid))
+    user_ids = [r[0] for r in user_res.fetchall()]
+    if user_ids:
+        await db.execute(sql_delete(UserSession).where(UserSession.user_id.in_(user_ids)))
+        await db.execute(sql_delete(UserRole).where(UserRole.user_id.in_(user_ids)))
+
+    # Roles → Role Permissions
+    role_res = await db.execute(select(Role.id).where(Role.company_id == company_uuid))
+    role_ids = [r[0] for r in role_res.fetchall()]
+    if role_ids:
+        await db.execute(sql_delete(RolePermission).where(RolePermission.role_id.in_(role_ids)))
+    await db.execute(sql_delete(Role).where(Role.company_id == company_uuid))
+
+    # Users
+    await db.execute(sql_delete(User).where(User.company_id == company_uuid))
+
+    # Finally: delete the company record itself
+    await db.delete(company)
+    await db.commit()
+
+    # Clear all caches
+    from app.core.redis import cache_manager
+    for prefix in ["analytics", "customers", "suppliers", "invoices", "products", "banking", "company", "purchases"]:
+        await cache_manager.invalidate_prefix(prefix)
+
+    return None
+
+
+# =============================================================
+# DELETE /api/companies/{id}  — soft deactivate (legacy)
 # =============================================================
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_company(
@@ -171,10 +507,10 @@ async def deactivate_company(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deactivates a company (soft delete)."""
-    import uuid
+    """Deactivates a company (soft delete — marks is_active=False)."""
+    import uuid as _uuid
     try:
-        company_uuid = uuid.UUID(id)
+        company_uuid = _uuid.UUID(id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid company ID format")
 
@@ -194,8 +530,34 @@ async def deactivate_company(
         raise HTTPException(status_code=404, detail="Company not found")
 
     company.is_active = False
+
+    # If current user was attached to this deactivated company, update user pointer to an active company
+    fallback_stmt = (
+        select(Company)
+        .where(
+            Company.id != company_uuid,
+            Company.is_active == True
+        )
+        .order_by(Company.created_at.desc())
+    )
+    active_co_res = await db.execute(fallback_stmt)
+    active_co = active_co_res.scalars().first()
+    if active_co:
+        current_user.company_id = active_co.id
+
     await db.commit()
+    from app.core.redis import cache_manager
+    await cache_manager.invalidate_prefix("analytics")
+    await cache_manager.invalidate_prefix("customers")
+    await cache_manager.invalidate_prefix("suppliers")
+    await cache_manager.invalidate_prefix("invoices")
+    await cache_manager.invalidate_prefix("products")
+    await cache_manager.invalidate_prefix("banking")
+    await cache_manager.invalidate_prefix("company")
     return None
+
+
+
 
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
@@ -274,7 +636,37 @@ async def create_fiscal_year(
     company: Company = Depends(get_current_company),
     db: AsyncSession = Depends(get_db),
 ):
-    """Creates a new fiscal year for the company."""
+    """Creates a new fiscal year for the company after verifying active FY lifecycle rules."""
+    # 1. Check if there is an active running (unclosed) FY
+    active_fy_res = await db.execute(
+        select(FiscalYear).where(
+            FiscalYear.company_id == company.id,
+            FiscalYear.closed_at.is_(None)
+        )
+    )
+    active_fy = active_fy_res.scalars().first()
+    if active_fy:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Financial Year '{active_fy.label}' ({active_fy.start_date.strftime('%d/%m/%Y')} to {active_fy.end_date.strftime('%d/%m/%Y')}) is currently active. You can only create a new Financial Year after the current active year ends and is closed."
+        )
+
+    # 2. Verify start date strictly follows previous closed FY end date
+    last_closed_res = await db.execute(
+        select(FiscalYear).where(
+            FiscalYear.company_id == company.id,
+            FiscalYear.closed_at.isnot(None)
+        ).order_by(FiscalYear.end_date.desc())
+    )
+    last_closed = last_closed_res.scalars().first()
+    if last_closed:
+        expected_start = last_closed.end_date + timedelta(days=1)
+        if data.start_date != expected_start:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid Start Date. The next Financial Year must start on {expected_start.strftime('%d/%m/%Y')} (immediately following closed FY '{last_closed.label}')."
+            )
+
     fy = FiscalYear(
         company_id=company.id,
         label=data.label,
@@ -348,6 +740,15 @@ async def close_fiscal_year(
 
     if not fy.is_active:
         raise HTTPException(status_code=400, detail="This fiscal year is already closed")
+
+    # Check if FY end_date has been reached
+    today_date = date.today()
+    if today_date <= fy.end_date:
+        formatted_end = fy.end_date.strftime('%d/%m/%Y')
+        raise HTTPException(
+            status_code=400,
+            detail=f"Financial Year '{fy.label}' (ending on {formatted_end}) cannot be closed prior to period end. Year closing is allowed only after {formatted_end}."
+        )
 
     # 2. Query all Income and Expense accounts and calculate their net balance inside this FY period
     start_dt = datetime.combine(fy.start_date, time.min)

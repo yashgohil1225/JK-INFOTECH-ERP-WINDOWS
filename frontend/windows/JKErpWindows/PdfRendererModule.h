@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pch.h"
+#include <winuser.h>
 #include <NativeModules.h>
 #include <algorithm>
 #include <string>
@@ -679,6 +680,26 @@ private:
     } catch (...) {
       promise.Reject("Failed to save file from picker");
     }
+  }
+
+  REACT_METHOD(PlaySystemSound)
+  void PlaySystemSound(std::string type) noexcept {
+    try {
+      winrt::Windows::UI::Xaml::ElementSoundPlayer::State(
+          winrt::Windows::UI::Xaml::ElementSoundPlayerState::On);
+      std::string t = type;
+      std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+      if (t.find("error") != std::string::npos || t.find("fail") != std::string::npos || t.find("stop") != std::string::npos || t.find("critical") != std::string::npos) {
+        winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
+            winrt::Windows::UI::Xaml::ElementSoundKind::Show);
+      } else if (t.find("warn") != std::string::npos || t.find("alert") != std::string::npos || t.find("exclamation") != std::string::npos) {
+        winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
+            winrt::Windows::UI::Xaml::ElementSoundKind::Show);
+      } else {
+        winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
+            winrt::Windows::UI::Xaml::ElementSoundKind::Invoke);
+      }
+    } catch (...) {}
   }
 };
 } // namespace JKErpWindows

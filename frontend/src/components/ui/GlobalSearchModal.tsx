@@ -44,6 +44,10 @@ interface GlobalSearchModalProps {
   onClose: () => void;
 }
 
+import { DeviceEventEmitter } from "react-native";
+
+const searchCache = new Map<string, SearchResultItem[]>();
+
 export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
   const { isDarkMode, setActiveScreen } = useUIStore();
   const [query, setQuery] = useState("");
@@ -83,32 +87,52 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
       setSelectedIndex(0);
       const timer = setTimeout(() => {
         inputRef.current?.focus();
-      }, 50);
+      }, 30);
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (!query.trim()) {
+    const qTrim = query.trim().toLowerCase();
+    if (!qTrim) {
       setResults(STATIC_QUICK_ACTIONS);
       setLoading(false);
       setSelectedIndex(0);
       return;
     }
 
+    // Instant local static action filter
+    const filteredStatic = STATIC_QUICK_ACTIONS.filter(
+      (item) =>
+        item.title.toLowerCase().includes(qTrim) ||
+        item.subtitle.toLowerCase().includes(qTrim)
+    );
+
+    // Instant cache lookup for sub-millisecond response
+    if (searchCache.has(qTrim)) {
+      const cachedServerResults = searchCache.get(qTrim) || [];
+      setResults([...filteredStatic, ...cachedServerResults]);
+      setLoading(false);
+      setSelectedIndex(0);
+      return;
+    }
+
+    // Fast 15ms network debounce
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const response = await apiClient.get("/api/v1/search/global", {
-          params: { q: query.trim() },
+          params: { q: qTrim },
         });
-        const serverResults = response.data?.results || [];
-        // Filter static actions by query too
-        const filteredStatic = STATIC_QUICK_ACTIONS.filter(
-          (item) =>
-            item.title.toLowerCase().includes(query.toLowerCase()) ||
-            item.subtitle.toLowerCase().includes(query.toLowerCase())
-        );
+        const serverResults: SearchResultItem[] = response.data?.results || [];
+        searchCache.set(qTrim, serverResults);
+        
+        // Keep cache light (max 100 entries)
+        if (searchCache.size > 100) {
+          const firstKey = searchCache.keys().next().value;
+          if (firstKey) searchCache.delete(firstKey);
+        }
+
         const combined = [...filteredStatic, ...serverResults];
         setResults(combined);
         setSelectedIndex(0);
@@ -117,7 +141,7 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
       } finally {
         setLoading(false);
       }
-    }, 90);
+    }, 15);
 
     return () => clearTimeout(timer);
   }, [query]);
@@ -149,6 +173,17 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
     if (item.targetScreen) {
       const target = SCREEN_MAP[item.targetScreen] || item.targetScreen.toUpperCase();
       setActiveScreen(target as any);
+      
+      // Notify active target screen to immediately highlight/open the selected item
+      setTimeout(() => {
+        DeviceEventEmitter.emit("openSearchResult", {
+          targetScreen: target,
+          targetId: item.targetId || item.id,
+          type: item.type,
+          title: item.title,
+          item
+        });
+      }, 60);
     }
   };
 

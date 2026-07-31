@@ -15,8 +15,10 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../api/client";
+import { invalidateAllQueries } from "../utils/queryHelpers";
 import { DataTable, ColumnDefinition } from "../components/ui/DataTable";
 import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { sequencesApi } from "../api/sequences";
@@ -133,6 +135,7 @@ function blankLine(): SalesOrderItem {
 
 export default function SalesOrdersScreen() {
   const { isDarkMode } = useUIStore();
+  const { company } = useAuthStore();
   const queryClient = useQueryClient();
 
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
@@ -220,7 +223,7 @@ export default function SalesOrdersScreen() {
 
   // ── Query: Fetch orders ──
   const { data: orders = [], isLoading } = useQuery<SalesOrder[]>({
-    queryKey: ["sales_orders"],
+    queryKey: ["sales_orders", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/sales/orders");
       return res.data;
@@ -229,7 +232,7 @@ export default function SalesOrdersScreen() {
 
   // ── Query: Fetch customers ──
   const { data: customers = [] } = useQuery<Customer[]>({
-    queryKey: ["customers"],
+    queryKey: ["customers", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/customers");
       return res.data;
@@ -238,7 +241,7 @@ export default function SalesOrdersScreen() {
 
   // ── Query: Fetch products ──
   const { data: products = [] } = useQuery<Product[]>({
-    queryKey: ["products"],
+    queryKey: ["products", company?.id],
     queryFn: async () => {
       const res = await apiClient.get("/api/inventory/products");
       return res.data;
@@ -251,8 +254,12 @@ export default function SalesOrdersScreen() {
       const res = await apiClient.post("/api/sales/orders", payload);
       return res.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales_orders"] });
+    onSuccess: (newOrder: SalesOrder) => {
+      queryClient.setQueryData<SalesOrder[]>(["sales_orders", company?.id], (old = []) => {
+        if (old.some(o => o.id === newOrder.id)) return old;
+        return [newOrder, ...old];
+      });
+      invalidateAllQueries(queryClient);
       setIsCreating(false);
       setSelectedOrder(null);
       setForm(blankForm());
@@ -653,7 +660,7 @@ export default function SalesOrdersScreen() {
                 <View style={{ flex: 2, zIndex: 110 - idx }}>
                   <Text style={[styles.inputLabel, { color: C.textSecondary, marginBottom: 6 }]}>Select Product *</Text>
                   <Dropdown
-                    inputRefProp={el => { productRefs.current[idx] = el; }}
+                    inputRefProp={(el: any) => { productRefs.current[idx] = el; }}
                     options={products.map(p => ({ value: p.id, label: p.name, sublabel: `Price: ₹${p.sale_price} | Tax: ${p.tax_rate}%` }))}
                     value={line.product_id}
                     onChange={(val) => {
@@ -772,6 +779,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     flexDirection: "row",
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 8,
   },
   listPanel: {
     flex: 1,

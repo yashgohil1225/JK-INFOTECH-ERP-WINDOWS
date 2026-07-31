@@ -3,7 +3,9 @@
 # File : app/routers/system_update.py
 # =============================================================
 
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel
 import os
 import sys
@@ -41,6 +43,35 @@ class DownloadRequest(BaseModel):
 class ApplyUpdateRequest(BaseModel):
     version: str
     installer_path: str | None = None
+
+class PlaySoundRequest(BaseModel):
+    sound_type: str = "error"
+
+@router.post("/play-sound")
+@router.get("/play-sound")
+async def play_native_sound_endpoint(data: PlaySoundRequest | None = None, sound_type: str | None = None):
+    """
+    Triggers official Windows OS native dialog box sounds (MessageBeep).
+    Uses official Windows sound theme chimes (Error, Exclamation, Asterisk, OK).
+    No synthetic frequency beeps.
+    """
+    target_type = sound_type or (data.sound_type if data else "error")
+    try:
+        import sys
+        if sys.platform == "win32":
+            import winsound
+            st = target_type.lower()
+            if st in ["error", "critical", "stop"]:
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+            elif st in ["warning", "exclamation"]:
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            elif st in ["info", "asterisk"]:
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            else:
+                winsound.MessageBeep(winsound.MB_OK)
+    except Exception as e:
+        print(f"[Sound] Native sound trigger note: {e}")
+    return {"success": True, "sound_type": target_type}
 
 def _download_task(download_url: str, version: str):
     global DOWNLOAD_STATE
@@ -174,41 +205,12 @@ def _get_current_installed_version() -> str:
         pass
     return "1.2.6"
 
-# Auto Background Update Checker Engine
+# Auto Background Update Checker Engine (Disabled per user request for manual management)
 def _background_auto_update_worker():
-    """Silently checks for cloud updates on startup, downloads release, and stages for silent install on exit."""
-    time.sleep(8)  # Wait 8s after startup to avoid slowing boot
-    try:
-        url = "https://raw.githubusercontent.com/yashgohil1225/JK-INFOTECH-ERP-WINDOWS/main/updates/version.json"
-        req = urllib.request.Request(url, headers={'User-Agent': 'JK_Infotech_ERP_AutoUpdater'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            
-        latest_ver = data.get("version")
-        download_url = data.get("downloadUrl")
-        
-        current_ver = _get_current_installed_version()
-        if latest_ver and download_url and _is_newer_ver(current_ver, latest_ver):
-            print(f"[AutoUpdater] New version v{latest_ver} detected (current: v{current_ver}). Silently downloading & updating in background...")
-            _download_task(download_url, latest_ver)
-    except Exception as e:
-        print(f"[AutoUpdater] Background check silent skip: {e}")
+    """Disabled: Auto updates are disabled."""
+    pass
 
-def _is_newer_ver(current: str, latest: str) -> bool:
-    try:
-        c_parts = [int(p) for p in current.split('.')]
-        l_parts = [int(p) for p in latest.split('.')]
-        for i in range(max(len(c_parts), len(l_parts))):
-            c = c_parts[i] if i < len(c_parts) else 0
-            l = l_parts[i] if i < len(l_parts) else 0
-            if l > c: return True
-            if l < c: return False
-    except Exception:
-        pass
-    return False
-
-# Launch background checker thread on router load
-threading.Thread(target=_background_auto_update_worker, daemon=True).start()
+# threading.Thread(target=_background_auto_update_worker, daemon=True).start()
 
 @router.post("/apply-update")
 async def apply_update(data: ApplyUpdateRequest):

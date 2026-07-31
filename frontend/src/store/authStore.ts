@@ -68,6 +68,7 @@ interface AuthState {
   switchActiveCompany: (company_id: string) => Promise<void>;
   loadAvailableCompanies: () => Promise<void>;
   deleteCompany: (company_id: string) => Promise<void>;
+  purgeCompany: (company_id: string) => Promise<void>;
   setCompany: (company: Company) => void;
   setLocked: (locked: boolean) => void;
   setLockMode: (mode: 'pin' | 'otp') => void;
@@ -118,7 +119,7 @@ export const useAuthStore = create<AuthState>()(
             timeout,
           ]);
 
-          await new Promise(resolve => setTimeout(resolve, 800));
+          await new Promise<void>(resolve => setTimeout(() => resolve(), 800));
           
           const login_id = result.response.user.email || result.response.user.phone;
           if (login_id) {
@@ -168,7 +169,21 @@ export const useAuthStore = create<AuthState>()(
             await setTokens(response.tokens.access_token, response.tokens.refresh_token, true);
             apiClient.defaults.headers.common["Authorization"] = `Bearer ${response.tokens.access_token}`;
 
+            // Always fetch active companies list and pick the best one.
+            // Do NOT trust response.company blindly — it may be a deleted/inactive company.
             const cos = await authApi.getMyCompanies().catch(() => [] as Company[]);
+            const activeCompanies = cos.filter((c: any) => c.is_active !== false);
+
+            // Prefer the company from the tokens (user.company_id match), then first active
+            let bestCompany: Company | null =
+              activeCompanies.find((c: any) => c.id === response.user.company_id) ||
+              activeCompanies[0] ||
+              null;
+
+            // Last resort: if the response company is active, use it
+            if (!bestCompany && response.company && response.company.is_active !== false) {
+              bestCompany = response.company;
+            }
 
             const userPinEnabled = !!response.user.pin_login_enabled;
             const sessionVerified = get().sessionVerified;
@@ -176,8 +191,8 @@ export const useAuthStore = create<AuthState>()(
 
             set({
               user: response.user,
-              company: response.company,
-              availableCompanies: cos,
+              company: bestCompany,
+              availableCompanies: activeCompanies,
               dashboardData: null,
               rememberMe: true,
               loginAt: new Date().toISOString(),
@@ -193,7 +208,7 @@ export const useAuthStore = create<AuthState>()(
             lastErr = err;
             console.warn(`[authStore] localAutoLogin attempt ${attempt}/5 failed:`, err);
             if (attempt < 5) {
-              await new Promise(resolve => setTimeout(resolve, 1200));
+              await new Promise<void>(resolve => setTimeout(() => resolve(), 1200));
             }
           }
         }
@@ -222,7 +237,7 @@ export const useAuthStore = create<AuthState>()(
             timeout,
           ]);
 
-          await new Promise(resolve => setTimeout(resolve, 800));
+          await new Promise<void>(resolve => setTimeout(() => resolve(), 800));
           const autoCompany = result.cos.length > 0 ? result.cos[0] : null;
 
           set({ 
@@ -306,12 +321,22 @@ export const useAuthStore = create<AuthState>()(
             timeout,
           ]);
 
+          const activeCompanies = result.cos.filter((c: any) => c.is_active !== false);
           const currentCo = get().company;
-          const updatedCo = result.cos.find((c: any) => c.id === currentCo?.id);
+          let validCo = activeCompanies.find((c: any) => c.id === currentCo?.id);
+
+          if (!validCo && activeCompanies.length > 0) {
+            validCo = activeCompanies[0];
+          }
+
+          if (!validCo && result.response.company && result.response.company.is_active !== false) {
+            validCo = result.response.company;
+          }
+
           set({
             user:       result.response.user,
-            company:    updatedCo || (result.cos.length > 0 ? result.cos[0] : null),
-            availableCompanies: result.cos,
+            company:    validCo || null,
+            availableCompanies: activeCompanies,
             isLoggedIn: true,
             isLoading:  false,
             isLocked:   result.response.user.pin_login_enabled && !get().sessionVerified
@@ -322,25 +347,10 @@ export const useAuthStore = create<AuthState>()(
             await storage.setItem("jk_user_identity_hint", login_id);
           }
         } catch (err: any) {
-          console.warn("[loadMe] failed:", err);
-          if (get().isLocked) {
-            set({ isLoading: false, isLoggedIn: false });
-            return;
-          }
-
-          await clearTokens();
-          await storage.removeItem("jk-erp-auth");
-          set({
-            user:       null,
-            company:    null,
-            availableCompanies: [],
-            rememberMe: false,
-            isLoggedIn: false,
-            isLoading:  false,
-          });
+          console.warn("[loadMe] failed, falling back to localAutoLogin:", err);
+          await get().localAutoLogin().catch(() => {});
         }
       },
-
       sendOtp: async (login_id: string) => {
         set({ isLoading: true, error: null });
         try {
@@ -398,13 +408,51 @@ export const useAuthStore = create<AuthState>()(
           await authApi.deleteCompany(company_id);
           const cos = await authApi.getMyCompanies().catch(() => []);
           const currentCo = get().company;
-          const nextCo = currentCo?.id === company_id ? (cos.length > 0 ? cos[0] : null) : currentCo;
+          const isCurrentDeleted = currentCo?.id === company_id;
+          const nextCo = isCurrentDeleted ? (cos.length > 0 ? cos[0] : null) : currentCo;
+
           set({
             company: nextCo,
-            availableCompanies: cos
+            availableCompanies: cos,
+            dashboardData: null
           });
+
+          if (isCurrentDeleted) {
+            if (nextCo) {
+              await get().switchActiveCompany(nextCo.id);
+            } else {
+              await get().loadMe();
+            }
+          }
         } catch (error: any) {
           console.error("Failed to delete company", error);
+          throw error;
+        }
+      },
+
+      purgeCompany: async (company_id: string) => {
+        try {
+          await authApi.purgeCompany(company_id);
+          const cos = await authApi.getMyCompanies().catch(() => []);
+          const currentCo = get().company;
+          const isCurrentPurged = currentCo?.id === company_id;
+          const nextCo = isCurrentPurged ? (cos.length > 0 ? cos[0] : null) : currentCo;
+
+          set({
+            company: nextCo,
+            availableCompanies: cos,
+            dashboardData: null
+          });
+
+          if (isCurrentPurged) {
+            if (nextCo) {
+              await get().switchActiveCompany(nextCo.id);
+            } else {
+              await get().loadMe();
+            }
+          }
+        } catch (error: any) {
+          console.error("Failed to purge company", error);
           throw error;
         }
       },
@@ -501,9 +549,12 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "jk-erp-auth",
       storage: createJSONStorage(() => AsyncStorage),
+      // IMPORTANT: Do NOT persist `company` or `availableCompanies`.
+      // These are always re-fetched from the server on startup via loadMe/localAutoLogin.
+      // Persisting company causes deleted/stale company data to appear on app launch
+      // before the server response arrives.
       partialize: (state) => ({
         user:       state.user,
-        company:    state.company,
         rememberMe: state.rememberMe,
         loginAt:    state.loginAt,
         isLoggedIn: state.isLoggedIn,
@@ -511,6 +562,18 @@ export const useAuthStore = create<AuthState>()(
         lockMode:   state.lockMode,
         isOtpSent:  state.isOtpSent
       }),
+      onRehydrateStorage: () => (rehydratedState) => {
+        // Immediately clear any stale company/availableCompanies from the store.
+        // The correct company will be loaded from the server by loadMe/localAutoLogin.
+        if (rehydratedState) {
+          useAuthStore.setState({
+            company: null,
+            availableCompanies: [],
+            dashboardData: null,
+            isHydrated: true,
+          });
+        }
+      },
     }
   )
 );

@@ -28,6 +28,7 @@ from app.schemas.purchase import (
 )
 from app.services.reports import ReportService
 from app.services.sequence_service import get_next_document_number
+from app.core.redis import cache_manager
 # pyrefly: ignore [missing-import]
 from fastapi.responses import Response
 
@@ -217,6 +218,8 @@ async def create_bill(
 
         db.add(new_bill)
         await db.commit()
+        await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+        await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
         await db.refresh(new_bill, ["items"])
         print(f"[CREATE_BILL] Saved bill {new_bill.bill_number} with {len(new_bill.items)} items")
         return new_bill
@@ -421,6 +424,8 @@ async def delete_purchase_bill(
 
     await db.delete(bill)
     await db.commit()
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -25,12 +25,19 @@ from app.schemas.inventory import (
 
 router = APIRouter(prefix="/api/v1/inventory", tags=["Inventory"])
 
+from app.core.redis import cache_manager
+
 # --- Products ---
 @router.get("/products", response_model=List[ProductSchema])
 async def list_products(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
+    cache_key = f"products:{company.id}"
+    cached = await cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
     # HIGH-PERFORMANCE INDUSTRIAL AGGREGATION
     # Avoid selectinload on 1000+ records to prevent session saturation
     # pyrefly: ignore [missing-import]
@@ -64,7 +71,9 @@ async def list_products(
         product._current_stock_override = computed_stock or Decimal("0.0")
         products_with_stock.append(product)
         
-    return products_with_stock
+    out = [ProductSchema.model_validate(p).model_dump() for p in products_with_stock]
+    await cache_manager.set(cache_key, out, ttl_seconds=60)
+    return out
 
 @router.post("/products", response_model=ProductSchema, status_code=status.HTTP_201_CREATED)
 async def create_product(
@@ -126,6 +135,7 @@ async def create_product(
         )
         loaded_product = result.scalar_one()
         loaded_product._current_stock_override = Decimal("0.0")
+        await cache_manager.invalidate_prefix(f"products:{company.id}")
         return loaded_product
     except IntegrityError as e:
         await db.rollback()
@@ -205,6 +215,7 @@ async def update_product_route(
         .where(Product.id == product_id)
     )
     product = result.scalar_one_or_none()
+    await cache_manager.invalidate_prefix(f"products:{company.id}")
     return product
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -24,9 +24,10 @@ import { FullScreenModal } from "../components/ui/FullScreenModal";
 import { Button } from "../components/ui/Button";
 import { sequencesApi, type Sequence } from "../api/sequences";
 import { fiscalYearsApi, type FiscalYear } from "../api/fiscalYears";
+import { backupApi, type BackupSettings } from "../api/backup";
 import { DatePicker } from "../components/ui/DatePicker";
 
-type TabType = "business" | "communication" | "interface" | "advanced" | "sequences" | "fiscal_years" | "diagnostics";
+type TabType = "business" | "communication" | "interface" | "advanced" | "sequences" | "fiscal_years" | "backup" | "diagnostics";
 
 // System Settings Screen for JK Infotech ERP
 import { getCurrentAppVersion } from "../services/CloudUpdateService";
@@ -56,6 +57,7 @@ export default function SettingsScreen() {
       inputBorder: "#334155",
       success: "#4ADE80",
       error: "#F87171",
+      warning: "#FBBF24",
     }
     : {
       background: "#F8FAFC",
@@ -72,6 +74,7 @@ export default function SettingsScreen() {
       inputBorder: "#CBD5E1",
       success: "#16A34A",
       error: "#DC2626",
+      warning: "#D97706",
     };
 
   const [activeTab, setActiveTab] = useState<TabType>("business");
@@ -170,6 +173,227 @@ export default function SettingsScreen() {
   const [closingNotes, setClosingNotes] = useState("");
   const [backupBeforeClose, setBackupBeforeClose] = useState(true);
 
+  // Auto Backup & Cloud Sync States
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+  const [intervalDays, setIntervalDays] = useState("7");
+  const [intervalMinutes, setIntervalMinutes] = useState(10080);
+  const [targetDirectory, setTargetDirectory] = useState("");
+  const [backupFormat, setBackupFormat] = useState<"bak" | "json" | "both">("bak");
+  const [singleFileOverwrite, setSingleFileOverwrite] = useState(true);
+  const [browsingFolder, setBrowsingFolder] = useState(false);
+
+  const [cloudBackupEnabled, setCloudBackupEnabled] = useState(false);
+  const [cloudProvider, setCloudProvider] = useState<"gdrive" | "s3" | "webhook">("gdrive");
+
+  // Google Drive
+  const [gdriveFolderId, setGdriveFolderId] = useState("");
+  const [gdriveAccessToken, setGdriveAccessToken] = useState("");
+
+  // AWS S3 / Cloudflare R2
+  const [s3Bucket, setS3Bucket] = useState("");
+  const [s3EndpointUrl, setS3EndpointUrl] = useState("");
+  const [s3AccessKey, setS3AccessKey] = useState("");
+  const [s3SecretKey, setS3SecretKey] = useState("");
+  const [s3Region, setS3Region] = useState("us-east-1");
+
+  // Custom Webhook
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+
+  const [backupInfo, setBackupInfo] = useState<any>(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupTesting, setBackupTesting] = useState(false);
+  const [testingLocal, setTestingLocal] = useState(false);
+  const [testingCloud, setTestingCloud] = useState(false);
+  const [isCloudLocked, setIsCloudLocked] = useState(true);
+  const [showUnlockWarning, setShowUnlockWarning] = useState(false);
+  const [showHelpGuide, setShowHelpGuide] = useState(false);
+
+  const fetchBackupSettings = async () => {
+    setBackupLoading(true);
+    try {
+      const data = await backupApi.getBackupSettings();
+      setAutoBackupEnabled(data.auto_backup_enabled ?? false);
+      setIntervalDays(String(data.interval_days || 7));
+      setIntervalMinutes(data.interval_minutes || (data.interval_days ? data.interval_days * 1440 : 10080));
+      setTargetDirectory(data.target_directory || "");
+      setBackupFormat(data.backup_format || "bak");
+      setSingleFileOverwrite(data.single_file_overwrite ?? true);
+
+      setCloudBackupEnabled(data.cloud_backup_enabled ?? false);
+      setCloudProvider(data.cloud_provider || "gdrive");
+
+      if (data.gdrive) {
+        setGdriveFolderId(data.gdrive.folder_id || "");
+        setGdriveAccessToken(data.gdrive.access_token || "");
+      }
+      if (data.s3) {
+        setS3Bucket(data.s3.bucket || "");
+        setS3EndpointUrl(data.s3.endpoint_url || "");
+        setS3AccessKey(data.s3.access_key || "");
+        setS3SecretKey(data.s3.secret_key || "");
+        setS3Region(data.s3.region || "us-east-1");
+      }
+      if (data.webhook) {
+        setWebhookUrl(data.webhook.webhook_url || "");
+        setWebhookSecret(data.webhook.secret_header || "");
+      }
+
+      // Only set lock on initial page load if not already set
+      if (backupInfo === null && (data.cloud_last_sync_status === "SUCCESS" || data.gdrive?.access_token)) {
+        setIsCloudLocked(true);
+      }
+
+      setBackupInfo(data);
+    } catch (err) {
+      console.warn("Failed to fetch backup settings:", err);
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const formatBackupTimestamp = (isoString?: string) => {
+    if (!isoString) return "No backup taken yet";
+    try {
+      let clean = isoString.trim();
+      const d = new Date(clean);
+      if (isNaN(d.getTime())) {
+        return clean.replace("T", " ").split(".")[0];
+      }
+
+      // Use explicit local PC clock getters to avoid Hermes engine UTC default drift
+      const year = d.getFullYear();
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const month = months[d.getMonth()];
+      const day = String(d.getDate()).padStart(2, "0");
+
+      let hours = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, "0");
+      const seconds = String(d.getSeconds()).padStart(2, "0");
+      const ampm = hours >= 12 ? "PM" : "AM";
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const strHours = String(hours).padStart(2, "0");
+
+      return `${day}-${month}-${year}, ${strHours}:${minutes}:${seconds} ${ampm}`;
+    } catch {
+      return isoString;
+    }
+  };
+
+  const fetchBackupStatusOnly = async () => {
+    try {
+      const data = await backupApi.getBackupSettings();
+      setBackupInfo(data);
+    } catch (err) {
+      console.warn("Failed to fetch backup status:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "backup") {
+      fetchBackupSettings();
+      const interval = setInterval(() => {
+        fetchBackupStatusOnly();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
+  const handleBrowseFolder = async () => {
+    setBrowsingFolder(true);
+    try {
+      const res = await backupApi.browseFolder(targetDirectory);
+      if (res && res.success && res.folder_path) {
+        setTargetDirectory(res.folder_path);
+      }
+    } catch (err: any) {
+      console.warn("Folder picker error:", err);
+    } finally {
+      setBrowsingFolder(false);
+    }
+  };
+
+  const handleSaveBackupSettings = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const payload: Partial<BackupSettings> = {
+        auto_backup_enabled: autoBackupEnabled,
+        interval_days: parseFloat(intervalDays) || 7,
+        interval_minutes: intervalMinutes,
+        target_directory: targetDirectory.trim(),
+        backup_format: backupFormat,
+        single_file_overwrite: singleFileOverwrite,
+        cloud_backup_enabled: cloudBackupEnabled,
+        cloud_provider: cloudProvider,
+        gdrive: {
+          folder_id: gdriveFolderId.trim(),
+          access_token: gdriveAccessToken.trim(),
+        },
+        s3: {
+          bucket: s3Bucket.trim(),
+          endpoint_url: s3EndpointUrl.trim(),
+          access_key: s3AccessKey.trim(),
+          secret_key: s3SecretKey.trim(),
+          region: s3Region.trim(),
+        },
+        webhook: {
+          webhook_url: webhookUrl.trim(),
+          secret_header: webhookSecret.trim(),
+        },
+      };
+
+      await backupApi.saveBackupSettings(payload);
+      setMessage({ type: "success", text: "Auto-Backup & Cloud Sync settings saved successfully!" });
+      await fetchBackupSettings();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.response?.data?.detail || "Failed to save backup settings." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestLocalBackup = async () => {
+    setTestingLocal(true);
+    setMessage(null);
+    try {
+      await handleSaveBackupSettings();
+      const res = await backupApi.triggerAutoBackupNow();
+      const details = res.result || {};
+      setMessage({
+        type: "success",
+        text: `⚡ Local Backup Test Successful! Files saved at: ${(details.local_files || []).join(", ")}`
+      });
+      await fetchBackupSettings();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.response?.data?.detail || "Local backup test failed." });
+    } finally {
+      setTestingLocal(false);
+    }
+  };
+
+  const handleTestCloudUpload = async () => {
+    setTestingCloud(true);
+    setMessage(null);
+    try {
+      await handleSaveBackupSettings();
+      const res = await backupApi.testCloudUpload();
+      setIsCloudLocked(true);
+      setMessage({
+        type: "success",
+        text: `🔒 Connection Verified & Locked! ${res.message || ""}`
+      });
+      await fetchBackupSettings();
+    } catch (err: any) {
+      const errMsg = err.response?.data?.detail || err.message || "Cloud upload test failed.";
+      setMessage({ type: "error", text: `❌ ${errMsg}` });
+      await fetchBackupSettings();
+    } finally {
+      setTestingCloud(false);
+    }
+  };
+
   const fetchFiscalYears = async () => {
     setFyLoading(true);
     try {
@@ -236,6 +460,41 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleOpenCreateFyModal = () => {
+    // Check if an active unclosed FY exists
+    const activeUnclosedFy = fiscalYears.find(f => !f.closed_at);
+    if (activeUnclosedFy) {
+      const startParts = activeUnclosedFy.start_date.split("-");
+      const endParts = activeUnclosedFy.end_date.split("-");
+      const fmtStart = startParts.length === 3 ? `${startParts[2]}/${startParts[1]}/${startParts[0]}` : activeUnclosedFy.start_date;
+      const fmtEnd = endParts.length === 3 ? `${endParts[2]}/${endParts[1]}/${endParts[0]}` : activeUnclosedFy.end_date;
+
+      Alert.alert(
+        "Active Financial Year Running",
+        `Financial Year '${activeUnclosedFy.label}' (${fmtStart} to ${fmtEnd}) is currently active.\n\nA new Financial Year can only be created after the current active year ends on ${fmtEnd} and is closed via the Year Closing Wizard.`,
+        [{ text: "Understood", style: "default" }]
+      );
+      return;
+    }
+
+    // Find the latest closed FY to compute next consecutive dates
+    const sortedFys = [...fiscalYears].sort((a, b) => b.end_date.localeCompare(a.end_date));
+    if (sortedFys.length > 0) {
+      const lastFy = sortedFys[0];
+      const lastEndYear = parseInt(lastFy.end_date.split("-")[0], 10);
+      const nextStart = `${lastEndYear}-04-01`;
+      const nextEnd = `${lastEndYear + 1}-03-31`;
+      const nextLabel = `FY ${lastEndYear}-${String(lastEndYear + 1).slice(-2)}`;
+
+      setNewFyStart(nextStart);
+      setNewFyEnd(nextEnd);
+      setNewFyLabel(nextLabel);
+      setNewFyActive(true);
+    }
+
+    setIsNewFyModalOpen(true);
+  };
+
   const handleCreateFiscalYear = async () => {
     if (!newFyLabel.trim()) {
       Alert.alert("Validation", "Label is required (e.g. FY 2026-27).");
@@ -289,7 +548,46 @@ export default function SettingsScreen() {
     }
   };
 
+  const promptNextFyInitialization = (closedFy: FiscalYear) => {
+    const closedYearEnd = closedFy.end_date;
+    const closedEndYear = parseInt(closedYearEnd.split("-")[0], 10);
+    const nextStart = `${closedEndYear}-04-01`;
+    const nextEnd = `${closedEndYear + 1}-03-31`;
+    const nextLabel = `FY ${closedEndYear}-${String(closedEndYear + 1).slice(-2)}`;
+
+    Alert.alert(
+      "Financial Year Closed Successfully! 🎉",
+      `Financial Year '${closedFy.label}' has been locked and retained earnings have been posted.\n\nWould you like to initialize the new Financial Year '${nextLabel}' (${nextStart.split("-").reverse().join("/")} to ${nextEnd.split("-").reverse().join("/")}) now?`,
+      [
+        { text: "Later", style: "cancel" },
+        {
+          text: `Initialize ${nextLabel}`,
+          onPress: () => {
+            setNewFyStart(nextStart);
+            setNewFyEnd(nextEnd);
+            setNewFyLabel(nextLabel);
+            setNewFyActive(true);
+            setIsNewFyModalOpen(true);
+          }
+        }
+      ]
+    );
+  };
+
   const startCloseFyWizard = async (fy: FiscalYear) => {
+    // Check if current system date is before end_date
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (todayStr <= fy.end_date) {
+      const dateParts = fy.end_date.split("-");
+      const formattedEnd = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : fy.end_date;
+      Alert.alert(
+        "Premature Year Closing Restricted",
+        `Financial Year '${fy.label}' ends on ${formattedEnd}.\n\nThe system does not allow closing a Financial Year before its period has ended. Year closing procedures can only be executed after ${formattedEnd}.`,
+        [{ text: "OK", style: "default" }]
+      );
+      return;
+    }
+
     setFyToClose(fy);
     setClosingStep(1);
     setIsCloseFyWizardOpen(true);
@@ -348,7 +646,14 @@ export default function SettingsScreen() {
           const token = getAccessToken() || "";
           const downloadUrl = `${apiClient.defaults.baseURL}/api/v1/backup/create?token=${encodeURIComponent(token)}`;
           const timestamp = new Date().toISOString().split("T")[0];
-          const suggestedName = `jkerp_backup_${fyToClose.label.replace(/[\/\s]/g, "_")}_${timestamp}`;
+          const companyClean = (company?.name || "Company")
+            .replace(/[^a-zA-Z0-9]/g, "_")
+            .replace(/_+/g, "_")
+            .replace(/^_+|_+$/g, "");
+          const fyClean = fyToClose.label
+            .replace(/[^a-zA-Z0-9]/g, "_")
+            .replace(/_+/g, "_");
+          const suggestedName = `${companyClean}_Backup_${fyClean}_${timestamp}`;
 
           await pdfModule.SaveFileWithToken(
             downloadUrl,
@@ -366,7 +671,8 @@ export default function SettingsScreen() {
       setIsCloseFyWizardOpen(false);
       setMessage({ type: "success", text: `Financial Year '${fyToClose.label}' closed successfully!` });
       await loadMe();
-      fetchFiscalYears();
+      await fetchFiscalYears();
+      promptNextFyInitialization(fyToClose);
     } catch (err: any) {
       const errMsg = err.message || "";
       if (errMsg.toLowerCase().includes("cancel") || errMsg.toLowerCase().includes("user cancelled") || errMsg.toLowerCase().includes("cancelled")) {
@@ -385,7 +691,8 @@ export default function SettingsScreen() {
                   setIsCloseFyWizardOpen(false);
                   setMessage({ type: "success", text: `Financial Year '${fyToClose.label}' closed successfully!` });
                   await loadMe();
-                  fetchFiscalYears();
+                  await fetchFiscalYears();
+                  promptNextFyInitialization(fyToClose);
                 } catch (closeErr: any) {
                   Alert.alert("Error", closeErr.response?.data?.detail || closeErr.message || "Failed to close financial year.");
                 } finally {
@@ -731,6 +1038,8 @@ export default function SettingsScreen() {
               onPress={() => {
                 if (activeTab === "communication") {
                   handleSaveCommunicationSettings();
+                } else if (activeTab === "backup") {
+                  handleSaveBackupSettings();
                 } else {
                   handleSaveCompany();
                 }
@@ -753,6 +1062,41 @@ export default function SettingsScreen() {
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Manage application configurations, company details, default tax rates, interface security, and runtime diagnostics.
         </Text>
+
+        {/* ── Brand Official Support Contact Card ──────────────────── */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: colors.cardBg,
+            borderWidth: 1,
+            borderColor: isDarkMode ? "rgba(56, 189, 248, 0.3)" : "rgba(2, 132, 199, 0.25)",
+            borderRadius: 8,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            marginTop: 12,
+            flexWrap: "wrap",
+            gap: 12
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Text style={{ fontSize: 18 }}>🎧</Text>
+            <Text style={{ fontSize: 13.5, fontWeight: "700", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+              JK Infotech ERP Support:
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.accent, fontWeight: "700", fontFamily: "Consolas" }}>
+              ✉️ support@jkinfotech.com
+            </Text>
+            <Text style={{ fontSize: 13, color: colors.textSecondary }}>|</Text>
+            <Text style={{ fontSize: 13, color: colors.textPrimary, fontWeight: "700", fontFamily: "Segoe UI Variable Text" }}>
+              📞 +91 91045 42969 / +91 98765 43210
+            </Text>
+          </View>
+          <View style={{ backgroundColor: "rgba(74, 222, 128, 0.15)", borderWidth: 1, borderColor: colors.success, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+            <Text style={{ fontSize: 11, fontWeight: "700", color: colors.success }}>🟢 Official Brand Desk</Text>
+          </View>
+        </View>
       </View>
 
       {/* Alert Bar */}
@@ -776,7 +1120,7 @@ export default function SettingsScreen() {
       <View style={styles.contentContainer}>
         {/* Left Tab Bar Column */}
         <View style={[styles.tabSelector, { borderColor: colors.cardBorder }]}>
-          {(["business", "communication", "interface", "advanced", "sequences", "fiscal_years", "diagnostics"] as TabType[]).map((tab) => {
+          {(["business", "communication", "interface", "advanced", "sequences", "fiscal_years", "backup", "diagnostics"] as TabType[]).map((tab) => {
             const isActive = activeTab === tab;
             const isHovered = hoveredTab === tab;
             const tabLabels = {
@@ -786,6 +1130,7 @@ export default function SettingsScreen() {
               advanced: "⚙️  Advanced Config",
               sequences: "🔢  Document Numbering",
               fiscal_years: "📅  Financial Years",
+              backup: "💾  Auto-Backup & Cloud",
               diagnostics: "ℹ️  Diagnostics & System",
             };
             return (
@@ -796,6 +1141,15 @@ export default function SettingsScreen() {
                 onHoverOut={() => setHoveredTab(null)}
                 style={[
                   styles.tabBtn,
+                  {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderLeftWidth: 3.5,
+                    borderLeftColor: isActive ? colors.accent : "transparent",
+                    paddingLeft: 12,
+                    paddingVertical: 11
+                  },
                   isActive && { backgroundColor: colors.accentLight },
                   isHovered && !isActive && { backgroundColor: colors.btnBg },
                 ]}
@@ -803,12 +1157,15 @@ export default function SettingsScreen() {
                 <Text
                   style={[
                     styles.tabBtnText,
-                    { color: isActive ? colors.accent : colors.textPrimary },
+                    { color: isActive ? colors.accent : colors.textPrimary, fontSize: 14.5 },
                     isActive && { fontWeight: "700" },
                   ]}
                 >
                   {tabLabels[tab]}
                 </Text>
+                {isActive && (
+                  <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.accent }} />
+                )}
               </Pressable>
             );
           })}
@@ -1602,7 +1959,7 @@ export default function SettingsScreen() {
                 </Text>
               </View>
               <Pressable
-                onPress={() => setIsNewFyModalOpen(true)}
+                onPress={handleOpenCreateFyModal}
                 style={({ hovered }: any) => [
                   styles.btn,
                   { height: 32, paddingHorizontal: 12, marginTop: 0, backgroundColor: colors.accent, borderColor: colors.accent }
@@ -1791,6 +2148,36 @@ export default function SettingsScreen() {
             </View>
           </View>
 
+          {/* Official Brand Technical Support Card */}
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: isDarkMode ? "rgba(56, 189, 248, 0.3)" : "rgba(2, 132, 199, 0.25)", marginTop: 20, gap: 12 }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={{ fontSize: 20 }}>🎧</Text>
+                <Text style={[styles.cardTitle, { color: colors.textPrimary, marginBottom: 0 }]}>JK Infotech Official Brand Support</Text>
+              </View>
+              <View style={{ backgroundColor: "rgba(74, 222, 128, 0.15)", borderWidth: 1, borderColor: colors.success, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.success }}>🟢 Priority Helpdesk Active</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: 13, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", lineHeight: 18 }}>
+              For custom ERP modules, multi-branch server syncing, hardware scanner setup, or priority tech support, reach out to our official desk:
+            </Text>
+            <View style={{ flexDirection: "row", gap: 16, marginTop: 4, flexWrap: "wrap" }}>
+              <View style={{ flex: 1, minWidth: 220, padding: 12, borderRadius: 8, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.cardBorder, gap: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.5 }}>OFFICIAL EMAIL SUPPORT</Text>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.accent, fontFamily: "Consolas" }}>
+                  ✉️ support@jkinfotech.com
+                </Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 220, padding: 12, borderRadius: 8, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.cardBorder, gap: 4 }}>
+                <Text style={{ fontSize: 11, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.5 }}>HELPLINE & MOBILE CONTACT</Text>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
+                  📞 +91 91045 42969 / +91 98765 43210
+                </Text>
+              </View>
+            </View>
+          </View>
+
           {/* Cache Reset section */}
           <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, marginTop: 20 }]}>
             <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Reset Application State & Restart</Text>
@@ -1817,6 +2204,514 @@ export default function SettingsScreen() {
           </View>
         </View>
       )}
+
+      {/* ─── AUTO BACKUP & CLOUD SYNC TAB ─── */}
+      {activeTab === "backup" && (
+        <View style={{ gap: 20 }}>
+          {/* Card 1: Local Backup Configuration */}
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, gap: 20, padding: 20 }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flex: 1, paddingRight: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
+                  <Text style={[styles.cardTitle, { color: colors.textPrimary, fontSize: 17, fontWeight: "700" }]}>1. Automated Local Backup Schedule</Text>
+                  {autoBackupEnabled ? (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(74, 222, 128, 0.15)", borderWidth: 1, borderColor: colors.success }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.success }}>🟢 Active & Working</Text>
+                    </View>
+                  ) : (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(255, 255, 255, 0.06)", borderWidth: 1, borderColor: colors.cardBorder }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textSecondary }}>⚪ Disabled</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.cardSubtitle, { color: colors.textSecondary, fontSize: 13, lineHeight: 18 }]}>
+                  Controls periodic backup creation, format selection, and single-file overwrite rules.
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end", gap: 8 }}>
+                <Toggle
+                  label="ENABLE AUTO-BACKUP"
+                  value={autoBackupEnabled}
+                  onValueChange={setAutoBackupEnabled}
+                />
+                <Button
+                  title={testingLocal ? "Testing..." : "⚡ Test Local Backup"}
+                  variant="secondary"
+                  onPress={handleTestLocalBackup}
+                  disabled={testingLocal}
+                />
+              </View>
+            </View>
+
+            {/* Row 1: Backup Frequency */}
+            <View style={{ gap: 8 }}>
+              <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>BACKUP FREQUENCY</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { label: "⚡ 5 Mins (Testing)", mins: 5, days: "0.0035" },
+                  { label: "Daily (1 Day)", mins: 1440, days: "1" },
+                  { label: "Weekly (7 Days)", mins: 10080, days: "7" },
+                  { label: "Bi-Weekly (15 Days)", mins: 21600, days: "15" },
+                  { label: "Monthly (30 Days)", mins: 43200, days: "30" },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.mins}
+                    onPress={() => {
+                      setIntervalMinutes(opt.mins);
+                      setIntervalDays(opt.days);
+                    }}
+                    style={[
+                      {
+                        flex: 1,
+                        paddingVertical: 12,
+                        paddingHorizontal: 6,
+                        borderWidth: 1,
+                        borderColor: colors.inputBorder,
+                        borderRadius: 6,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minHeight: 46
+                      },
+                      intervalMinutes === opt.mins && { backgroundColor: colors.accentLight, borderColor: colors.accent }
+                    ]}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: intervalMinutes === opt.mins ? colors.accent : colors.textPrimary, textAlign: "center" }}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {/* Row 2: Target Folder Location */}
+            <View style={{ gap: 8 }}>
+              <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>LOCAL TARGET FOLDER LOCATION</Text>
+              <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      flex: 1,
+                      backgroundColor: colors.inputBg,
+                      borderColor: colors.inputBorder,
+                      color: colors.textPrimary,
+                      fontFamily: "Consolas",
+                      fontSize: 14,
+                      fontWeight: "500",
+                      height: 44,
+                      paddingTop: 11,
+                      paddingBottom: 11,
+                      paddingHorizontal: 14,
+                      lineHeight: 20,
+                      textAlignVertical: "center"
+                    }
+                  ]}
+                  value={targetDirectory}
+                  onChangeText={setTargetDirectory}
+                  placeholder="e.g. Y:\backup test or D:\JKERP_Backups"
+                  placeholderTextColor={colors.textSecondary}
+                />
+                <Button
+                  title={browsingFolder ? "Opening..." : "📁 Browse Folder"}
+                  variant="secondary"
+                  onPress={handleBrowseFolder}
+                  disabled={browsingFolder}
+                />
+              </View>
+            </View>
+
+            {/* Last Local Backup Status Info */}
+            {backupInfo?.last_backup_timestamp && (
+              <View style={{ padding: 14, borderRadius: 8, backgroundColor: colors.inputBg, borderWidth: 1, borderColor: colors.cardBorder, gap: 6 }}>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textSecondary, letterSpacing: 0.5 }}>LAST LOCAL BACKUP STATUS</Text>
+                <Text style={{ fontSize: 14, color: colors.textPrimary, lineHeight: 20 }}>
+                  ⏱️ Last Run: <Text style={{ fontWeight: "700", color: colors.accent }}>{formatBackupTimestamp(backupInfo.last_backup_timestamp)}</Text>
+                </Text>
+                {backupInfo.last_backup_path && (
+                  <Text style={{ fontSize: 13, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "600", marginTop: 2 }}>
+                    📁 Saved at: {backupInfo.last_backup_path}
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Card 2: Direct Cloud Upload Setup */}
+          <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, gap: 20, padding: 20 }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View style={{ flex: 1, paddingRight: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <Text style={[styles.cardTitle, { color: colors.textPrimary, fontSize: 17, fontWeight: "700" }]}>
+                    2. Direct Cloud Sync & Storage Setup
+                  </Text>
+                  {!cloudBackupEnabled ? (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(255, 255, 255, 0.06)", borderWidth: 1, borderColor: colors.cardBorder }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textSecondary }}>⚪ Disabled</Text>
+                    </View>
+                  ) : backupInfo?.cloud_last_sync_status === "SUCCESS" ? (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(74, 222, 128, 0.15)", borderWidth: 1, borderColor: colors.success }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.success }}>🟢 Active & Synced</Text>
+                    </View>
+                  ) : backupInfo?.cloud_last_sync_status === "FAILED" ? (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(248, 113, 113, 0.15)", borderWidth: 1, borderColor: colors.error }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.error }}>🔴 Sync Failed</Text>
+                    </View>
+                  ) : (
+                    <View style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: colors.accentLight, borderWidth: 1, borderColor: colors.accent }}>
+                      <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>⚡ Ready to Verify</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.cardSubtitle, { color: colors.textSecondary, fontSize: 13, lineHeight: 18 }]}>
+                  Automatically uploads and syncs single backup files directly to Google Drive, AWS S3, or a Custom Cloud Webhook.
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end", gap: 8 }}>
+                <Toggle
+                  label="ENABLE CLOUD UPLOAD"
+                  value={cloudBackupEnabled}
+                  onValueChange={setCloudBackupEnabled}
+                />
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  <Button
+                    title={showHelpGuide ? "✖ Hide Setup Guide" : "📖 Setup & Help Guide"}
+                    variant="secondary"
+                    onPress={() => setShowHelpGuide(!showHelpGuide)}
+                  />
+                  <Button
+                    title={testingCloud ? "Testing Sync..." : "☁️ Test Cloud Upload & Sync"}
+                    variant="secondary"
+                    onPress={handleTestCloudUpload}
+                    disabled={testingCloud}
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Lock Status & Unlock Warning Banner */}
+            {isCloudLocked ? (
+              showUnlockWarning ? (
+                <View style={{ padding: 16, borderRadius: 8, backgroundColor: "rgba(251, 146, 60, 0.12)", borderWidth: 1, borderColor: colors.warning, gap: 12 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "700", color: colors.warning }}>
+                    ⚠️ Unlock Cloud Storage Credentials?
+                  </Text>
+                  <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                    Modifying your cloud storage credentials will change where your automated ERP backups are stored. Ensure your new Google Drive Access Token has active write permissions.
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+                    <Pressable
+                      onPress={() => {
+                        setIsCloudLocked(false);
+                        setShowUnlockWarning(false);
+                      }}
+                      style={{ paddingVertical: 10, paddingHorizontal: 18, borderRadius: 6, backgroundColor: "#C2410C" }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: "700", color: "#FFFFFF" }}>Unlock & Edit Credentials</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setShowUnlockWarning(false)}
+                      style={{ paddingVertical: 10, paddingHorizontal: 18, borderRadius: 6, backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.cardBorder }}
+                    >
+                      <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textPrimary }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderRadius: 8, backgroundColor: "rgba(74, 222, 128, 0.08)", borderWidth: 1, borderColor: "rgba(74, 222, 128, 0.3)" }}>
+                  <Text style={{ fontSize: 13, fontWeight: "700", color: colors.success }}>
+                    🔒 Credentials Locked for Security (Verified Connection)
+                  </Text>
+                  <Pressable
+                    onPress={() => setShowUnlockWarning(true)}
+                    style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6, backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.accent }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent }}>✏️ Unlock & Edit Credentials</Text>
+                  </Pressable>
+                </View>
+              )
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderRadius: 8, backgroundColor: "rgba(251, 146, 60, 0.1)", borderWidth: 1, borderColor: colors.warning }}>
+                <Text style={{ fontSize: 13, fontWeight: "700", color: colors.warning }}>
+                  🔓 Credentials Unlocked — Click '☁️ Test Cloud Upload & Sync' to verify & re-lock
+                </Text>
+                <Pressable
+                  onPress={() => setIsCloudLocked(true)}
+                  style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6, backgroundColor: colors.cardBg, borderWidth: 1, borderColor: colors.cardBorder }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textSecondary }}>🔒 Re-Lock</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Cloud Provider Selection & Help Guide */}
+            <View style={{ gap: 10 }}>
+              <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>CLOUD STORAGE PROVIDER</Text>
+
+              {/* Collapsible Step-by-Step Setup Guide */}
+              {showHelpGuide && (
+                <View style={{ padding: 16, borderRadius: 8, backgroundColor: "rgba(59, 130, 246, 0.08)", borderWidth: 1, borderColor: colors.accent, gap: 12 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: colors.accent }}>
+                    📖 Step-by-Step Setup Guide ({cloudProvider === "gdrive" ? "Google Drive API" : cloudProvider === "s3" ? "AWS S3 / Cloudflare R2" : "Webhook URL"})
+                  </Text>
+
+                  {cloudProvider === "gdrive" && (
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 1 — Google Drive Folder ID:</Text> Open drive.google.com in browser, create a folder named 'JKERP Backups', open it, and copy the character code from URL bar (e.g. drive.google.com/drive/folders/<Text style={{ fontWeight: "700", color: colors.accent }}>1A2b3C4d5E6f7G8h9I0j</Text>).
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 2 — OAuth Access Token:</Text> Open developers.google.com/oauthplayground, select <Text style={{ fontWeight: "700" }}>Drive API v3</Text> -&gt; check <Text style={{ fontWeight: "700" }}>https://www.googleapis.com/auth/drive.file</Text>, click Authorize APIs, sign in, then click <Text style={{ fontWeight: "700" }}>Exchange code for tokens</Text> and copy the Access Token.
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 3 — Verify & Lock:</Text> Paste both values into the boxes below and click <Text style={{ fontWeight: "700", color: colors.accent }}>☁️ Test Cloud Upload & Sync</Text>. The system will automatically upload a test verification file and lock your credentials for security!
+                      </Text>
+                    </View>
+                  )}
+
+                  {cloudProvider === "s3" && (
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 1 — Bucket Name:</Text> Enter your exact AWS S3 or Cloudflare R2 bucket name (e.g. <Text style={{ fontWeight: "700" }}>my-company-backups</Text>).
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 2 — Endpoint URL (For R2 / MinIO):</Text> If using Cloudflare R2 or custom MinIO, enter your Endpoint URL (e.g. https://&lt;account-id&gt;.r2.cloudflarestorage.com). Leave empty for standard AWS S3.
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 3 — IAM Credentials:</Text> Enter your Access Key ID and Secret Access Key with write permissions to the bucket.
+                      </Text>
+                    </View>
+                  )}
+
+                  {cloudProvider === "webhook" && (
+                    <View style={{ gap: 10 }}>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 1 — Webhook URL:</Text> Enter your HTTP POST endpoint URL (e.g. https://api.mycloud.com/upload-backup).
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.textPrimary, lineHeight: 20 }}>
+                        <Text style={{ fontWeight: "700" }}>Step 2 — Secret Header:</Text> Optional authorization key or Bearer token sent in headers.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                {[
+                  { id: "gdrive", label: "☁️  Google Drive API" },
+                  { id: "s3", label: "🪣  AWS S3 / Cloudflare R2" },
+                  { id: "webhook", label: "🔗  Custom Webhook URL" },
+                ].map((p) => (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => {
+                      if (!isCloudLocked) setCloudProvider(p.id as any);
+                    }}
+                    disabled={isCloudLocked}
+                    style={[
+                      {
+                        flex: 1,
+                        paddingVertical: 12,
+                        paddingHorizontal: 8,
+                        borderWidth: 1,
+                        borderColor: colors.inputBorder,
+                        borderRadius: 6,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minHeight: 46,
+                        opacity: isCloudLocked ? 0.8 : 1
+                      },
+                      cloudProvider === p.id && { backgroundColor: colors.accentLight, borderColor: colors.accent }
+                    ]}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: cloudProvider === p.id ? colors.accent : colors.textPrimary, textAlign: "center" }}>
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {/* Provider-Specific Form Fields */}
+            <View pointerEvents={isCloudLocked ? "none" : "auto"} style={{ opacity: isCloudLocked ? 0.75 : 1 }}>
+              {cloudProvider === "gdrive" && (
+                <View style={{ flexDirection: "row", gap: 16 }}>
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>GOOGLE DRIVE FOLDER ID</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                        isCloudLocked
+                          ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                          : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                      ]}
+                      value={gdriveFolderId}
+                      onChangeText={(val) => { if (!isCloudLocked) setGdriveFolderId(val); }}
+                      editable={!isCloudLocked}
+                      readOnly={isCloudLocked}
+                      selectTextOnFocus={!isCloudLocked}
+                      placeholder="e.g. 1A2b3C4d5E6f7G8h9I0j"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>GOOGLE DRIVE ACCESS TOKEN / OAUTH TOKEN</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                        isCloudLocked
+                          ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                          : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                      ]}
+                      value={gdriveAccessToken}
+                      onChangeText={(val) => { if (!isCloudLocked) setGdriveAccessToken(val); }}
+                      editable={!isCloudLocked}
+                      readOnly={isCloudLocked}
+                      selectTextOnFocus={!isCloudLocked}
+                      secureTextEntry
+                      placeholder="ya29.a0Axoo..."
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                </View>
+              )}
+
+              {cloudProvider === "s3" && (
+                <View style={{ gap: 12 }}>
+                  <View style={{ flexDirection: "row", gap: 16 }}>
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>S3 BUCKET NAME</Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                          isCloudLocked
+                            ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                            : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                        ]}
+                        value={s3Bucket}
+                        onChangeText={(val) => { if (!isCloudLocked) setS3Bucket(val); }}
+                        editable={!isCloudLocked}
+                        readOnly={isCloudLocked}
+                        selectTextOnFocus={!isCloudLocked}
+                        placeholder="my-company-backups"
+                        placeholderTextColor={colors.textSecondary}
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>ENDPOINT URL (FOR R2 / MINIO)</Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                          isCloudLocked
+                            ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                            : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                        ]}
+                        value={s3EndpointUrl}
+                        onChangeText={(val) => { if (!isCloudLocked) setS3EndpointUrl(val); }}
+                        editable={!isCloudLocked}
+                        readOnly={isCloudLocked}
+                        selectTextOnFocus={!isCloudLocked}
+                        placeholder="https://<account-id>.r2.cloudflarestorage.com"
+                        placeholderTextColor={colors.textSecondary}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 16 }}>
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>ACCESS KEY ID</Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                          isCloudLocked
+                            ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                            : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                        ]}
+                        value={s3AccessKey}
+                        onChangeText={(val) => { if (!isCloudLocked) setS3AccessKey(val); }}
+                        editable={!isCloudLocked}
+                        readOnly={isCloudLocked}
+                        selectTextOnFocus={!isCloudLocked}
+                        placeholder="AKIAIOSFODNN7EXAMPLE"
+                        placeholderTextColor={colors.textSecondary}
+                      />
+                    </View>
+                    <View style={{ flex: 1, gap: 8 }}>
+                      <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>SECRET ACCESS KEY</Text>
+                      <TextInput
+                        style={[
+                          styles.input,
+                          { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                          isCloudLocked
+                            ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                            : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                        ]}
+                        value={s3SecretKey}
+                        onChangeText={(val) => { if (!isCloudLocked) setS3SecretKey(val); }}
+                        editable={!isCloudLocked}
+                        readOnly={isCloudLocked}
+                        selectTextOnFocus={!isCloudLocked}
+                        secureTextEntry
+                        placeholder="wJalrXUtnFEMI/K7MDENG..."
+                        placeholderTextColor={colors.textSecondary}
+                      />
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {cloudProvider === "webhook" && (
+                <View style={{ flexDirection: "row", gap: 16 }}>
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>WEBHOOK UPLOAD URL</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                        isCloudLocked
+                          ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                          : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                      ]}
+                      value={webhookUrl}
+                      onChangeText={(val) => { if (!isCloudLocked) setWebhookUrl(val); }}
+                      editable={!isCloudLocked}
+                      readOnly={isCloudLocked}
+                      selectTextOnFocus={!isCloudLocked}
+                      placeholder="https://api.mycloud.com/upload-backup"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={{ flex: 1, gap: 8 }}>
+                    <Text style={[styles.label, { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 }]}>SECRET AUTH HEADER (OPTIONAL)</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        { height: 44, fontSize: 14, color: colors.textPrimary, fontFamily: "Consolas", fontWeight: "500" },
+                        isCloudLocked
+                          ? { backgroundColor: "rgba(255, 255, 255, 0.03)", borderColor: "rgba(255, 255, 255, 0.1)" }
+                          : { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }
+                      ]}
+                      value={webhookSecret}
+                      onChangeText={(val) => { if (!isCloudLocked) setWebhookSecret(val); }}
+                      editable={!isCloudLocked}
+                      readOnly={isCloudLocked}
+                      selectTextOnFocus={!isCloudLocked}
+                      secureTextEntry
+                      placeholder="Secret key or Bearer token"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+
     </ScrollView>
       </View >
 
@@ -2308,8 +3203,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    fontSize: 13.5,
-    fontWeight: "600",
+    fontSize: 14.5,
+    fontWeight: "700",
     fontFamily: "Segoe UI Variable Text",
     marginBottom: 6,
   },
@@ -2321,22 +3216,26 @@ const styles = StyleSheet.create({
   gridRow: {
     flexDirection: "row",
     gap: 16,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   gridCol: {
     flex: 1,
   },
   fieldLabel: {
-    fontSize: 13.5,
-    fontWeight: "600",
+    fontSize: 14.5,
+    fontWeight: "700",
     fontFamily: "Segoe UI Variable Text",
     marginBottom: 6,
   },
   input: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    height: 44,
+    paddingHorizontal: 14,
+    paddingTop: 11,
+    paddingBottom: 11,
+    lineHeight: 20,
+    textAlignVertical: "center",
     fontSize: 15.5,
     fontFamily: "Segoe UI Variable Text",
   },

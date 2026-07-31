@@ -11,9 +11,49 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+def get_system_total_ram_bytes() -> int:
+    """Detects total physical hardware RAM on host machine in bytes."""
+    try:
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            return int(stat.ullTotalPhys)
+    except Exception as e:
+        logger.debug(f"Native RAM detection fallback: {e}")
+    # Default fallback: 8 GB
+    return 8 * 1024 * 1024 * 1024
+
+def get_optimal_redis_maxmemory() -> tuple[str, float]:
+    """Calculates optimal Redis memory allocation based on host PC's RAM capacity."""
+    total_bytes = get_system_total_ram_bytes()
+    total_gb = total_bytes / (1024 * 1024 * 1024)
+
+    if total_gb >= 32:
+        return "4gb", total_gb
+    elif total_gb >= 16:
+        return "2gb", total_gb
+    elif total_gb >= 8:
+        return "1gb", total_gb
+    else:
+        return "512mb", total_gb
+
 class RedisCacheManager:
     def __init__(self):
         self._redis_client: Optional[aioredis.Redis] = None
+        self._configured_memory: bool = False
 
     async def get_client(self) -> Optional[aioredis.Redis]:
         if self._redis_client is None:
@@ -26,6 +66,16 @@ class RedisCacheManager:
                     socket_timeout=2
                 )
                 await self._redis_client.ping()
+
+                if not self._configured_memory:
+                    maxmem, total_gb = get_optimal_redis_maxmemory()
+                    try:
+                        await self._redis_client.config_set("maxmemory", maxmem)
+                        await self._redis_client.config_set("maxmemory-policy", "allkeys-lru")
+                        logger.info(f"Redis memory dynamically scaled for client hardware ({total_gb:.1f} GB RAM detected): maxmemory={maxmem}, policy=allkeys-lru")
+                        self._configured_memory = True
+                    except Exception as cfg_err:
+                        logger.debug(f"Redis memory config tune info: {cfg_err}")
             except Exception as e:
                 logger.warning(f"Redis connection unavailable: {e}. Falling back to direct database execution.")
                 self._redis_client = None

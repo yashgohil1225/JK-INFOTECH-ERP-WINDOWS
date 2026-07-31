@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useLicenseStore } from "../store/licenseStore";
 import { useUIStore } from "../store/uiStore";
+import { playSystemSound } from "../utils/sound";
 
 export default function LicenseScreen() {
   const { isDarkMode } = useUIStore();
@@ -35,7 +36,9 @@ export default function LicenseScreen() {
   const [masterDuration, setMasterDuration] = useState("12"); // "1", "3", "6", "12", "lifetime", "5min"
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
-  // License status is already checked by App.tsx — no need to re-check on mount
+  useEffect(() => {
+    playSystemSound("error");
+  }, []);
 
   const handleCopyHwid = () => {
     if (hwid) {
@@ -45,9 +48,11 @@ export default function LicenseScreen() {
     }
   };
 
+  const isMasterKey = masterKeyInput.trim().toUpperCase().startsWith("JKERP-");
+
   const handleActivateMaster = async () => {
     if (!masterKeyInput.trim()) return;
-    await activateLicense(masterKeyInput.trim(), masterDuration);
+    await activateLicense(masterKeyInput.trim(), isMasterKey ? masterDuration : undefined);
   };
 
   const getReasonText = () => {
@@ -176,37 +181,41 @@ export default function LicenseScreen() {
             </Pressable>
           )}
 
-          <Text style={[styles.fieldLabel, { color: colors.textPrimary, marginTop: 8 }]}>Duration</Text>
-          <View style={styles.durationRow}>
-            {[
-              { label: "5 Min", value: "5min" },
-              { label: "1 Mon", value: "1" },
-              { label: "3 Mon", value: "3" },
-              { label: "6 Mon", value: "6" },
-              { label: "12 Mon", value: "12" },
-              { label: "Lifetime", value: "lifetime" },
-            ].map((dur) => {
-              const isSel = masterDuration === dur.value;
-              return (
-                <Pressable
-                  key={dur.value}
-                  onPress={() => setMasterDuration(dur.value)}
-                  style={({ hovered }: any) => [
-                    styles.durBtn,
-                    {
-                      backgroundColor: isSel ? colors.accentLight : colors.inputBg,
-                      borderColor: isSel ? colors.accent : colors.inputBorder
-                    },
-                    hovered && !isSel && { backgroundColor: colors.btnBg }
-                  ]}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: "700", color: isSel ? colors.accent : colors.textSecondary }}>
-                    {dur.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {isMasterKey && (
+            <>
+              <Text style={[styles.fieldLabel, { color: colors.textPrimary, marginTop: 8 }]}>Master Override Duration</Text>
+              <View style={styles.durationRow}>
+                {[
+                  { label: "5 Min", value: "5min" },
+                  { label: "1 Mon", value: "1" },
+                  { label: "3 Mon", value: "3" },
+                  { label: "6 Mon", value: "6" },
+                  { label: "12 Mon", value: "12" },
+                  { label: "Lifetime", value: "lifetime" },
+                ].map((dur) => {
+                  const isSel = masterDuration === dur.value;
+                  return (
+                    <Pressable
+                      key={dur.value}
+                      onPress={() => setMasterDuration(dur.value)}
+                      style={({ hovered }: any) => [
+                        styles.durBtn,
+                        {
+                          backgroundColor: isSel ? colors.accentLight : colors.inputBg,
+                          borderColor: isSel ? colors.accent : colors.inputBorder
+                        },
+                        hovered && !isSel && { backgroundColor: colors.btnBg }
+                      ]}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: isSel ? colors.accent : colors.textSecondary }}>
+                        {dur.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           <Pressable
             disabled={activating || checking}

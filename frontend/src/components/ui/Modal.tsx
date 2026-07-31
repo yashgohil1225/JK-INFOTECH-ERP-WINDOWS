@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Animated, ScrollView, useWindowDimensions } from "react-native";
 import { useUIStore } from "../../store/uiStore";
+import { ModalStackManager } from "../../utils/modalStackManager";
 
 interface ModalProps {
   isOpen: boolean;
@@ -32,11 +33,22 @@ export function Modal({
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const [visible, setVisible] = useState(isOpen);
+  const modalIdRef = useRef(`modal_${Math.random().toString(36).substring(2, 9)}`);
+
+  useEffect(() => {
+    if (isOpen) {
+      ModalStackManager.register(modalIdRef.current, onClose);
+    } else {
+      ModalStackManager.unregister(modalIdRef.current);
+    }
+    return () => {
+      ModalStackManager.unregister(modalIdRef.current);
+    };
+  }, [isOpen, onClose]);
 
   // Animation refs
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.94)).current;
-
   useEffect(() => {
     if (isOpen) {
       setVisible(true);

@@ -269,6 +269,8 @@ async def create_invoice(
     await process_statutory_integrations(company, new_invoice)
     await db.commit()
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
 
     
     result = await db.execute(
@@ -415,6 +417,8 @@ async def update_sales_invoice(
     await process_statutory_integrations(company, invoice)
     await db.commit()
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
 
     
@@ -484,6 +488,8 @@ async def delete_sales_invoice(
     await db.delete(invoice)
     await db.commit()
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
+    await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

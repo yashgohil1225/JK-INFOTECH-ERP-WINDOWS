@@ -67,15 +67,42 @@ async def get_current_company(
     db: AsyncSession = Depends(get_db)
 ) -> Company:
     """
-    Dependency to return the Company associated with the current user.
+    Dependency to return the active Company associated with the current user.
+    Ensures deleted/inactive companies are never returned.
     """
     from sqlalchemy import select
-    result = await db.execute(select(Company).where(Company.id == current_user.company_id))
+    result = await db.execute(
+        select(Company).where(
+            Company.id == current_user.company_id,
+            Company.is_active == True
+        )
+    )
     company = result.scalars().first()
 
     if company is None:
-        raise HTTPException(status_code=404, detail="Company not found")
-        
+        # Fallback: Find another active company linked to this user's email or phone
+        fallback_stmt = select(Company).join(
+            User, Company.id == User.company_id
+        ).where(
+            (User.email == current_user.email) | (User.phone == current_user.phone),
+            User.is_active == True,
+            Company.is_active == True
+        ).order_by(Company.created_at.desc())
+
+        fallback_res = await db.execute(fallback_stmt)
+        active_company = fallback_res.scalars().first()
+
+        if active_company:
+            # Update user's company pointer to active company
+            current_user.company_id = active_company.id
+            await db.commit()
+            return active_company
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active company found for current session."
+        )
+
     return company
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme_optional),

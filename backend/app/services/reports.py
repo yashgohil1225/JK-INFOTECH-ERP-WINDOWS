@@ -203,18 +203,41 @@ def _playwright_worker():
                 except Exception:
                     pass
                 pw_instance = sync_playwright().start()
-                pw_browser = pw_instance.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-gpu",
-                        "--disable-dev-shm-usage",
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                        "--disable-extensions",
-                    ],
-                )
+                try:
+                    pw_browser = pw_instance.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                            "--disable-gpu",
+                            "--disable-dev-shm-usage",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                            "--disable-extensions",
+                        ],
+                    )
+                except Exception as launch_err:
+                    print(f"JK ERP: Chromium launch failed ({launch_err}). Attempting inline installation...")
+                    try:
+                        from playwright.cli.main import main as playwright_main
+                        try:
+                            playwright_main(["install", "chromium"])
+                        except SystemExit:
+                            pass
+                        pw_browser = pw_instance.chromium.launch(
+                            headless=True,
+                            args=[
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-gpu",
+                                "--disable-dev-shm-usage",
+                                "--no-first-run",
+                                "--no-default-browser-check",
+                                "--disable-extensions",
+                            ],
+                        )
+                    except Exception as retry_err:
+                        raise RuntimeError(f"PDF Generator Engine is initializing. Please retry in a few seconds. Details: {retry_err}")
 
             page = pw_browser.new_page()
             try:

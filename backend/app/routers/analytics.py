@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 # pyrefly: ignore [missing-import]
 from sqlalchemy import select
+# pyrefly: ignore [missing-import]
 from sqlalchemy.sql import func
 from app.database import get_db
 from app.models import Product, Invoice, Payment, Account, Company, PurchaseBill, Customer
@@ -45,15 +46,48 @@ async def get_kpis(
         select(func.count(Customer.id)).where(Customer.company_id == company.id).where(Customer.is_active == True)
     ) or 0
     
+    # Calculate month-over-month real sales growth
+    now = datetime.now()
+    curr_month_start = datetime(now.year, now.month, 1)
+    
+    if now.month == 1:
+        prev_month_start = datetime(now.year - 1, 12, 1)
+    else:
+        prev_month_start = datetime(now.year, now.month - 1, 1)
+    prev_month_end = curr_month_start - timedelta(seconds=1)
+
+    curr_sales = await db.scalar(
+        select(func.sum(Invoice.total))
+        .where(Invoice.company_id == company.id)
+        .where(Invoice.invoice_date >= curr_month_start)
+    ) or Decimal("0")
+
+    prev_sales = await db.scalar(
+        select(func.sum(Invoice.total))
+        .where(Invoice.company_id == company.id)
+        .where(Invoice.invoice_date >= prev_month_start)
+        .where(Invoice.invoice_date <= prev_month_end)
+    ) or Decimal("0")
+
+    curr_val = float(curr_sales)
+    prev_val = float(prev_sales)
+
+    if prev_val > 0:
+        monthly_growth = round(((curr_val - prev_val) / prev_val) * 100.0, 1)
+    elif curr_val > 0:
+        monthly_growth = 100.0
+    else:
+        monthly_growth = 0.0
+    
     res = {
         "total_sales": float(total_sales),
         "total_receivable": float(total_receivable),
         "total_payable": float(total_payable),
         "cash_on_hand": 0.0, # Will be handled by liquidity
-        "monthly_growth": 0.0,
+        "monthly_growth": monthly_growth,
         "active_customers": int(active_customers)
     }
-    await cache_manager.set(cache_key, res, ttl_seconds=300)
+    await cache_manager.set(cache_key, res, ttl_seconds=5)
     return res
 
 @router.get("/sales-trend")
@@ -96,7 +130,7 @@ async def get_sales_trend(
             "purchase": float(purchases)
         })
         
-    await cache_manager.set(cache_key, trend, ttl_seconds=300)
+    await cache_manager.set(cache_key, trend, ttl_seconds=5)
     return trend
 
 @router.get("/liquidity")
@@ -164,5 +198,5 @@ async def get_liquidity(
             "type": "bank" if is_bank else "cash"
         })
         
-    await cache_manager.set(cache_key, results, ttl_seconds=300)
+    await cache_manager.set(cache_key, results, ttl_seconds=5)
     return results

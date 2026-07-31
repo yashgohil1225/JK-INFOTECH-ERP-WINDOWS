@@ -16,7 +16,7 @@ interface LicenseState {
   activating: boolean;
   error: string | null;
 
-  checkLicenseStatus: () => Promise<LicenseStatus>;
+  checkLicenseStatus: (retries?: number) => Promise<LicenseStatus | { frozen: true; hwid: string; reason: any; expires_at: null }>;
   activateLicense: (key: string, durationMonths?: string) => Promise<boolean>;
   clearError: () => void;
 }
@@ -62,7 +62,7 @@ export const useLicenseStore = create<LicenseState>((set) => ({
         }
 
         if (i < retries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+          await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
         } else {
           console.warn("Backend not responding after cold boot retries, defaulting to License Screen for activation:", err);
           set({ checking: false, licenseChecked: true, isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED" });
