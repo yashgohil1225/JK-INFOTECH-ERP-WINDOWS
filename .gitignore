@@ -41,6 +41,10 @@ pg_data/
 **/pg_data/
 **/erp.db
 
+# SQLite legacy database runtime data (contains tokens/secrets, never commit)
+sqlite_data/
+**/sqlite_data/
+
 # Frontend Build & Release Artifacts
 frontend/dist/
 frontend/release/
