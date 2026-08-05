@@ -92,6 +92,7 @@ interface Customer {
   phone?: string;
   city?: string;
   state?: string;
+  is_active?: boolean;
 }
 
 interface InvoiceItem {
@@ -146,6 +147,7 @@ interface Product {
   tax_rate: number;
   hsn_code?: string;
   unit: string;
+  is_active?: boolean;
 }
 
 // ─── Status badge color helper ─────────────────────────────────
@@ -1737,7 +1739,7 @@ export default function SalesScreen() {
                     <Text style={[styles.inputLabel, { color: C.textSecondary }]}>ACCOUNT NAME / CUSTOMER ENTITY *</Text>
                     <Dropdown
                       ref={invoiceCustomerRef}
-                      options={customers.map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))}
+                      options={customers.filter(c => c.is_active !== false || c.id === form.customer_id).map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))}
                       value={form.customer_id}
                       onChange={(val) => {
                         setForm(f => ({ ...f, customer_id: val || "" }));
@@ -1849,7 +1851,7 @@ export default function SalesScreen() {
                   <View style={{ flex: 3.5, zIndex: 100, overflow: "visible" }}>
                     <Dropdown
                       ref={(el: DropdownRef | null) => { productRefs.current[idx] = el; }}
-                      options={products.map(p => ({
+                      options={products.filter(p => p.is_active !== false || p.id === line.product_id).map(p => ({
                         value: p.id,
                         label: p.name,
                         sublabel: company?.settings?.enable_barcodes && p.barcode ? `${p.sku || ""} [Barcode: ${p.barcode}]` : p.sku

@@ -82,6 +82,7 @@ interface Supplier {
   city?: string;
   state?: string;
   address_line_1?: string;
+  is_active?: boolean;
 }
 
 interface PurchaseBillItem {
@@ -126,6 +127,7 @@ interface Product {
   purchase_price?: number;
   sale_price: number;
   tax_rate: number;
+  is_active?: boolean;
 }
 
 interface Payment {
@@ -1455,7 +1457,7 @@ export default function PurchasesScreen() {
                     <Text style={[styles.inputLabel, { color: C.textSecondary }]}>SUPPLIER / VENDOR ENTITY *</Text>
                     <Dropdown
                       ref={supplierRef}
-                      options={suppliers.map(s => ({ value: s.id, label: s.name, sublabel: s.gst_number ? `GSTIN: ${s.gst_number}` : (s.phone ? `Phone: ${s.phone}` : undefined) }))}
+                      options={suppliers.filter(s => s.is_active !== false || s.id === form.supplier_id).map(s => ({ value: s.id, label: s.name, sublabel: s.gst_number ? `GSTIN: ${s.gst_number}` : (s.phone ? `Phone: ${s.phone}` : undefined) }))}
                       value={form.supplier_id}
                       onChange={(val) => setForm(f => ({ ...f, supplier_id: val || "" }))}
                       placeholder="Search and select registered vendor..."
@@ -1609,7 +1611,7 @@ export default function PurchasesScreen() {
                   <View style={{ flex: 3, zIndex: 100, overflow: "visible" }}>
                     <Dropdown
                       ref={el => { productRefs.current[idx] = el; }}
-                      options={products.map(p => ({
+                      options={products.filter(p => p.is_active !== false || p.id === line.product_id).map(p => ({
                         value: p.id,
                         label: p.name,
                         sublabel: company?.settings?.enable_barcodes && p.barcode ? `${p.sku || ""} [Barcode: ${p.barcode}]` : p.sku

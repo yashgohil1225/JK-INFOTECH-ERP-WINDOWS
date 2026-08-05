@@ -63,6 +63,7 @@ interface Customer {
   phone?: string;
   mobile_no?: string;
   outstanding_balance?: number;
+  is_active?: boolean;
 }
 
 interface Supplier {
@@ -72,6 +73,7 @@ interface Supplier {
   phone?: string;
   mobile_no?: string;
   outstanding_balance?: number;
+  is_active?: boolean;
 }
 
 interface Product {
@@ -79,6 +81,7 @@ interface Product {
   name: string;
   sale_price: number;
   tax_rate: number;
+  is_active?: boolean;
 }
 
 interface Invoice {
@@ -1027,8 +1030,8 @@ export default function ReturnsScreen() {
                     inputRefProp={partyRef}
                     options={
                       activeTab === "SALES"
-                        ? customers.map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))
-                        : suppliers.map(s => ({ value: s.id, label: s.name, sublabel: s.gst_number || s.phone }))
+                        ? customers.filter(c => c.is_active !== false || c.id === form.party_id).map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))
+                        : suppliers.filter(s => s.is_active !== false || s.id === form.party_id).map(s => ({ value: s.id, label: s.name, sublabel: s.gst_number || s.phone }))
                     }
                     value={form.party_id}
                     onChange={(val) => setForm(f => ({ ...f, party_id: val || "", ref_id: "" }))}
@@ -1209,7 +1212,7 @@ export default function ReturnsScreen() {
                     <View style={{ flex: 3.5, zIndex: 1000 - idx, overflow: "visible" }}>
                       <Dropdown
                         ref={el => { productRefs.current[idx] = el; }}
-                        options={products.map(p => ({
+                        options={products.filter(p => p.is_active !== false || p.id === line.product_id).map(p => ({
                           value: p.id,
                           label: p.name,
                           sublabel: `Price: ₹${p.sale_price} | Tax: ${p.tax_rate}%`

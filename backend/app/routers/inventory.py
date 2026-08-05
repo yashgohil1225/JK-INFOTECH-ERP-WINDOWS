@@ -30,10 +30,11 @@ from app.core.redis import cache_manager
 # --- Products ---
 @router.get("/products", response_model=List[ProductSchema])
 async def list_products(
+    is_active: Optional[bool] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
-    cache_key = f"products:{company.id}"
+    cache_key = f"products:{company.id}:{is_active}"
     cached = await cache_manager.get(cache_key)
     if cached is not None:
         return cached
@@ -53,13 +54,16 @@ async def list_products(
         .subquery()
     )
 
-    result = await db.execute(
+    query = (
         select(Product, stock_sub.c.computed_stock)
         .outerjoin(stock_sub, Product.id == stock_sub.c.product_id)
         .options(selectinload(Product.category))
         .where(Product.company_id == company.id)
-        .order_by(Product.name)
     )
+    if is_active is not None:
+        query = query.where(Product.is_active == is_active)
+
+    result = await db.execute(query.order_by(Product.name))
     
     # Use .unique() to ensure ORM consistency with eager loading
     rows = result.unique().all()

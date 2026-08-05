@@ -24,6 +24,7 @@ import { SearchToolbar } from "../components/ui/SearchToolbar";
 import { FullScreenModal } from "../components/ui/FullScreenModal";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { Toggle } from "../components/ui/Toggle";
 
 // ─── Interfaces ───────────────────────────────────────────────
 interface Party {
@@ -112,24 +113,6 @@ function DetailRow({ label, value, C }: { label: string; value?: string | number
       <Text style={{ fontSize: 11, fontWeight: "700", letterSpacing: 0.8, color: C.textSecondary, fontFamily: "Segoe UI Variable Text", marginBottom: 2 }}>{label}</Text>
       <Text style={{ fontSize: 14.5, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{display}</Text>
     </View>
-  );
-}
-
-function Toggle({ value, onChange, label, C }: { value: boolean; onChange: (v: boolean) => void; label: string; C: any }) {
-  return (
-    <Pressable onPress={() => onChange(!value)} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-      <View style={{
-        width: 44, height: 24, borderRadius: 12, borderWidth: 1,
-        borderColor: value ? "#22C55E" : C.border,
-        backgroundColor: value ? "#22C55E" : (C.isDarkMode ? "#1E293B" : "#E2E8F0"),
-        padding: 2, justifyContent: "center", alignItems: value ? "flex-end" : "flex-start"
-      }}>
-        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: "#FFFFFF" }} />
-      </View>
-      <Text style={{ fontSize: 14, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
-        {label} <Text style={{ color: value ? "#22C55E" : C.textSecondary, fontWeight: "700" }}>{value ? "ON" : "OFF"}</Text>
-      </Text>
-    </Pressable>
   );
 }
 
@@ -466,7 +449,7 @@ export default function PartiesScreen() {
 
       {/* ─── RIGHT: DETAIL PANEL ─── */}
       {selectedParty && (
-        <View style={{ flex: 0.4, backgroundColor: C.card, borderLeftWidth: 1, borderLeftColor: C.border }}>
+        <View style={{ flex: 0.4, backgroundColor: C.surface, borderLeftWidth: 1, borderLeftColor: C.border }}>
           <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={true}>
             
             {/* Header: Title, Active Switch & Close */}
@@ -476,7 +459,7 @@ export default function PartiesScreen() {
                   {selectedParty.name}
                 </Text>
                 
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                   {/* Entity Type Badge */}
                   <View style={{ backgroundColor: isDarkMode ? "rgba(56,189,248,0.15)" : "#E0F2FE", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 }}>
                     <Text style={{ fontSize: 11.5, fontWeight: "800", color: C.accent }}>
@@ -484,45 +467,26 @@ export default function PartiesScreen() {
                     </Text>
                   </View>
 
-                  {/* Active / Inactive Switch Pill */}
-                  <Pressable
-                    onPress={() => {
-                      const newStatus = !selectedParty.is_active;
-                      updateMutation.mutate({
-                        id: selectedParty.id,
-                        data: { ...selectedParty, is_active: newStatus }
-                      });
-                    }}
-                    style={({ hovered }: any) => [
-                      {
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 6,
-                        backgroundColor: selectedParty.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"),
-                        borderColor: selectedParty.is_active ? (isDarkMode ? "#22C55E" : "#86EFAC") : (isDarkMode ? "#EF4444" : "#FCA5A5"),
-                        borderWidth: 1,
-                        borderRadius: 14,
-                        paddingHorizontal: 10,
-                        paddingVertical: 3
-                      },
-                      hovered && { opacity: 0.85 }
-                    ]}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "800", fontFamily: "Segoe UI Variable Text", color: selectedParty.is_active ? (isDarkMode ? "#86EFAC" : "#16A34A") : (isDarkMode ? "#FCA5A5" : "#DC2626") }}>
+                  {/* Status Badge */}
+                  <View style={{ backgroundColor: selectedParty.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 11.5, fontWeight: "800", color: selectedParty.is_active ? C.statusActive : C.statusInactive }}>
                       {selectedParty.is_active ? "ACTIVE" : "INACTIVE"}
                     </Text>
-                    <View style={{
-                      width: 26,
-                      height: 14,
-                      borderRadius: 7,
-                      backgroundColor: selectedParty.is_active ? "#16A34A" : "#94A3B8",
-                      padding: 2,
-                      justifyContent: "center",
-                      alignItems: selectedParty.is_active ? "flex-end" : "flex-start"
-                    }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "#FFFFFF" }} />
-                    </View>
-                  </Pressable>
+                  </View>
+
+                  {/* Shared WinUI 3 Toggle Switch */}
+                  <Toggle
+                    value={selectedParty.is_active}
+                    onChange={(newStatus) => {
+                      setSelectedParty(prev => prev ? { ...prev, is_active: newStatus } : null);
+                      updateMutation.mutate({
+                        id: selectedParty.id,
+                        data: { is_active: newStatus }
+                      });
+                    }}
+                    onLabel=""
+                    offLabel=""
+                  />
                 </View>
               </View>
 
@@ -659,11 +623,21 @@ export default function PartiesScreen() {
           {formTab === 1 && (
             <View style={{ flexDirection: "row", gap: 24 }}>
               <View style={{ flex: 1.4, gap: 14 }}>
-                <View style={{ backgroundColor: isDarkMode ? "#1A2536" : "#EFF6FF", borderWidth: 1, borderColor: isDarkMode ? "#1E3A5F" : "#BFDBFE", borderRadius: 8, padding: 14 }}>
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: C.textSecondary, letterSpacing: 0.8, marginBottom: 4 }}>ENTITY TYPE</Text>
-                  <Text style={{ fontSize: 20, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display" }}>
-                    {isCustomer ? "📦 Customer / Buyer" : "🏭 Vendor / Supplier"}
-                  </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: isDarkMode ? "#1A2536" : "#EFF6FF", borderWidth: 1, borderColor: isDarkMode ? "#1E3A5F" : "#BFDBFE", borderRadius: 8, padding: 14 }}>
+                  <View>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: C.textSecondary, letterSpacing: 0.8, marginBottom: 4 }}>ENTITY TYPE</Text>
+                    <Text style={{ fontSize: 20, fontWeight: "800", color: C.accent, fontFamily: "Segoe UI Variable Display" }}>
+                      {isCustomer ? "📦 Customer / Buyer" : "🏭 Vendor / Supplier"}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end", gap: 4 }}>
+                    <Toggle
+                      value={formData.is_active ?? true}
+                      onChange={v => set("is_active", v)}
+                      label="Account Status"
+                      C={C}
+                    />
+                  </View>
                 </View>
                 <Input label="LEGAL / BUSINESS NAME *" value={formData.name} onChangeText={v => set("name", v)} placeholder="Enter firm name..." />
                 <View style={{ flexDirection: "row", gap: 12 }}>

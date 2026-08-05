@@ -61,6 +61,7 @@ interface Customer {
   phone?: string;
   city?: string;
   state?: string;
+  is_active?: boolean;
 }
 
 interface SalesOrderItem {
@@ -96,6 +97,7 @@ interface Product {
   sale_price: number;
   tax_rate: number;
   hsn_code?: string;
+  is_active?: boolean;
 }
 
 // ─── Status badge color helper ─────────────────────────────────
@@ -608,7 +610,7 @@ export default function SalesOrdersScreen() {
                 <Text style={[styles.inputLabel, { color: C.textSecondary, marginBottom: 6 }]}>CUSTOMER *</Text>
                 <Dropdown
                   inputRefProp={customerRef}
-                  options={customers.map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))}
+                  options={customers.filter(c => c.is_active !== false || c.id === form.customer_id).map(c => ({ value: c.id, label: c.name, sublabel: c.gst_number || c.phone }))}
                   value={form.customer_id}
                   onChange={(val) => setForm(f => ({ ...f, customer_id: val || "" }))}
                   placeholder="Select customer..."
@@ -661,7 +663,7 @@ export default function SalesOrdersScreen() {
                   <Text style={[styles.inputLabel, { color: C.textSecondary, marginBottom: 6 }]}>Select Product *</Text>
                   <Dropdown
                     inputRefProp={(el: any) => { productRefs.current[idx] = el; }}
-                    options={products.map(p => ({ value: p.id, label: p.name, sublabel: `Price: ₹${p.sale_price} | Tax: ${p.tax_rate}%` }))}
+                    options={products.filter(p => p.is_active !== false || p.id === line.product_id).map(p => ({ value: p.id, label: p.name, sublabel: `Price: ₹${p.sale_price} | Tax: ${p.tax_rate}%` }))}
                     value={line.product_id}
                     onChange={(val) => {
                       const prod = products.find(p => p.id === val);

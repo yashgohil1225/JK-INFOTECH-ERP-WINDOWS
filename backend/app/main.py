@@ -150,6 +150,9 @@ async def startup_event():
             "payments": {
                 "tds_amount": "NUMERIC(15,2) DEFAULT 0",
             },
+            "products": {
+                "is_active": "BOOLEAN DEFAULT TRUE",
+            },
         }
 
 

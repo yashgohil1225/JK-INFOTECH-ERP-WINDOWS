@@ -243,6 +243,16 @@ export default function InventoryScreen() {
   // ── Helpers ──
   const set = (key: string, val: any) => setFormData((f: any) => ({ ...f, [key]: val }));
 
+  const handleToggleActive = (newStatus: boolean) => {
+    if (!selectedProduct) return;
+    const updated = { ...selectedProduct, is_active: newStatus };
+    setSelectedProduct(updated);
+    updateMutation.mutate({
+      id: selectedProduct.id,
+      data: { is_active: newStatus }
+    });
+  };
+
   const openAdd = () => {
     setIsEditMode(false); setFormData(blankForm()); setFormTab(1);
     setIsFormOpen(true); setIsFullScreenOpen(true);
@@ -502,11 +512,19 @@ export default function InventoryScreen() {
         <View style={{ flex: 0.4, backgroundColor: C.surface }}>
           <ScrollView contentContainerStyle={{ padding: 22 }} showsVerticalScrollIndicator={true}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={{ fontSize: 22, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }} numberOfLines={2}>{selectedProduct.name}</Text>
                 <Text style={{ fontSize: 14, color: C.textSecondary, marginTop: 2 }}>{selectedProduct.sku || "No SKU"} · {selectedProduct.unit}</Text>
-                <View style={{ marginTop: 6, alignSelf: "flex-start", backgroundColor: selectedProduct.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
-                  <Text style={{ fontSize: 11.5, fontWeight: "800", color: selectedProduct.is_active ? C.statusActive : C.statusInactive }}>{selectedProduct.is_active ? "ACTIVE" : "INACTIVE"}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                  <View style={{ backgroundColor: selectedProduct.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 11.5, fontWeight: "800", color: selectedProduct.is_active ? C.statusActive : C.statusInactive }}>{selectedProduct.is_active ? "ACTIVE" : "INACTIVE"}</Text>
+                  </View>
+                  <Toggle
+                    value={selectedProduct.is_active}
+                    onChange={handleToggleActive}
+                    onLabel=""
+                    offLabel=""
+                  />
                 </View>
               </View>
               <Pressable onPress={() => setSelectedProduct(null)} style={({ hovered }: any) => ({ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: hovered ? "#E81123" : (isDarkMode ? "rgba(239,68,68,0.15)" : "#FEE2E2") })}>
@@ -1135,7 +1153,7 @@ export default function InventoryScreen() {
             <View style={{ gap: 6, zIndex: 100, overflow: "visible" }}>
               <Text style={{ fontSize: 12.5, fontWeight: "700", color: C.textSecondary, fontFamily: "Segoe UI Variable Text" }}>SELECT TARGET PRODUCT *</Text>
               <Dropdown
-                options={products.map((p) => ({
+                options={products.filter((p) => p.is_active !== false || p.id === adjustProduct?.id).map((p) => ({
                   value: p.id,
                   label: p.name,
                   sublabel: `${p.sku || "No SKU"} · Stock: ${p.current_stock || 0} ${p.unit}`
