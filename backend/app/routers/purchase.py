@@ -534,19 +534,20 @@ async def create_debit_note(
         subtotal += line_val
         tax_amount += line_tax
 
-        # INVENTORY SYNC: Remove returned goods from stock
-        stock_entry = StockEntry(
-            company_id=company.id,
-            product_id=item_in.product_id,
-            batch_id=item_in.batch_id,
-            quantity=-item_in.quantity, # Negative for return
-            entry_type="PURCHASE_RETURN",
-            reference_type="debit_note",
-            reference_id=new_note.id,
-            notes=f"Return to Supplier (Note: {note_number})",
-            created_by=current_user.id
-        )
-        db.add(stock_entry)
+        # INVENTORY SYNC: Remove returned goods from stock (Skip if purely financial/payment settlement)
+        if getattr(note_in, "return_mode", "GOODS_RETURN") != "FINANCIAL_ADJUSTMENT":
+            stock_entry = StockEntry(
+                company_id=company.id,
+                product_id=item_in.product_id,
+                batch_id=item_in.batch_id,
+                quantity=-item_in.quantity, # Negative for return
+                entry_type="PURCHASE_RETURN",
+                reference_type="debit_note",
+                reference_id=new_note.id,
+                notes=f"Return to Supplier (Note: {note_number})",
+                created_by=current_user.id
+            )
+            db.add(stock_entry)
 
 
     new_note.subtotal = subtotal
@@ -612,4 +613,27 @@ async def delete_debit_note(
     # Delete the debit note (cascade deletes DebitNoteItem)
     await db.delete(note)
     await db.commit()
+
+@router.get("/debit-notes/{note_id}/pdf")
+@router.get("/purchase/debit-notes/{note_id}/pdf")
+async def get_debit_note_pdf_route(
+    note_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    company: Company = Depends(get_current_company)
+):
+    try:
+        service = ReportService(db, company.id)
+        pdf_bytes, note_number = await service.generate_debit_note_pdf(note_id, company.id)
+        safe_filename = note_number.replace('/', '_').replace(' ', '_')
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=Debit_Note_{safe_filename}.pdf"
+            }
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Debit note PDF generation failed: {str(e)}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

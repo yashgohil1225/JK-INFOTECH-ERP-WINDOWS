@@ -1,12 +1,12 @@
 #pragma once
 
 #include "pch.h"
-#include <winuser.h>
 #include <NativeModules.h>
 #include <algorithm>
+#include <atomic>
+#include <fstream>
 #include <string>
 #include <vector>
-#include <atomic>
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.Data.Pdf.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -22,8 +22,11 @@
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Printing.h>
 #include <winrt/Windows.UI.Xaml.h>
+#include <winrt/Windows.Web.Http.Filters.h>
 #include <winrt/Windows.Web.Http.Headers.h>
 #include <winrt/Windows.Web.Http.h>
+#include <winuser.h>
+
 
 using namespace winrt::Microsoft::ReactNative;
 using namespace winrt::Windows::Foundation;
@@ -31,6 +34,7 @@ using namespace winrt::Windows::Storage;
 using namespace winrt::Windows::Storage::Streams;
 using namespace winrt::Windows::Data::Pdf;
 using namespace winrt::Windows::Web::Http;
+using namespace winrt::Windows::Web::Http::Filters;
 
 namespace winrt {
 namespace JKErpWindows {
@@ -40,63 +44,8 @@ struct PdfRenderer {
   ReactContext m_reactContext{nullptr};
 
   REACT_INIT(Initialize)
-  void Initialize(ReactContext const& reactContext) noexcept {
+  void Initialize(ReactContext const &reactContext) noexcept {
     m_reactContext = reactContext;
-    try {
-      auto dispatcher =
-          winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()
-              .CoreWindow()
-              .Dispatcher();
-      dispatcher.RunAsync(
-          winrt::Windows::UI::Core::CoreDispatcherPriority::Normal,
-          [this]() {
-            try {
-              auto coreWindow =
-                  winrt::Windows::ApplicationModel::Core::CoreApplication::
-                      MainView()
-                          .CoreWindow();
-              if (coreWindow) {
-                coreWindow.PointerWheelChanged(
-                    [this](auto const&,
-                           winrt::Windows::UI::Core::PointerEventArgs const&
-                               args) {
-                      try {
-                        auto keys = args.KeyModifiers();
-                        bool isCtrl =
-                            (keys &
-                             winrt::Windows::System::VirtualKeyModifiers::
-                                 Control) !=
-                            winrt::Windows::System::VirtualKeyModifiers::None;
-                        bool isShift =
-                            (keys &
-                             winrt::Windows::System::VirtualKeyModifiers::
-                                 Shift) !=
-                            winrt::Windows::System::VirtualKeyModifiers::None;
-                        auto props = args.CurrentPoint().Properties();
-                        bool isHorizontal = props.IsHorizontalMouseWheel();
-                        int delta = props.MouseWheelDelta();
-
-                        if ((isHorizontal || (isShift && !isCtrl)) && m_reactContext) {
-                          m_reactContext.EmitJSEvent(
-                              L"RCTDeviceEventEmitter",
-                              L"emit",
-                              JSValueArray{
-                                  "OnPdfHorizontalScroll",
-                                  JSValueObject{{"delta", delta}}});
-                        } else if (isCtrl && m_reactContext) {
-                          m_reactContext.EmitJSEvent(
-                              L"RCTDeviceEventEmitter",
-                              L"emit",
-                              JSValueArray{
-                                  "OnPdfZoomWheel",
-                                  JSValueObject{{"delta", delta}}});
-                        }
-                      } catch (...) {}
-                    });
-              }
-            } catch (...) {}
-          });
-    } catch (...) {}
   }
 
   REACT_METHOD(RenderPdf)
@@ -145,8 +94,11 @@ private:
         }
       }
 
-      // 2. Download PDF bytes
-      HttpClient client;
+      // 2. Download PDF bytes (with HTTP cache disabled to ensure fresh PDF)
+      HttpBaseProtocolFilter filter;
+      filter.CacheControl().ReadBehavior(HttpCacheReadBehavior::NoCache);
+      filter.CacheControl().WriteBehavior(HttpCacheWriteBehavior::NoCache);
+      HttpClient client{filter};
       if (!authToken.empty()) {
         client.DefaultRequestHeaders().TryAppendWithoutValidation(
             L"Authorization", winrt::to_hstring("Bearer " + authToken));
@@ -183,48 +135,78 @@ private:
         uint64_t fileId = ++s_fileCounter;
         winrt::hstring filename =
             winrt::to_hstring(invoiceId) + L"_" +
-            winrt::to_hstring(std::to_wstring(GetTickCount64()).c_str()) + L"_" +
-            winrt::to_hstring(std::to_wstring(fileId).c_str()) + L"_page_" +
-            winrt::to_hstring(std::to_wstring(i).c_str()) + L".png";
-            
+            winrt::to_hstring(std::to_wstring(GetTickCount64()).c_str()) +
+            L"_" + winrt::to_hstring(std::to_wstring(fileId).c_str()) +
+            L"_page_" + winrt::to_hstring(std::to_wstring(i).c_str()) + L".png";
+
         StorageFile imgFile = nullptr;
         try {
           imgFile = co_await tempFolder.CreateFileAsync(
               filename, CreationCollisionOption::ReplaceExisting);
-        } catch (winrt::hresult_error const& ex) {
-          promise.Reject(("CreateFile Error: " + winrt::to_string(filename) + " - " + winrt::to_string(ex.message())).c_str());
+        } catch (winrt::hresult_error const &ex) {
+          promise.Reject(("CreateFile Error: " + winrt::to_string(filename) +
+                          " - " + winrt::to_string(ex.message()))
+                             .c_str());
           co_return;
         }
 
         IRandomAccessStream imgStream = nullptr;
         try {
           imgStream = co_await imgFile.OpenAsync(FileAccessMode::ReadWrite);
-        } catch (winrt::hresult_error const& ex) {
-          promise.Reject(("OpenStream Error: " + winrt::to_string(filename) + " - " + winrt::to_string(ex.message())).c_str());
+        } catch (winrt::hresult_error const &ex) {
+          promise.Reject(("OpenStream Error: " + winrt::to_string(filename) +
+                          " - " + winrt::to_string(ex.message()))
+                             .c_str());
           co_return;
         }
 
         PdfPageRenderOptions options;
-        options.DestinationWidth(static_cast<uint32_t>(page.Size().Width * 4));
-        
+        float rawW = page.Size().Width;
+        float rawH = page.Size().Height;
+        auto rot = page.Rotation();
+
+        if (rot == winrt::Windows::Data::Pdf::PdfPageRotation::Rotate90 ||
+            rot == winrt::Windows::Data::Pdf::PdfPageRotation::Rotate270) {
+          std::swap(rawW, rawH);
+        }
+
+        std::string urlLower = url;
+        std::transform(urlLower.begin(), urlLower.end(), urlLower.begin(),
+                       ::tolower);
+        bool isLandscapeRequest =
+            (urlLower.find("landscape") != std::string::npos ||
+             invoiceId.find("landscape") != std::string::npos);
+
+        if (isLandscapeRequest && rawW < rawH) {
+          std::swap(rawW, rawH);
+        }
+
+        uint32_t renderW = static_cast<uint32_t>(rawW * 4.0f);
+        uint32_t renderH = static_cast<uint32_t>(rawH * 4.0f);
+        options.DestinationWidth(renderW);
+        options.DestinationHeight(renderH);
+
         try {
           co_await page.RenderToStreamAsync(imgStream, options);
           co_await imgStream.FlushAsync();
-        } catch (winrt::hresult_error const& ex) {
-          promise.Reject(("RenderToStream Error: " + winrt::to_string(filename) + " - " + winrt::to_string(ex.message())).c_str());
+        } catch (winrt::hresult_error const &ex) {
+          promise.Reject(
+              ("RenderToStream Error: " + winrt::to_string(filename) + " - " +
+               winrt::to_string(ex.message()))
+                  .c_str());
           imgStream.Close();
           co_return;
         }
-        
+
         imgStream.Close();
         page.Close();
 
-         // Formulate file URI scheme
+        // Formulate file URI scheme
         std::string pathStr = "file:///" + winrt::to_string(imgFile.Path());
         std::replace(pathStr.begin(), pathStr.end(), '\\', '/');
         pagePaths.push_back(pathStr);
       }
-      
+
       promise.Resolve(pagePaths);
     } catch (winrt::hresult_error const &ex) {
       promise.Reject(
@@ -252,7 +234,8 @@ private:
       for (auto const &file : filesToDelete) {
         try {
           co_await file.DeleteAsync();
-        } catch (...) {}
+        } catch (...) {
+        }
       }
       m_cachedPdfBuffer = nullptr;
       m_cachedPdfUrl = "";
@@ -272,6 +255,12 @@ public:
   void PrintPdfUrlWithToken(std::string url, std::string authToken,
                             ReactPromise<bool> promise) noexcept {
     PrintPdfUrlAsync(std::move(url), std::move(authToken), std::move(promise));
+  }
+
+  REACT_METHOD(DirectPrintPdfWithToken)
+  void DirectPrintPdfWithToken(std::string url, std::string authToken,
+                               ReactPromise<bool> promise) noexcept {
+    PrintPdfDirectAsync(std::move(url), std::move(authToken), std::move(promise));
   }
 
   REACT_METHOD(SavePdfFile)
@@ -338,7 +327,8 @@ private:
   winrt::Windows::UI::Xaml::Printing::PrintDocument m_printDocument{nullptr};
   winrt::event_token m_printTaskRequestedToken;
   std::vector<std::wstring> m_pageFilePaths;
-  std::vector<winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage> m_pageImages;
+  std::vector<winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage>
+      m_pageImages;
   winrt::Windows::Graphics::Printing::IPrintDocumentSource
       m_printDocumentSource{nullptr};
   winrt::Windows::Storage::Streams::IBuffer m_cachedPdfBuffer{nullptr};
@@ -351,7 +341,8 @@ private:
     if (m_printTaskRequestedToken) {
       try {
         printManager.PrintTaskRequested(m_printTaskRequestedToken);
-      } catch (...) {}
+      } catch (...) {
+      }
       m_printTaskRequestedToken = {};
     }
 
@@ -372,17 +363,25 @@ private:
           int32_t pageNumber = args.PageNumber();
           if (pageNumber > 0 &&
               pageNumber <= static_cast<int32_t>(m_pageImages.size())) {
+            auto bmp = m_pageImages[pageNumber - 1];
+            bool isLandscape = (bmp.PixelWidth() > bmp.PixelHeight());
+
+            double w = isLandscape ? 1123.0 : 794.0;
+            double h = isLandscape ? 794.0 : 1123.0;
+
             winrt::Windows::UI::Xaml::Controls::Grid pageGrid;
-            pageGrid.Width(792);
-            pageGrid.Height(1122);
+            pageGrid.Width(w);
+            pageGrid.Height(h);
 
             winrt::Windows::UI::Xaml::Controls::Image image;
-            image.Width(792);
-            image.Height(1122);
-            image.HorizontalAlignment(winrt::Windows::UI::Xaml::HorizontalAlignment::Center);
-            image.VerticalAlignment(winrt::Windows::UI::Xaml::VerticalAlignment::Center);
-            image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
-            image.Source(m_pageImages[pageNumber - 1]);
+            image.Width(w);
+            image.Height(h);
+            image.HorizontalAlignment(
+                winrt::Windows::UI::Xaml::HorizontalAlignment::Stretch);
+            image.VerticalAlignment(
+                winrt::Windows::UI::Xaml::VerticalAlignment::Stretch);
+            image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Fill);
+            image.Source(bmp);
             pageGrid.Children().Append(image);
 
             auto printDoc =
@@ -395,17 +394,25 @@ private:
       auto printDoc =
           sender.as<winrt::Windows::UI::Xaml::Printing::PrintDocument>();
       for (size_t i = 0; i < m_pageImages.size(); ++i) {
+        auto bmp = m_pageImages[i];
+        bool isLandscape = (bmp.PixelWidth() > bmp.PixelHeight());
+
+        double w = isLandscape ? 1123.0 : 794.0;
+        double h = isLandscape ? 794.0 : 1123.0;
+
         winrt::Windows::UI::Xaml::Controls::Grid pageGrid;
-        pageGrid.Width(792);
-        pageGrid.Height(1122);
+        pageGrid.Width(w);
+        pageGrid.Height(h);
 
         winrt::Windows::UI::Xaml::Controls::Image image;
-        image.Width(792);
-        image.Height(1122);
-        image.HorizontalAlignment(winrt::Windows::UI::Xaml::HorizontalAlignment::Center);
-        image.VerticalAlignment(winrt::Windows::UI::Xaml::VerticalAlignment::Center);
-        image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Uniform);
-        image.Source(m_pageImages[i]);
+        image.Width(w);
+        image.Height(h);
+        image.HorizontalAlignment(
+            winrt::Windows::UI::Xaml::HorizontalAlignment::Stretch);
+        image.VerticalAlignment(
+            winrt::Windows::UI::Xaml::VerticalAlignment::Stretch);
+        image.Stretch(winrt::Windows::UI::Xaml::Media::Stretch::Fill);
+        image.Source(bmp);
         pageGrid.Children().Append(image);
 
         printDoc.AddPage(pageGrid);
@@ -415,10 +422,21 @@ private:
 
     m_printTaskRequestedToken =
         printManager.PrintTaskRequested([this](auto const &, auto const &args) {
+          bool isLandscape =
+              !m_pageImages.empty() &&
+              (m_pageImages[0].PixelWidth() > m_pageImages[0].PixelHeight());
           auto printTask = args.Request().CreatePrintTask(
-              L"Invoice Print", [this](auto const &sourceArgs) {
+              L"ERP Document Print", [this](auto const &sourceArgs) {
                 sourceArgs.SetSource(m_printDocumentSource);
               });
+          try {
+            printTask.Options().Orientation(
+                isLandscape ? winrt::Windows::Graphics::Printing::
+                                  PrintOrientation::Landscape
+                            : winrt::Windows::Graphics::Printing::
+                                  PrintOrientation::Portrait);
+          } catch (...) {
+          }
         });
   }
 
@@ -452,8 +470,15 @@ private:
           filename, CreationCollisionOption::ReplaceExisting);
       co_await FileIO::WriteBufferAsync(tempFile, buffer);
 
-      // 3. Open PDF in system viewer (Edge/Acrobat). User prints from there.
-      bool launched = co_await winrt::Windows::System::Launcher::LaunchFileAsync(tempFile);
+      // 3. Open PDF in system viewer on UI thread (Launcher requires UI thread)
+      auto dispatcher =
+          winrt::Windows::ApplicationModel::Core::CoreApplication::MainView()
+              .CoreWindow()
+              .Dispatcher();
+      co_await winrt::resume_foreground(dispatcher);
+
+      bool launched =
+          co_await winrt::Windows::System::Launcher::LaunchFileAsync(tempFile);
       promise.Resolve(launched);
     } catch (winrt::hresult_error const &ex) {
       promise.Reject(
@@ -466,11 +491,13 @@ private:
     co_return;
   }
 
-
   IAsyncAction PrintPdfUrlAsync(std::string url, std::string authToken,
                                 ReactPromise<bool> promise) {
     try {
-      HttpClient client;
+      HttpBaseProtocolFilter filter;
+      filter.CacheControl().ReadBehavior(HttpCacheReadBehavior::NoCache);
+      filter.CacheControl().WriteBehavior(HttpCacheWriteBehavior::NoCache);
+      HttpClient client{filter};
       if (!authToken.empty()) {
         client.DefaultRequestHeaders().TryAppendWithoutValidation(
             L"Authorization", winrt::to_hstring("Bearer " + authToken));
@@ -499,7 +526,29 @@ private:
         PdfPage page = pdfDoc.GetPage(i);
         InMemoryRandomAccessStream imgStream;
         PdfPageRenderOptions options;
-        options.DestinationWidth(static_cast<uint32_t>(page.Size().Width * 3));
+
+        float rawW = page.Size().Width;
+        float rawH = page.Size().Height;
+        auto rot = page.Rotation();
+
+        if (rot == winrt::Windows::Data::Pdf::PdfPageRotation::Rotate90 ||
+            rot == winrt::Windows::Data::Pdf::PdfPageRotation::Rotate270) {
+          std::swap(rawW, rawH);
+        }
+
+        std::string urlLower = url;
+        std::transform(urlLower.begin(), urlLower.end(), urlLower.begin(),
+                       ::tolower);
+        if (urlLower.find("landscape") != std::string::npos && rawW < rawH) {
+          std::swap(rawW, rawH);
+        }
+
+        // Render at 2x scaling for crisp 300 DPI print quality without memory exhaustion
+        uint32_t renderW = static_cast<uint32_t>(rawW * 2.0f);
+        uint32_t renderH = static_cast<uint32_t>(rawH * 2.0f);
+        options.DestinationWidth(renderW);
+        options.DestinationHeight(renderH);
+
         co_await page.RenderToStreamAsync(imgStream, options);
         co_await imgStream.FlushAsync();
         imgStream.Seek(0);
@@ -516,9 +565,10 @@ private:
               .Dispatcher();
       co_await winrt::resume_foreground(dispatcher);
 
-      // Now on UI thread: create and fully load each BitmapImage before printing
+      // Now on UI thread: create and fully load each BitmapImage before
+      // printing
       m_pageImages.clear();
-      for (auto& imgStream : pageStreams) {
+      for (auto &imgStream : pageStreams) {
         imgStream.Seek(0);
         winrt::Windows::UI::Xaml::Media::Imaging::BitmapImage bmp;
         co_await bmp.SetSourceAsync(imgStream);
@@ -528,9 +578,10 @@ private:
       // All images loaded — show the native Windows Print dialog
       try {
         InitializePrintDocument();
-        co_await winrt::Windows::Graphics::Printing::PrintManager::ShowPrintUIAsync();
+        co_await winrt::Windows::Graphics::Printing::PrintManager::
+            ShowPrintUIAsync();
         promise.Resolve(true);
-      } catch (winrt::hresult_error const& ex) {
+      } catch (winrt::hresult_error const &ex) {
         promise.Reject(winrt::to_string(ex.message()).c_str());
       } catch (...) {
         promise.Reject("Failed to show print dialog");
@@ -550,7 +601,10 @@ private:
                                 std::string authToken,
                                 ReactPromise<bool> promise) {
     try {
-      HttpClient client;
+      HttpBaseProtocolFilter filter;
+      filter.CacheControl().ReadBehavior(HttpCacheReadBehavior::NoCache);
+      filter.CacheControl().WriteBehavior(HttpCacheWriteBehavior::NoCache);
+      HttpClient client{filter};
       if (!authToken.empty()) {
         client.DefaultRequestHeaders().TryAppendWithoutValidation(
             L"Authorization", winrt::to_hstring("Bearer " + authToken));
@@ -616,7 +670,10 @@ private:
                              std::string authToken,
                              ReactPromise<bool> promise) {
     try {
-      HttpClient client;
+      HttpBaseProtocolFilter filter;
+      filter.CacheControl().ReadBehavior(HttpCacheReadBehavior::NoCache);
+      filter.CacheControl().WriteBehavior(HttpCacheWriteBehavior::NoCache);
+      HttpClient client{filter};
       if (!authToken.empty()) {
         client.DefaultRequestHeaders().TryAppendWithoutValidation(
             L"Authorization", winrt::to_hstring("Bearer " + authToken));
@@ -689,17 +746,23 @@ private:
           winrt::Windows::UI::Xaml::ElementSoundPlayerState::On);
       std::string t = type;
       std::transform(t.begin(), t.end(), t.begin(), ::tolower);
-      if (t.find("error") != std::string::npos || t.find("fail") != std::string::npos || t.find("stop") != std::string::npos || t.find("critical") != std::string::npos) {
+      if (t.find("error") != std::string::npos ||
+          t.find("fail") != std::string::npos ||
+          t.find("stop") != std::string::npos ||
+          t.find("critical") != std::string::npos) {
         winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
             winrt::Windows::UI::Xaml::ElementSoundKind::Show);
-      } else if (t.find("warn") != std::string::npos || t.find("alert") != std::string::npos || t.find("exclamation") != std::string::npos) {
+      } else if (t.find("warn") != std::string::npos ||
+                 t.find("alert") != std::string::npos ||
+                 t.find("exclamation") != std::string::npos) {
         winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
             winrt::Windows::UI::Xaml::ElementSoundKind::Show);
       } else {
         winrt::Windows::UI::Xaml::ElementSoundPlayer::Play(
             winrt::Windows::UI::Xaml::ElementSoundKind::Invoke);
       }
-    } catch (...) {}
+    } catch (...) {
+    }
   }
 };
 } // namespace JKErpWindows

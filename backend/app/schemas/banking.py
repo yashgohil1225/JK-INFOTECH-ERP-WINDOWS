@@ -2,6 +2,7 @@ from typing import Optional, List
 from decimal import Decimal
 from uuid import UUID
 from datetime import date, datetime
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict
 
 # --- Account ---
@@ -18,7 +19,7 @@ class AccountCreate(AccountBase):
 class Account(AccountBase):
     id: UUID
     company_id: UUID
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,7 +44,7 @@ class PaymentCreate(PaymentBase):
 class Payment(PaymentBase):
     id: UUID
     company_id: UUID
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
 

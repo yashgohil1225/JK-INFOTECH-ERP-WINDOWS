@@ -115,7 +115,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       // F2 -> Sales Invoices (Shift+F2 -> Sales Orders, Ctrl+F2 -> Returns)
       if (key === "F2" || key === "f2") {
         if (e.preventDefault) e.preventDefault();
-        if (shift) setActiveScreen("ORDERS");
+        if (shift) setActiveScreen("SALES_ORDERS");
         else if (ctrl) setActiveScreen("RETURNS");
         else setActiveScreen("SALES");
         return;
@@ -124,7 +124,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       // F3 -> Purchases
       if (key === "F3" || key === "f3") {
         if (e.preventDefault) e.preventDefault();
-        setActiveScreen("PURCHASES");
+        setActiveScreen("PURCHASE");
         return;
       }
 
@@ -145,14 +145,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
       // F8 -> Parties (Customers / Vendors)
       if (key === "F8" || key === "f8") {
         if (e.preventDefault) e.preventDefault();
-        setActiveScreen("PARTIES");
+        setActiveScreen("CUSTOMERS");
         return;
       }
 
       // F9 -> Banking
       if (key === "F9" || key === "f9") {
         if (e.preventDefault) e.preventDefault();
-        setActiveScreen("BANKING");
+        setActiveScreen("BANK_CASH");
         return;
       }
 
@@ -401,7 +401,8 @@ function FirstTimeFyModal() {
       );
       await loadMe();
     } catch (err: any) {
-      Alert.alert("Error", err.response?.data?.detail || "Failed to initialize financial year.");
+      const msg = err.response?.data?.detail || err.response?.data?.message || err.message || "Failed to initialize financial year.";
+      Alert.alert("Error", typeof msg === "string" ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
     }

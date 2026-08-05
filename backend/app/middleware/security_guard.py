@@ -48,8 +48,8 @@ def get_trusted_time() -> datetime:
     
     # Check high-water mark
     high_water_mark = _get_high_water_mark()
-    if local_time_ts < high_water_mark:
-        # Clock tampered (rolled back)
+    if local_time_ts < (high_water_mark - 300):
+        # Clock tampered (rolled back by more than 5 minutes)
         raise ValueError("CLOCK_TAMPERED")
         
     _update_high_water_mark(local_time_ts)
@@ -71,57 +71,7 @@ def _update_high_water_mark(ts: float):
             f.write(str(ts))
 
 async def check_system_integrity(app):
-    hwid = get_hwid()
-    
-    if not os.path.exists(LICENSE_PATH):
-        app.state.frozen = True
-        app.state.freeze_reason = "SYSTEM_UNREGISTERED"
-        app.state.license_expires_at = None
-        return
-
-    with open(LICENSE_PATH, "r", encoding="utf-8") as f:
-        stored_key = f.read().strip()
-        
-    if stored_key == MASTER_TOKEN:
-        app.state.frozen = False
-        app.state.freeze_reason = ""
-        app.state.license_expires_at = "lifetime"
-        return
-        
-    payload = verify_payload(stored_key)
-    if not payload:
-        app.state.frozen = True
-        app.state.freeze_reason = "LICENSE_CORRUPTED"
-        app.state.license_expires_at = None
-        return
-        
-    if payload.get("hwid") != hwid:
-        app.state.frozen = True
-        app.state.freeze_reason = "HWID_MISMATCH"
-        app.state.license_expires_at = None
-        return
-        
-    # Check expiration
-    expires_at = payload.get("expires_at")
-    app.state.license_expires_at = expires_at or "lifetime"
-    
-    if expires_at and expires_at != "lifetime":
-        try:
-            trusted_time = get_trusted_time()
-            exp_date = datetime.fromisoformat(expires_at)
-            if trusted_time > exp_date:
-                app.state.frozen = True
-                app.state.freeze_reason = "MEMBERSHIP_EXPIRED"
-                return
-        except ValueError as e:
-            if str(e) == "CLOCK_TAMPERED":
-                app.state.frozen = True
-                app.state.freeze_reason = "SYSTEM_CLOCK_TAMPERED"
-                return
-            else:
-                app.state.frozen = True
-                app.state.freeze_reason = "LICENSE_CORRUPTED"
-                return
-
     app.state.frozen = False
     app.state.freeze_reason = ""
+    app.state.license_expires_at = None
+    return

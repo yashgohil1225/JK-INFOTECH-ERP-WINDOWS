@@ -2,11 +2,10 @@
 ; JK INFOTECH ERP — Professional Silent Setup Installer Script
 ; File: Y:\JK Infotech ERP\setup.iss
 ; =====================================================================
-
 [Setup]
 AppId={{9428b0f2-9cad-4953-a4b8-da3e6a84d40a}
 AppName=JK INFOTECH ERP
-AppVersion=1.2.8
+AppVersion=1.6.8
 AppPublisher=JK Infotech
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
@@ -16,9 +15,9 @@ DefaultGroupName=JK INFOTECH ERP
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 DirExistsWarning=no
-OutputBaseFilename=JK_Infotech_ERP_Setup_v1.2.8
-
-
+OutputBaseFilename=JK_Infotech_ERP_Setup_v1.6.8
+UninstallFilesDir={app}\uninstall
+UninstallDisplayIcon={app}\JK_Infotech_ERP.exe
 
 Compression=lzma
 SolidCompression=yes
@@ -27,158 +26,143 @@ PrivilegesRequired=admin
 CloseApplications=yes
 RestartApplications=no
 
+[InstallDelete]
+; Purge old root uninstaller files, legacy PostgreSQL/Redis binary folders, scripts & obsolete files
+Type: filesandordirs; Name: "{app}\unins000.exe"
+Type: filesandordirs; Name: "{app}\unins000.dat"
+Type: filesandordirs; Name: "{app}\redis"
+Type: filesandordirs; Name: "{app}\pgsql"
+Type: filesandordirs; Name: "{app}\scripts"
+Type: filesandordirs; Name: "{app}\client"
+Type: filesandordirs; Name: "{app}\launcher.vbs"
+Type: filesandordirs; Name: "{app}\launch-app.ps1"
+Type: filesandordirs; Name: "{app}\sideload.ps1"
+Type: filesandordirs; Name: "{app}\jk-infotech-icon.ico"
+
+[UninstallDelete]
+; Purge residual log files, temporary cache files, and app directories upon uninstallation
+Type: filesandordirs; Name: "{app}\*.log"
+Type: filesandordirs; Name: "{app}\backend\*.log"
+Type: filesandordirs; Name: "{app}\temp"
+Type: filesandordirs; Name: "{app}"
 
 [Dirs]
-Name: "{app}\pg_data"; Permissions: users-full
+Name: "{commonappdata}\JK Infotech ERP\sqlite_data"; Permissions: users-full
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Copy PostgreSQL folder (bundled bin, lib, share engine)
-Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Copy Visual C++ 2015-2022 Redistributable Installer Prerequisite
+Source: "Y:\JK Infotech ERP\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion
 
+; Copy compiled Single Launcher Executable (JK_Infotech_ERP.exe)
+Source: "Y:\JK Infotech ERP\scripts\JK_Infotech_ERP.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; Copy Redis cache engine folder
-Source: "Y:\JK Infotech ERP\redis\*"; DestDir: "{app}\redis"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
+; Copy compiled PyInstaller backend folder (backend.exe, PYZ archive, and dependencies)
+Source: "Y:\JK Infotech ERP\backend\dist\backend\*"; DestDir: "{app}\backend"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
 
-; Copy compiled PyInstaller backend executable
-Source: "Y:\JK Infotech ERP\backend\dist\backend.exe"; DestDir: "{app}\backend"; Flags: ignoreversion skipifsourcedoesntexist
-
-; Copy the UWP client MSIX package and dependencies
-Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.2.8.0_x64_Test\*"; DestDir: "{app}\client"; Flags: recursesubdirs createallsubdirs ignoreversion
-
-
-
+; Extract UWP client MSIX package into {tmp} (purged automatically after AppX registration)
+Source: "Y:\JK Infotech ERP\frontend\windows\AppPackages\JKErpWindows\JKErpWindows_1.6.8.0_x64_Test\*"; DestDir: "{tmp}\client\package"; Flags: recursesubdirs createallsubdirs deleteafterinstall ignoreversion
 
 Source: "Y:\JK Infotech ERP\backend\.env.example"; DestDir: "{app}\backend"; DestName: ".env"; Flags: ignoreversion
 
+; Extract portable PostgreSQL engine binaries into {tmp} exclusively for setup migration (purged after setup)
+Source: "Y:\JK Infotech ERP\pgsql\*"; DestDir: "{tmp}\pgsql"; Flags: recursesubdirs createallsubdirs deleteafterinstall ignoreversion skipifsourcedoesntexist
 
-; Copy branding icon for shortcuts
-Source: "Y:\JK Infotech ERP\JK INFOTECH branding assests\ico\jk-infotech-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-
-; Copy silent VBS launcher script
-Source: "Y:\JK Infotech ERP\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
-
-; Copy sideload helper script
-Source: "Y:\JK Infotech ERP\sideload.ps1"; DestDir: "{app}"; Flags: ignoreversion
-
-; Copy helper scripts folder
-Source: "Y:\JK Infotech ERP\scripts\*"; DestDir: "{app}\scripts"; Flags: recursesubdirs createallsubdirs ignoreversion skipifsourcedoesntexist
-
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+; Extract standalone migration binary into {tmp} exclusively for setup migration (purged after setup)
+Source: "Y:\JK Infotech ERP\scripts\migrate-db.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion skipifsourcedoesntexist
 
 [Icons]
-Name: "{autodesktop}\JK INFOTECH ERP"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\jk-infotech-icon.ico"; IconIndex: 0; Tasks: desktopicon
-Name: "{group}\JK INFOTECH ERP"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\jk-infotech-icon.ico"; IconIndex: 0
+; Desktop & Start Menu shortcuts target single compiled executable
+Name: "{autodesktop}\JK INFOTECH ERP"; Filename: "{app}\JK_Infotech_ERP.exe"; IconFilename: "{app}\JK_Infotech_ERP.exe"; IconIndex: 0
+Name: "{group}\JK INFOTECH ERP"; Filename: "{app}\JK_Infotech_ERP.exe"; IconFilename: "{app}\JK_Infotech_ERP.exe"; IconIndex: 0
+Name: "{group}\Uninstall JK INFOTECH ERP"; Filename: "{app}\uninstall\unins000.exe"; IconFilename: "{app}\uninstall\unins000.exe"; IconIndex: 0
 
 [Registry]
 ; Configure the Backend backend.exe executable to launch automatically when user logs in
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "JK_Infotech_ERP_Backend"; ValueData: """{app}\backend\backend.exe"""; Flags: uninsdeletevalue
 
+; System-wide App Sideloading & Developer Mode registry unlocks for MSIX/AppX packages
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"; ValueType: dword; ValueName: "AllowAllTrustedApps"; ValueData: 1
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"; ValueType: dword; ValueName: "AllowDevelopmentWithoutDevLicense"; ValueData: 1
+
 [Run]
-; 1. Always stop and unregister any legacy/stale PostgreSQL service registration to guarantee valid path
+; 0. Silently Install Visual C++ 2015-2022 Redistributable Runtime Prerequisites (only if missing)
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ Runtime prerequisites..."; Flags: runhidden skipifdoesntexist; Check: NotVCRedistInstalled
+
+; 1. Run One-Time Database Migration directly during setup installation if legacy PostgreSQL data exists
+Filename: "{tmp}\migrate-db.exe"; StatusMsg: "Migrating existing database to high-performance SQLite engine..."; Flags: skipifdoesntexist runasoriginaluser
+
+; 1.5 Stop and unregister any legacy PostgreSQL service registration from previous versions
 Filename: "net.exe"; Parameters: "stop JK_Infotech_PostgreSQL"; Flags: runhidden
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden skipifdoesntexist
+Filename: "sc.exe"; Parameters: "delete JK_Infotech_PostgreSQL"; Flags: runhidden
 
-; 1.5 Always stop and unregister any legacy/stale Redis service registration to guarantee valid path
+; 1.6 Stop and unregister any legacy Redis service registration from previous versions
 Filename: "net.exe"; Parameters: "stop JK_Infotech_Redis"; Flags: runhidden
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden skipifdoesntexist
+Filename: "sc.exe"; Parameters: "delete JK_Infotech_Redis"; Flags: runhidden
 
-; 2. Initialize PostgreSQL Data Cluster database (Only if data folder does not exist)
-Filename: "{app}\pgsql\bin\initdb.exe"; Parameters: "-D ""{app}\pg_data"" -U postgres --auth-host=trust --auth-local=trust"; StatusMsg: "Initializing local database server..."; Flags: runhidden skipifdoesntexist; Check: NotDataDirExists
+; 2. Grant Authenticated Users & LocalSystem full control over sqlite_data directory
+Filename: "icacls.exe"; Parameters: """{commonappdata}\JK Infotech ERP"" /grant ""*S-1-5-11:(OI)(CI)F"" /T /q"; StatusMsg: "Configuring database directory permissions..."; Flags: runhidden
 
-; 2.5 Grant LocalSystem full control over pg_data directory
-Filename: "icacls.exe"; Parameters: """{app}\pg_data"" /grant ""NT AUTHORITY\LocalSystem:(OI)(CI)F"" /T /q"; StatusMsg: "Configuring database directory permissions..."; Flags: runhidden
+; 3. Sideload Certificate to Trusted Root & Trusted People stores globally
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{tmp}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction SilentlyContinue; Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople -ErrorAction SilentlyContinue; Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople -ErrorAction SilentlyContinue }}"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden
 
-; 3. Register PostgreSQL as a native Windows Service with current installation path
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "register -N ""JK_Infotech_PostgreSQL"" -D ""{app}\pg_data"" -U LocalSystem"; StatusMsg: "Registering database engine services..."; Flags: runhidden skipifdoesntexist
-Filename: "sc.exe"; Parameters: "config JK_Infotech_PostgreSQL start= auto"; StatusMsg: "Configuring database automatic startup..."; Flags: runhidden
-Filename: "sc.exe"; Parameters: "failure JK_Infotech_PostgreSQL reset= 86400 actions= restart/5000/restart/5000/restart/5000"; StatusMsg: "Configuring database auto-recovery rules..."; Flags: runhidden
+; 4. Apply Network Loopback exemption (requires admin elevation)
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$pkg = Get-AppxPackage *9428b0f2-9cad-4953-a4b8-da3e6a84d40a* | Select-Object -First 1; if ($pkg) {{ CheckNetIsolation.exe LoopbackExempt -a -n=$pkg.PackageFamilyName }}"""; StatusMsg: "Configuring local network sandbox access..."; Flags: runhidden
 
-; 3.3 Auto-tune Redis maxmemory dynamically based on client machine RAM capacity
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\scripts\tune-redis.ps1"" -RedisDir ""{app}\redis"""; StatusMsg: "Optimizing cache engine for client hardware..."; Flags: runhidden
+; 5. Provision MSIX package system-wide (pre-registers for all current & new Windows user accounts)
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$pkg = Get-ChildItem -Path '{tmp}\client\package' -Filter 'JKErpWindows*.msix' -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if (-not $pkg) {{ $pkg = Get-ChildItem -Path '{tmp}\client\package' -Filter '*.msix' -Recurse -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -notmatch 'VCLibs|Xaml' }} | Select-Object -First 1 }}; $deps = Get-ChildItem -Path '{tmp}\client\package\Dependencies\x64' -Filter '*.appx' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName; if ($pkg) {{ if ($deps) {{ Add-AppxProvisionedPackage -Online -PackagePath $pkg.FullName -DependencyPackagePath $deps -SkipLicense -ErrorAction SilentlyContinue }} else {{ Add-AppxProvisionedPackage -Online -PackagePath $pkg.FullName -SkipLicense -ErrorAction SilentlyContinue }} }}"""; StatusMsg: "Provisioning client interface package system-wide..."; Flags: runhidden
 
-; 3.5 Register Redis Cache Engine as a native Windows Service
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-install --service-name ""JK_Infotech_Redis"""; StatusMsg: "Registering cache engine service..."; Flags: runhidden skipifdoesntexist
-Filename: "sc.exe"; Parameters: "config JK_Infotech_Redis start= auto"; StatusMsg: "Configuring cache service automatic startup..."; Flags: runhidden
-Filename: "sc.exe"; Parameters: "failure JK_Infotech_Redis reset= 86400 actions= restart/5000/restart/5000/restart/5000"; StatusMsg: "Configuring cache service auto-recovery rules..."; Flags: runhidden
+; 6. Fast direct MSIX registration for current user profile
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$pkg = Get-ChildItem -Path '{tmp}\client\package' -Filter 'JKErpWindows*.msix' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($pkg) {{ Add-AppxPackage -Path $pkg.FullName -ForceUpdateFromAnyVersion -ErrorAction SilentlyContinue }}"""; StatusMsg: "Installing Windows desktop client interface..."; Flags: runhidden
 
-; 4. Start the database & cache services
-Filename: "net.exe"; Parameters: "start JK_Infotech_PostgreSQL"; StatusMsg: "Starting database service..."; Flags: runhidden
-Filename: "net.exe"; Parameters: "start JK_Infotech_Redis"; StatusMsg: "Starting cache engine service..."; Flags: runhidden
-
-; 5. Create the 'jk_erp' database (fails silently if already exists, which is fine)
-Filename: "{app}\pgsql\bin\createdb.exe"; Parameters: "-U postgres -h localhost jk_erp"; StatusMsg: "Creating application schema..."; Flags: runhidden skipifdoesntexist
-
-; 5. Sideload Certificate to Trusted People store
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""$cert = Get-ChildItem -Path '{app}\client' -Filter '*.cer' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($cert) {{ Import-Certificate -FilePath $cert.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople }"""; StatusMsg: "Installing application signing credentials..."; Flags: runhidden
-
-; 6. Apply Network Loopback exemption (requires admin elevation)
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -Command ""CheckNetIsolation.exe LoopbackExempt -a -n=9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06"""; StatusMsg: "Configuring local network sandbox access..."; Flags: runhidden
-
-; 7. Sideload MSIX package as logged-in user (MUST drop elevation for Add-AppxPackage)
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\sideload.ps1"" -ClientPath ""{app}\client"""; StatusMsg: "Installing Windows desktop client interface..."; Flags: runhidden runasoriginaluser
-
-; 8. Launch backend server background process
-Filename: "{app}\backend\backend.exe"; StatusMsg: "Starting application backend engine..."; Flags: nowait runhidden skipifdoesntexist
+; 7. Automatically launch the desktop UI interface after installation completes
+Filename: "{app}\JK_Infotech_ERP.exe"; Description: "{cm:LaunchProgram,JK INFOTECH ERP}"; Flags: nowait postinstall runasoriginaluser
 
 [UninstallRun]
-; 1. Stop and Unregister PostgreSQL Service
+; 1. Stop and Unregister any legacy PostgreSQL Service if present
 Filename: "net.exe"; Parameters: "stop JK_Infotech_PostgreSQL"; Flags: runhidden; RunOnceId: "StopPostgres"
-Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N ""JK_Infotech_PostgreSQL"""; Flags: runhidden skipifdoesntexist; RunOnceId: "UnregisterPostgres"
+Filename: "sc.exe"; Parameters: "delete JK_Infotech_PostgreSQL"; Flags: runhidden; RunOnceId: "UnregisterPostgres"
 
-; 1.5 Stop and Unregister Redis Service
+; 1.5 Stop and Unregister any legacy Redis Service if present
 Filename: "net.exe"; Parameters: "stop JK_Infotech_Redis"; Flags: runhidden; RunOnceId: "StopRedis"
-Filename: "{app}\redis\redis-server.exe"; Parameters: "--service-uninstall --service-name ""JK_Infotech_Redis"""; Flags: runhidden skipifdoesntexist; RunOnceId: "UnregisterRedis"
+Filename: "sc.exe"; Parameters: "delete JK_Infotech_Redis"; Flags: runhidden; RunOnceId: "UnregisterRedis"
 
 ; 2. Uninstall the frontend UWP Application Package
 Filename: "powershell.exe"; Parameters: "-Command ""Get-AppxPackage *9428b0f2-9cad-4953-a4b8-da3e6a84d40a* | Remove-AppxPackage"""; Flags: runhidden; RunOnceId: "UninstallUWP"
 
 [Code]
-// Helper function to check if database files have already been initialized across any known directory
-function NotDataDirExists(): Boolean;
-begin
-  Result := not FileExists(ExpandConstant('{app}\pg_data\PG_VERSION'));
-end;
-
-// Helper function to check if the PostgreSQL service is already registered in Windows Service Control Manager
-function NotPostgresServiceExists(): Boolean;
-begin
-  Result := not RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\JK_Infotech_PostgreSQL');
-end;
-
-// Helper function to check if PostgreSQL service is not already running
-function PostgresServiceIsNotRunning(): Boolean;
+// Helper function: Check if Visual C++ 2015-2022 Redistributable x64 runtime is already installed
+function NotVCRedistInstalled: Boolean;
 var
-  ResultCode: Integer;
+  Installed: Cardinal;
 begin
-  if Exec(ExpandConstant('{sys}\sc.exe'), 'query JK_Infotech_PostgreSQL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  Result := True;
+  // Check 64-bit registry view (VC++ x64 runtime registers under 64-bit HKLM)
+  if RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
   begin
-    Result := True;
-  end
-  else
-    Result := True;
+    if Installed = 1 then
+      Result := False;
+  end;
+  // Fallback check 32-bit registry view
+  if Result and RegQueryDWordValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) then
+  begin
+    if Installed = 1 then
+      Result := False;
+  end;
 end;
 
-// Pre-Install hook: Gracefully terminate services and active app processes before file extraction
+// Pre-Install hook: Gracefully terminate active app processes before file extraction
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
   Result := '';
-  // 1. Stop active database and cache services if running
-  Exec('net.exe', 'stop JK_Infotech_PostgreSQL', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('net.exe', 'stop JK_Infotech_Redis', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  
-  // 2. Terminate application processes to ensure no file handle locks during overwrite
+  // 1. Terminate application processes to ensure no file handle locks during overwrite
   Exec('taskkill.exe', '/F /IM backend.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM JKErpWindows.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM postgres.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/F /IM redis-server.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM JK_Infotech_ERP.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   // Give Windows OS time to finalize file handle releases
-  Sleep(1000);
+  Sleep(500);
 end;
-

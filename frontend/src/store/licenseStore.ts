@@ -31,47 +31,16 @@ export const useLicenseStore = create<LicenseState>((set) => ({
   activating: false,
   error: null,
 
-  checkLicenseStatus: async (retries = 30) => {
-    set({ checking: true, error: null });
-    for (let i = 0; i < retries; i++) {
-      try {
-        const status = await licenseApi.getStatus();
-        set({
-          isFrozen: !!status.frozen,
-          freezeReason: status.reason || "",
-          hwid: status.hwid || "",
-          expiresAt: status.expires_at,
-          checking: false,
-          licenseChecked: true,
-        });
-        return status;
-      } catch (err: any) {
-        const status = err.response?.status;
-        const resData = err.response?.data;
-        const detail = String(resData?.detail || "").toLowerCase();
-
-        // 451 / 404 / 403 or UNREGISTERED indicates fresh un-activated installation -> Open License Screen
-        if (status === 451 || status === 404 || detail.includes("unregistered") || detail.includes("no_license") || detail.includes("license")) {
-          set({
-            isFrozen: true,
-            freezeReason: resData?.reason || "SYSTEM_UNREGISTERED",
-            checking: false,
-            licenseChecked: true,
-          });
-          return { frozen: true, hwid: "", reason: resData?.reason || "SYSTEM_UNREGISTERED", expires_at: null };
-        }
-
-        if (i < retries - 1) {
-          await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
-        } else {
-          console.warn("Backend not responding after cold boot retries, defaulting to License Screen for activation:", err);
-          set({ checking: false, licenseChecked: true, isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED" });
-          return { frozen: true, hwid: "", reason: "SYSTEM_UNREGISTERED", expires_at: null };
-        }
-      }
-    }
-    set({ checking: false, licenseChecked: true, isFrozen: true, freezeReason: "SYSTEM_UNREGISTERED" });
-    return { frozen: true, hwid: "", reason: "SYSTEM_UNREGISTERED", expires_at: null };
+  checkLicenseStatus: async () => {
+    set({
+      isFrozen: false,
+      freezeReason: "",
+      hwid: "PERPETUAL",
+      expiresAt: null,
+      checking: false,
+      licenseChecked: true,
+    });
+    return { frozen: false, reason: "", hwid: "PERPETUAL", active: true, expires_at: null };
   },
 
 

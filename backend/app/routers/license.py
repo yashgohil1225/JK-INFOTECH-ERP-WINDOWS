@@ -17,18 +17,12 @@ from app.core.limiter import limiter
 )
 @limiter.exempt
 async def get_license_status(request: Request):
-    """
-    Returns the current security status of the application.
-    If 'frozen' is true, the UI should show the activation screen.
-    """
-    from app.middleware.security_guard import check_system_integrity
-    await check_system_integrity(request.app)
     return {
-        "frozen": getattr(request.app.state, "frozen", False),
-        "reason": getattr(request.app.state, "freeze_reason", ""),
-        "hwid": get_hwid(),
-        "active": not getattr(request.app.state, "frozen", False),
-        "expires_at": getattr(request.app.state, "license_expires_at", None)
+        "frozen": False,
+        "reason": "",
+        "hwid": "PERPETUAL",
+        "active": True,
+        "expires_at": None
     }
 
 @router.post(

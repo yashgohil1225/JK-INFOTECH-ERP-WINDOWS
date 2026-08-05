@@ -17,21 +17,61 @@
 # =============================================================
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 
-# pyrefly: ignore [missing-import]
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, ForeignKey,
-    Float, Integer, Numeric, String, Text, UniqueConstraint, func,
+    Float, Integer, Numeric, String, Text, UniqueConstraint, JSON, func,
 )
-# pyrefly: ignore [missing-import]
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-# pyrefly: ignore [missing-import]
+from sqlalchemy.types import TypeDecorator, CHAR
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship,
 )
+
+# ── Platform-independent GUID TypeDecorator for SQLite & PostgreSQL ──
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+    Uses PostgreSQL's native UUID type if on PG, otherwise CHAR(36) in SQLite.
+    """
+    impl = CHAR
+    cache_ok = True
+
+    def __init__(self, as_uuid: bool = True):
+        super().__init__()
+        self.as_uuid = as_uuid
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        try:
+            return str(uuid.UUID(str(value)))
+        except Exception:
+            return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if not isinstance(value, uuid.UUID):
+            try:
+                return uuid.UUID(str(value))
+            except Exception:
+                return value
+        return value
+
+# Alias for 100% backward model compatibility
+UUID = GUID
+JSONB = JSON
 
 
 # ── Base ──────────────────────────────────────────────────────
@@ -43,10 +83,11 @@ class Base(DeclarativeBase):
 # ── Reusable mixin: auto timestamps ──────────────────────────
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
@@ -399,9 +440,12 @@ class Product(TimestampMixin, Base):
             return self._current_stock_override
         
         try:
+            from sqlalchemy.inspect import inspect
+            ins = inspect(self)
+            if ins and hasattr(ins, "unloaded") and "stock_entries" in ins.unloaded:
+                return Decimal("0.0")
             return sum((item.quantity for item in self.stock_entries), Decimal("0.0"))
-        except (AttributeError, Exception):
-            # Fallback if stock_entries aren't loaded and no override is provided
+        except Exception:
             return Decimal("0.0")
 
     def __repr__(self) -> str:

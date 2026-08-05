@@ -119,7 +119,16 @@ export function Modal({
 
   return (
     <View 
-      focusable={false}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {...({
+        focusable: true,
+        onKeyDown: (e: any) => {
+          const k = e?.nativeEvent?.key || e?.key;
+          if (k === "Escape" || k === "Esc") {
+            onClose();
+          }
+        }
+      } as any)}
       style={[
         styles.overlayWrapper,
         {

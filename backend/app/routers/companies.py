@@ -16,7 +16,7 @@ from app.schemas.auth import CompanyResponse, CompanyUpdate, FiscalYearCreate, F
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 # pyrefly: ignore [missing-import]
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 
 router = APIRouter(
     prefix="/api/v1/companies",
@@ -499,7 +499,7 @@ async def purge_company(
 
 
 # =============================================================
-# DELETE /api/companies/{id}  — soft deactivate (legacy)
+# DELETE /api/companies/{id} — permanent hard-delete (legacy alias)
 # =============================================================
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_company(
@@ -507,54 +507,8 @@ async def deactivate_company(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Deactivates a company (soft delete — marks is_active=False)."""
-    import uuid as _uuid
-    try:
-        company_uuid = _uuid.UUID(id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid company ID format")
-
-    admin_check = await db.execute(
-        select(User).where(
-            (User.email == current_user.email) | (User.phone == current_user.phone),
-            User.company_id == company_uuid
-        )
-    )
-    if not current_user.is_superadmin and not admin_check.scalars().first():
-        raise HTTPException(status_code=403, detail="You must be an authorized admin of this company to deactivate it.")
-
-    result = await db.execute(select(Company).where(Company.id == company_uuid))
-    company = result.scalars().first()
-    
-    if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    company.is_active = False
-
-    # If current user was attached to this deactivated company, update user pointer to an active company
-    fallback_stmt = (
-        select(Company)
-        .where(
-            Company.id != company_uuid,
-            Company.is_active == True
-        )
-        .order_by(Company.created_at.desc())
-    )
-    active_co_res = await db.execute(fallback_stmt)
-    active_co = active_co_res.scalars().first()
-    if active_co:
-        current_user.company_id = active_co.id
-
-    await db.commit()
-    from app.core.redis import cache_manager
-    await cache_manager.invalidate_prefix("analytics")
-    await cache_manager.invalidate_prefix("customers")
-    await cache_manager.invalidate_prefix("suppliers")
-    await cache_manager.invalidate_prefix("invoices")
-    await cache_manager.invalidate_prefix("products")
-    await cache_manager.invalidate_prefix("banking")
-    await cache_manager.invalidate_prefix("company")
-    return None
+    """PERMANENTLY deletes a company and ALL its data from the database."""
+    return await purge_company(id=id, current_user=current_user, db=db)
 
 
 
@@ -636,51 +590,60 @@ async def create_fiscal_year(
     company: Company = Depends(get_current_company),
     db: AsyncSession = Depends(get_db),
 ):
-    """Creates a new fiscal year for the company after verifying active FY lifecycle rules."""
-    # 1. Check if there is an active running (unclosed) FY
-    active_fy_res = await db.execute(
-        select(FiscalYear).where(
-            FiscalYear.company_id == company.id,
-            FiscalYear.closed_at.is_(None)
+    """Creates or activates a fiscal year for the company adhering to active FY lifecycle rules."""
+    try:
+        # 1. Check if a fiscal year with the exact same label already exists for this company
+        existing_label_res = await db.execute(
+            select(FiscalYear).where(
+                FiscalYear.company_id == company.id,
+                FiscalYear.label == data.label
+            )
         )
-    )
-    active_fy = active_fy_res.scalars().first()
-    if active_fy:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Financial Year '{active_fy.label}' ({active_fy.start_date.strftime('%d/%m/%Y')} to {active_fy.end_date.strftime('%d/%m/%Y')}) is currently active. You can only create a new Financial Year after the current active year ends and is closed."
-        )
+        existing_label_fy = existing_label_res.scalars().first()
+        if existing_label_fy:
+            if data.is_active:
+                await db.execute(
+                    update(FiscalYear)
+                    .where(FiscalYear.company_id == company.id, FiscalYear.id != existing_label_fy.id)
+                    .values(is_active=False)
+                )
+            existing_label_fy.is_active = data.is_active
+            existing_label_fy.closed_at = None
+            existing_label_fy.start_date = data.start_date
+            existing_label_fy.end_date = data.end_date
+            if data.is_active:
+                company.current_fy_id = existing_label_fy.id
+            await db.commit()
+            await db.refresh(existing_label_fy)
+            return existing_label_fy
 
-    # 2. Verify start date strictly follows previous closed FY end date
-    last_closed_res = await db.execute(
-        select(FiscalYear).where(
-            FiscalYear.company_id == company.id,
-            FiscalYear.closed_at.isnot(None)
-        ).order_by(FiscalYear.end_date.desc())
-    )
-    last_closed = last_closed_res.scalars().first()
-    if last_closed:
-        expected_start = last_closed.end_date + timedelta(days=1)
-        if data.start_date != expected_start:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid Start Date. The next Financial Year must start on {expected_start.strftime('%d/%m/%Y')} (immediately following closed FY '{last_closed.label}')."
+        # 2. If newly created FY is marked active, deactivate other FYs for this company
+        if data.is_active:
+            await db.execute(
+                update(FiscalYear)
+                .where(FiscalYear.company_id == company.id)
+                .values(is_active=False)
             )
 
-    fy = FiscalYear(
-        company_id=company.id,
-        label=data.label,
-        start_date=data.start_date,
-        end_date=data.end_date,
-        is_active=data.is_active
-    )
-    db.add(fy)
-    await db.flush()  # Generate the ID for fy
-    if data.is_active:
-        company.current_fy_id = fy.id
-    await db.commit()
-    await db.refresh(fy)
-    return fy
+        # 3. Create brand new FiscalYear
+        fy = FiscalYear(
+            company_id=company.id,
+            label=data.label,
+            start_date=data.start_date,
+            end_date=data.end_date,
+            is_active=data.is_active
+        )
+        db.add(fy)
+        await db.flush()  # Generate the ID for fy
+        if data.is_active:
+            company.current_fy_id = fy.id
+        await db.commit()
+        await db.refresh(fy)
+        return fy
+    except Exception as e:
+        logger.error(f"Failed to create/activate fiscal year: {e}", exc_info=True)
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=f"Financial Year setup failed: {str(e)}")
 
 # =============================================================
 # POST /api/companies/fiscal-years/{fy_id}/set-current
@@ -706,7 +669,13 @@ async def set_current_fiscal_year(
     if not fy:
         raise HTTPException(status_code=404, detail="Fiscal Year not found or access denied")
 
-    # Update company
+    # Update company current FY and set active flags
+    await db.execute(
+        update(FiscalYear)
+        .where(FiscalYear.company_id == company.id, FiscalYear.id != fy.id)
+        .values(is_active=False)
+    )
+    fy.is_active = True
     company.current_fy_id = fy.id
 
     await db.commit()

@@ -1,6 +1,6 @@
 # =============================================================
 # JK INFOTECH ERP — Reports & Analytics Router
-# File : app/routers/reports.py
+# File : app/routers/reports.py — Updated for completely rewritten gstr1.html template
 # =============================================================
 
 # pyrefly: ignore [missing-import]
@@ -29,7 +29,10 @@ def make_pdf_response(pdf_bytes: bytes, filename: str, service: Optional[ReportS
         "Content-Disposition": f'inline; filename="{filename}"',
         "Access-Control-Expose-Headers": "Content-Disposition, X-PDF-Search-Matches, X-Cache",
         "X-PDF-Search-Matches": json.dumps(match_counts),
-        "X-Cache": "HIT" if cache_hit else "MISS"
+        "X-Cache": "HIT" if cache_hit else "MISS",
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
     }
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
@@ -40,6 +43,11 @@ def parse_date(d_str: Optional[str]) -> Optional[date]:
         return datetime.strptime(d_str, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+def is_landscape_orientation(orientation: Optional[str], default_landscape: bool = True) -> bool:
+    if not orientation or str(orientation).strip() == "":
+        return default_landscape
+    return str(orientation).strip().lower() == "landscape"
 
 # =============================================================
 # 1. GET /api/reports/gst (GST Summary Overview)
@@ -71,7 +79,7 @@ async def get_gst_summary(
 # =============================================================
 @router.get("/gst/pdf")
 async def get_gst_summary_pdf(
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -81,7 +89,7 @@ async def get_gst_summary_pdf(
     if cached_pdf is not None:
         return make_pdf_response(cached_pdf, "GST_Summary.pdf", service=None, cache_hit=True)
 
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gst_summary_pdf()
     await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
     return make_pdf_response(pdf_bytes, "GST_Summary.pdf", service, cache_hit=False)
@@ -110,7 +118,7 @@ async def get_trial_balance(
 # =============================================================
 @router.get("/trial-balance/pdf")
 async def get_trial_balance_pdf(
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -120,7 +128,7 @@ async def get_trial_balance_pdf(
     if cached_pdf is not None:
         return make_pdf_response(cached_pdf, "Trial_Balance.pdf", service=None, cache_hit=True)
 
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_trial_balance_pdf()
     await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
     return make_pdf_response(pdf_bytes, "Trial_Balance.pdf", service, cache_hit=False)
@@ -154,7 +162,7 @@ async def get_daybook(
 async def get_daybook_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -168,7 +176,7 @@ async def get_daybook_pdf(
     if cached_pdf is not None:
         return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
 
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_day_book_pdf(start, end)
     await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
     return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
@@ -241,7 +249,7 @@ async def get_profit_loss_pdf(
     if cached_pdf is not None:
         return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
 
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_profit_loss_pdf(start, end)
     await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
     return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
@@ -312,7 +320,7 @@ async def get_balance_sheet_pdf(
     if cached_pdf is not None:
         return make_pdf_response(cached_pdf, filename, service=None, cache_hit=True)
 
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_balance_sheet_pdf(start, end)
     await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=900)
     return make_pdf_response(pdf_bytes, filename, service, cache_hit=False)
@@ -399,7 +407,7 @@ async def get_account_ledger_pdf(
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     
     from app.models import Account
     acc_stmt = select(Account.name).where(Account.id == accountId, Account.company_id == company.id)
@@ -443,7 +451,7 @@ async def get_party_ledger_pdf(
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     
     party_name = "Party"
     if partyType.lower() == "customer":
@@ -608,7 +616,7 @@ async def get_cashflow_pdf(
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_cash_flow_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"Cash_Flow_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -644,14 +652,14 @@ async def get_cashflow_excel(
 async def get_gstr1_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gstr1_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"GSTR1_Report_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -687,14 +695,14 @@ async def get_gstr1_excel(
 async def get_gstr2_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gstr2_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"GSTR2_Report_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -730,14 +738,14 @@ async def get_gstr2_excel(
 async def get_gstr3b_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gstr3b_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"GSTR3B_Report_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -792,7 +800,7 @@ async def get_gstr1_summary(
 async def get_gstr1_summary_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -803,7 +811,7 @@ async def get_gstr1_summary_pdf(
     else:
         start = start.replace(month=4, day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gstr1_summary_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"GSTR1_Summary_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -862,7 +870,7 @@ async def get_gstr2_summary(
 async def get_gstr2_summary_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -873,7 +881,7 @@ async def get_gstr2_summary_pdf(
     else:
         start = start.replace(month=4, day=1)
     end = parse_date(end_date) or date.today()
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_gstr2_summary_pdf(start, end)
     return make_pdf_response(pdf_bytes, f"GSTR2_Summary_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
 
@@ -912,12 +920,12 @@ async def get_gstr2_summary_excel(
 
 @router.get("/outstanding/pdf")
 async def get_outstanding_summary_pdf(
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company),
 ):
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_outstanding_pdf()
     return make_pdf_response(pdf_bytes, "Outstanding_Summary.pdf", service)
 
@@ -936,7 +944,7 @@ async def get_outstanding_pdf(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
 ):
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     pdf_bytes = await service.generate_outstanding_pdf()
     return make_pdf_response(pdf_bytes, f"Outstanding_Summary_{date.today().strftime('%Y%m%d')}.pdf", service)
 
@@ -1138,7 +1146,7 @@ async def get_item_movement(
 # =============================================================
 @router.get("/stock-valuation/pdf")
 async def get_stock_valuation_pdf(
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1149,7 +1157,7 @@ async def get_stock_valuation_pdf(
     from fastapi.encoders import jsonable_encoder
     import json
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     stmt = select(Product).where(Product.company_id == company.id).options(selectinload(Product.category)).order_by(Product.name)
     res = await db.execute(stmt)
     products = res.scalars().all()
@@ -1182,7 +1190,8 @@ async def get_stock_valuation_pdf(
     
     template = service.jinja_env.get_template("stock_valuation.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"Stock_Valuation_{date.today().strftime('%Y%m%d')}.pdf", service)
@@ -1193,7 +1202,7 @@ async def get_stock_valuation_pdf(
 # =============================================================
 @router.get("/low-stock/pdf")
 async def get_low_stock_pdf(
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1204,7 +1213,7 @@ async def get_low_stock_pdf(
     from fastapi.encoders import jsonable_encoder
     import json
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     stmt = select(Product).where(Product.company_id == company.id).options(selectinload(Product.category)).order_by(Product.name)
     res = await db.execute(stmt)
     products = res.scalars().all()
@@ -1238,7 +1247,8 @@ async def get_low_stock_pdf(
     
     template = service.jinja_env.get_template("low_stock.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"Low_Stock_Alerts_{date.today().strftime('%Y%m%d')}.pdf", service)
@@ -1251,7 +1261,7 @@ async def get_low_stock_pdf(
 async def get_sales_by_customer_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1264,7 +1274,7 @@ async def get_sales_by_customer_pdf(
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     
     query = (
         select(
@@ -1320,7 +1330,8 @@ async def get_sales_by_customer_pdf(
     
     template = service.jinja_env.get_template("sales_by_customer.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"Sales_By_Customer_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
@@ -1333,7 +1344,7 @@ async def get_sales_by_customer_pdf(
 async def get_sales_by_item_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1346,7 +1357,7 @@ async def get_sales_by_item_pdf(
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     
     query = (
         select(
@@ -1399,7 +1410,8 @@ async def get_sales_by_item_pdf(
     
     template = service.jinja_env.get_template("sales_by_item.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"Sales_By_Item_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
@@ -1412,7 +1424,7 @@ async def get_sales_by_item_pdf(
 async def get_item_movement_pdf(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1426,7 +1438,7 @@ async def get_item_movement_pdf(
     start = parse_date(start_date) or date.today().replace(day=1)
     end = parse_date(end_date) or date.today()
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     
     prod_query = (
         select(Product)
@@ -1507,7 +1519,8 @@ async def get_item_movement_pdf(
     
     template = service.jinja_env.get_template("item_movement.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"Item_Movement_{start.strftime('%Y%m%d')}_to_{end.strftime('%Y%m%d')}.pdf", service)
@@ -1519,7 +1532,7 @@ async def get_item_movement_pdf(
 @router.get("/audit-trail/pdf")
 async def get_audit_trail_pdf(
     limit: int = 100,
-    orientation: Optional[str] = "portrait",
+    orientation: Optional[str] = "landscape",
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -1527,7 +1540,7 @@ async def get_audit_trail_pdf(
     from fastapi.encoders import jsonable_encoder
     import json
     
-    service = ReportService(db, company.id, landscape=(orientation == "landscape"), search_query=search)
+    service = ReportService(db, company.id, landscape=is_landscape_orientation(orientation, default_landscape=True), search_query=search)
     logs = await service.get_audit_logs(limit)
     
     comp_info = {
@@ -1546,7 +1559,8 @@ async def get_audit_trail_pdf(
     
     template = service.jinja_env.get_template("audit_trail.html")
     html_out = template.render(
-        report_data_json=json.dumps(jsonable_encoder(data))
+        report_data_json=json.dumps(jsonable_encoder(data)),
+        landscape=is_landscape_orientation(orientation, default_landscape=True)
     )
     pdf_bytes = await service._generate_pdf(html_out)
     return make_pdf_response(pdf_bytes, f"System_Audit_Trail_{datetime.now().strftime('%Y%m%d')}.pdf", service)

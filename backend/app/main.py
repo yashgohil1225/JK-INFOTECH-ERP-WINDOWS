@@ -106,6 +106,17 @@ async def startup_event():
                 "legal_name":           "VARCHAR(255)",
                 "default_hsn_sac_code": "VARCHAR(50)",
                 "default_gst_rate":     "NUMERIC(15,2)",
+                "default_tax_rate":     "FLOAT",
+                "current_fy_id":        "CHAR(36)",
+            },
+            "fiscal_years": {
+                "company_id":    "CHAR(36)",
+                "label":         "VARCHAR(50)",
+                "start_date":    "DATE",
+                "end_date":      "DATE",
+                "is_active":     "INTEGER DEFAULT 1",
+                "closed_at":     "DATETIME",
+                "closing_notes": "TEXT",
             },
             "customers": {
                 "default_tax_rate": "FLOAT",
@@ -127,7 +138,11 @@ async def startup_event():
                 "igst_amount": "NUMERIC(15,2) DEFAULT 0",
             },
             "invoices": {
-                "rounding_method": "VARCHAR(50) DEFAULT 'normal'",
+                "rounding_method":  "VARCHAR(50) DEFAULT 'normal'",
+                "cgst_amount":      "NUMERIC(15,2) DEFAULT 0",
+                "sgst_amount":      "NUMERIC(15,2) DEFAULT 0",
+                "igst_amount":      "NUMERIC(15,2) DEFAULT 0",
+                "round_off_amount": "NUMERIC(15,2) DEFAULT 0",
             },
             "invoice_items": {
                 "note": "TEXT",
@@ -139,18 +154,18 @@ async def startup_event():
 
 
         from app.database import async_engine
-        async with async_engine.connect() as conn:
-            for table_name, columns in _expected_columns.items():
-                for col_name, col_type in columns.items():
-                    try:
-                        await conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_type}'))
-                        await conn.commit()
-                        print(f"JK ERP: Auto-migrated missing column: {table_name}.{col_name}")
-                    except Exception as e:
-                        await conn.rollback()
-                        # Error implies column already exists or table is missing.
-                        pass
-        print("JK ERP: Column integrity check passed.")
+        if async_engine is not None:
+            async with async_engine.connect() as conn:
+                for table_name, columns in _expected_columns.items():
+                    for col_name, col_type in columns.items():
+                        try:
+                            await conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_type}'))
+                            await conn.commit()
+                            print(f"JK ERP: Auto-migrated missing column: {table_name}.{col_name}")
+                        except Exception as e:
+                            await conn.rollback()
+                            pass
+            print("JK ERP: Column integrity check passed.")
     except Exception as e:
         print(f"JK ERP: Column migration check skipped: {e}")
 
@@ -380,7 +395,7 @@ async def response_validation_exception_handler(request: Request, exc: ResponseV
         pass
     return JSONResponse(
         status_code=500,
-        content={"detail": "Server failed to serialize the response. The record was saved. Please refresh the page."},
+        content={"detail": "Response serialization error. The record was saved successfully."},
         headers=get_cors_headers(request)
     )
 
@@ -443,7 +458,7 @@ async def favicon():
 
 @app.get("/")
 async def root():
-    return {"message": "JK Solution ERP API is running", "version": settings.APP_VERSION}
+    return {"message": "JK Infotech ERP - Backend API Engine (Pure CSS Scope Loaded) is running", "version": settings.APP_VERSION}
 
 @app.get("/health")
 async def health():

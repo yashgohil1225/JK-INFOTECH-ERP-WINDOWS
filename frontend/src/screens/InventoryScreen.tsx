@@ -217,7 +217,10 @@ export default function InventoryScreen() {
       invalidateAllQueries(queryClient);
       setSelectedProduct(null);
     },
-    onError: (err: any) => { Alert.alert("Cannot Delete", err.response?.data?.detail || "Product has linked transactions."); }
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || "This product has linked invoices, purchase bills, or stock entries. Deletion is blocked to protect accounting records.\n\nPlease mark it as INACTIVE instead.";
+      Alert.alert("Cannot Delete Product", msg);
+    }
   });
 
   const adjustStockMutation = useMutation({
@@ -562,7 +565,7 @@ export default function InventoryScreen() {
                 style={{ flex: 1 }}
               />
               <Button title="✎ Edit" onPress={() => openEdit(selectedProduct)} variant="secondary" size="medium" style={{ flex: 0.9 }} />
-              <Button title="Delete" onPress={() => Alert.alert("Delete Confirmation", `Delete "${selectedProduct.name}"?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selectedProduct.id) }])} variant="secondary" size="medium" style={{ flex: 0.9 }} />
+              <Button icon={<Text style={{ fontFamily: "Segoe MDL2 Assets", fontSize: 14, color: "#EF4444", fontWeight: "bold" }}>{"\uE74D"}</Text>} title="Delete" onPress={() => Alert.alert("Delete Confirmation", `Delete "${selectedProduct.name}"?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selectedProduct.id) }])} variant="secondary" size="medium" style={{ flex: 0.9 }} textStyle={{ color: "#EF4444" }} />
             </View>
 
             {/* Pricing */}

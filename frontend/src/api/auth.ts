@@ -162,7 +162,7 @@ export const authApi = {
   },
 
   deleteCompany: async (company_id: string): Promise<void> => {
-    await apiClient.delete(`/api/v1/companies/${company_id}`);
+    await apiClient.delete(`/api/v1/companies/${company_id}/purge`);
   },
 
   purgeCompany: async (company_id: string): Promise<void> => {

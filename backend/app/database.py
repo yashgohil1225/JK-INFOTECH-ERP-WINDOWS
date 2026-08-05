@@ -9,8 +9,8 @@
 #   - get_db()     (FastAPI dependency — use in every route)
 # =============================================================
 
-# pyrefly: ignore [missing-import]
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 # pyrefly: ignore [missing-import]
@@ -18,17 +18,26 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
+# ── Configure SQLite connection PRAGMAs for high-speed concurrency ─
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA busy_timeout=30000;")
+        cursor.execute("PRAGMA foreign_keys=ON;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.close()
+    except Exception:
+        pass
+
 # ── Async engine (used by FastAPI routes) ─────────────────────
-# asyncpg driver: postgresql+asyncpg://user:pass@host:port/dbname
+# aiosqlite driver: sqlite+aiosqlite:///{app}/sqlite_data/jkerp.db
 async_engine = create_async_engine(
     settings.DATABASE_URL_ASYNC,
-    echo=settings.DB_ECHO,          
-    pool_size=20,                   # Increased for higher industrial concurrency
-    max_overflow=10,
-    pool_recycle=3600,              # Recycle connections every hour
-    pool_pre_ping=True,             # Critical: auto-reconnect on stale connections
+    echo=settings.DB_ECHO,
     connect_args={
-        "command_timeout": 30,      # Increased to 30s for complex industrial queries
+        "timeout": 30.0,
     }
 )
 
@@ -38,12 +47,13 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-# ── Sync engine (used by Alembic only) ───────────────────────
-# psycopg2 driver: postgresql://user:pass@host:port/dbname
+# ── Sync engine (used by setup & migrations) ──────────────────
 sync_engine = create_engine(
     settings.DATABASE_URL_SYNC,
     echo=settings.DB_ECHO,
-    pool_pre_ping=True,
+    connect_args={
+        "timeout": 30.0,
+    }
 )
 
 SyncSessionLocal = sessionmaker(

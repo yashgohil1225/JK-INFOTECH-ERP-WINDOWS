@@ -101,9 +101,8 @@ const styles = StyleSheet.create({
   },
   textInput: {
     height: 44,
-    paddingTop: 11,
-    paddingBottom: 11,
-    lineHeight: 20,
+    paddingTop: 6,
+    paddingBottom: 6,
     textAlignVertical: "center",
     borderWidth: 2,
     borderRadius: 6,

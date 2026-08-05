@@ -271,6 +271,7 @@ async def create_invoice(
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
     await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"customers:{company.id}")
 
     
     result = await db.execute(
@@ -419,6 +420,7 @@ async def update_sales_invoice(
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
     await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"customers:{company.id}")
     await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
 
     
@@ -490,6 +492,7 @@ async def delete_sales_invoice(
     await cache_manager.invalidate_prefix(f"company:{company.id}:")
     await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
+    await cache_manager.invalidate_prefix(f"customers:{company.id}")
     await cache_manager.invalidate_prefix(f"invoice:pdf:{invoice_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -522,7 +525,7 @@ async def public_invoice_pdf(
     try:
         cache_key = f"invoice:pdf:{invoice_id}:{theme or ''}:{copy_type or 'original'}:{orientation or 'portrait'}:{search or ''}"
         cached_pdf = await cache_manager.get_bytes(cache_key)
-        if cached_pdf is not None:
+        if cached_pdf is not None and b"ReportLab" not in cached_pdf:
             import json
             return Response(
                 content=cached_pdf,
@@ -550,7 +553,8 @@ async def public_invoice_pdf(
             landscape=(orientation == "landscape"),
             search_query=search
         )
-        await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
+        if b"ReportLab" not in pdf_bytes:
+            await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
         import json
         return Response(
             content=pdf_bytes,
@@ -590,6 +594,7 @@ async def public_invoice_print(
         else:
             html_content += print_script
             
+        # pyrefly: ignore [missing-import]
         from fastapi.responses import HTMLResponse
         return HTMLResponse(content=html_content)
     except ValueError as ve:
@@ -610,7 +615,7 @@ async def get_invoice_pdf(
     try:
         cache_key = f"invoice:pdf:{invoice_id}:{theme or ''}:{copy_type or 'original'}:{orientation or 'portrait'}:{search or ''}"
         cached_pdf = await cache_manager.get_bytes(cache_key)
-        if cached_pdf is not None:
+        if cached_pdf is not None and b"ReportLab" not in cached_pdf:
             # Fetch invoice number for filename
             inv_stmt = select(Invoice.invoice_number).where(Invoice.id == invoice_id, Invoice.company_id == company.id)
             inv_result = await db.execute(inv_stmt)
@@ -643,7 +648,8 @@ async def get_invoice_pdf(
             landscape=(orientation == "landscape"),
             search_query=search
         )
-        await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
+        if b"ReportLab" not in pdf_bytes:
+            await cache_manager.set_bytes(cache_key, pdf_bytes, ttl_seconds=3600)
         import json
         return Response(
             content=pdf_bytes,
@@ -743,19 +749,20 @@ async def create_credit_note(
         subtotal += line_val
         tax_amount += line_tax
 
-        # INVENTORY SYNC: Add returned goods back to stock
-        stock_entry = StockEntry(
-            company_id=company.id,
-            product_id=item_in.product_id,
-            batch_id=item_in.batch_id,
-            quantity=item_in.quantity, # Positive for return to stock
-            entry_type="SALES_RETURN",
-            reference_type="credit_note",
-            reference_id=new_note.id,
-            notes=f"Return from Customer (Note: {note_number})",
-            created_by=current_user.id
-        )
-        db.add(stock_entry)
+        # INVENTORY SYNC: Add returned goods back to stock (Skip if purely financial/payment settlement)
+        if getattr(note_in, "return_mode", "GOODS_RETURN") != "FINANCIAL_ADJUSTMENT":
+            stock_entry = StockEntry(
+                company_id=company.id,
+                product_id=item_in.product_id,
+                batch_id=item_in.batch_id,
+                quantity=item_in.quantity, # Positive for return to stock
+                entry_type="SALES_RETURN",
+                reference_type="credit_note",
+                reference_id=new_note.id,
+                notes=f"Return from Customer (Note: {note_number})",
+                created_by=current_user.id
+            )
+            db.add(stock_entry)
 
 
     new_note.subtotal = subtotal
@@ -821,4 +828,27 @@ async def delete_credit_note(
     # Delete the credit note (cascade deletes CreditNoteItem)
     await db.delete(note)
     await db.commit()
+
+@router.get("/credit-notes/{note_id}/pdf")
+@router.get("/sales/credit-notes/{note_id}/pdf")
+async def get_credit_note_pdf_route(
+    note_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    company: Company = Depends(get_current_company)
+):
+    try:
+        service = ReportService(db, company.id)
+        pdf_bytes, note_number = await service.generate_credit_note_pdf(note_id, company.id)
+        safe_filename = note_number.replace('/', '_').replace(' ', '_')
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=Credit_Note_{safe_filename}.pdf"
+            }
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Credit note PDF generation failed: {str(e)}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

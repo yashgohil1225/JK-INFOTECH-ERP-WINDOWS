@@ -65,63 +65,37 @@ async def create_backup(
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
-    Generates a PostgreSQL logical backup using pg_dump and returns the file for download.
+    Generates an online SQLite binary database backup snapshot and returns the file for download.
     """
-    # Prepare connection parameters
-    db_host = settings.DATABASE_HOST
-    db_port = str(settings.DATABASE_PORT)
-    db_name = settings.DATABASE_NAME
-    db_user = settings.DATABASE_USER
-    db_password = settings.DATABASE_PASSWORD
-
     temp_dir = tempfile.gettempdir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_filename = f"jkerp_backup_{timestamp}.bak"
+    backup_filename = f"jkerp_backup_{timestamp}.sqlite"
     backup_path = os.path.join(temp_dir, backup_filename)
 
-    env = os.environ.copy()
-    env["PGPASSWORD"] = db_password
-
-    pg_dump_cmd = "pg_dump"
-    possible_paths = [
-        r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\15\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\14\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\13\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\12\bin\pg_dump.exe",
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            pg_dump_cmd = path
-            break
-
-    cmd = [
-        pg_dump_cmd,
-        "-h", db_host,
-        "-p", db_port,
-        "-U", db_user,
-        "-d", db_name,
-        "-F", "c",
-        "-f", backup_path
-    ]
-
     try:
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
+        import sqlite3
+        src_db = settings.SQLITE_DB_PATH
+
+        def _do_sqlite_backup():
+            con_src = sqlite3.connect(src_db)
+            con_dest = sqlite3.connect(backup_path)
+            with con_dest:
+                con_src.backup(con_dest)
+            con_dest.close()
+            con_src.close()
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _do_sqlite_backup)
+
         return FileResponse(
             path=backup_path,
             filename=backup_filename,
             media_type="application/octet-stream"
         )
-    except subprocess.CalledProcessError as e:
-        error_msg = e.stderr or e.stdout or str(e)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate backup via pg_dump: {error_msg}"
-        )
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred: {str(e)}"
+            detail=f"Failed to generate SQLite backup: {str(e)}"
         )
 
 @router.post("/restore")
@@ -133,7 +107,7 @@ async def restore_backup(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Restores a PostgreSQL backup (.bak or .json) using pg_restore or JSON importer.
+    Restores a SQLite database backup (.sqlite, .bak, or .json) using native online backup API.
     Supports file upload or local disk file path.
     Protected by Developer Master Key or Admin privileges.
     """
@@ -170,71 +144,38 @@ async def restore_backup(
         except Exception as err:
             raise HTTPException(status_code=400, detail=f"Failed to parse JSON backup file: {str(err)}")
 
-    # Handle .bak PostgreSQL file
-    uploaded_path = os.path.join(temp_dir, f"restore_{uuid.uuid4().hex}.bak")
+    # Handle SQLite database backup file
+    import uuid as uuid_mod
+    uploaded_path = os.path.join(temp_dir, f"restore_{uuid_mod.uuid4().hex}.sqlite")
     with open(uploaded_path, "wb") as buffer:
         buffer.write(content_bytes)
 
-    db_host = settings.DATABASE_HOST
-    db_port = str(settings.DATABASE_PORT)
-    db_name = settings.DATABASE_NAME
-    db_user = settings.DATABASE_USER
-    db_password = settings.DATABASE_PASSWORD
-
-    env = os.environ.copy()
-    env["PGPASSWORD"] = db_password
-
-    pg_restore_cmd = "pg_restore"
-    possible_paths = [
-        r"C:\Program Files\PostgreSQL\16\bin\pg_restore.exe",
-        r"C:\Program Files\PostgreSQL\15\bin\pg_restore.exe",
-        r"C:\Program Files\PostgreSQL\14\bin\pg_restore.exe",
-        r"C:\Program Files\PostgreSQL\13\bin\pg_restore.exe",
-        r"C:\Program Files\PostgreSQL\12\bin\pg_restore.exe",
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            pg_restore_cmd = path
-            break
-
-    # Build robust pg_restore command with clean drop and ignore-if-exists
-    cmd = [
-        pg_restore_cmd,
-        "-h", db_host,
-        "-p", db_port,
-        "-U", db_user,
-        "-d", db_name,
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-acl",
-        uploaded_path
-    ]
-
     try:
-        # Run pg_restore without check=True to handle minor non-fatal warnings
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, check=False)
-        
-        # Cleanup temp file
+        import sqlite3
+        target_db = settings.SQLITE_DB_PATH
+
+        def _do_sqlite_restore():
+            con_src = sqlite3.connect(uploaded_path)
+            con_dest = sqlite3.connect(target_db)
+            with con_dest:
+                con_src.backup(con_dest)
+            con_dest.close()
+            con_src.close()
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _do_sqlite_restore)
+
         if uploaded_path and os.path.exists(uploaded_path):
             os.remove(uploaded_path)
-            
-        stderr = result.stderr or ""
-        stdout = result.stdout or ""
 
-        # Check for critical connection / authentication failures
-        if "FATAL:" in stderr or "could not connect to server" in stderr or "authentication failed" in stderr:
-            raise HTTPException(status_code=500, detail=f"Database connection error during restore: {stderr}")
-
-        # Clear backend Redis/memory caches if active
         try:
-            from app.core.cache import invalidate_company_cache
-            await invalidate_company_cache("*")
+            from app.core.redis import cache_manager
+            await cache_manager.invalidate_prefix("")
         except Exception:
             pass
 
         return {
-            "message": "PostgreSQL Database restored successfully! All tables, ledgers, and transactions populated.",
+            "message": "SQLite Database restored successfully! All tables, ledgers, and transactions populated.",
             "success": True
         }
     except Exception as e:

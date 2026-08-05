@@ -194,10 +194,17 @@ export default function PartiesScreen() {
     ? { bg: "#0F172A", surface: "#1E293B", border: "#334155", textPrimary: "#F8FAFC", textSecondary: "#94A3B8", accent: "#38BDF8", divider: "#334155", statusActive: "#22C55E", statusInactive: "#EF4444", isDarkMode: true }
     : { bg: "#F8FAFC", surface: "#FFFFFF", border: "#E2E8F0", textPrimary: "#0F172A", textSecondary: "#64748B", accent: "#0284C7", divider: "#E2E8F0", statusActive: "#16A34A", statusInactive: "#DC2626", isDarkMode: false };
 
-  const { data: parties = [], isLoading } = useQuery<Party[]>({
+  const { data: parties = [], isLoading, refetch } = useQuery<Party[]>({
     queryKey: [isCustomer ? "customers" : "suppliers", company?.id],
-    queryFn: async () => { const res = await apiClient.get(apiEndpoint); return res.data; }
+    queryFn: async () => { const res = await apiClient.get(apiEndpoint); return res.data; },
+    staleTime: 0
   });
+
+  React.useEffect(() => {
+    if (activeScreen === "PARTIES" || activeScreen === "CUSTOMERS" || activeScreen === "VENDORS") {
+      refetch();
+    }
+  }, [activeScreen]);
 
   React.useEffect(() => {
     const sub = DeviceEventEmitter.addListener("openSearchResult", ({ targetScreen, targetId, title }) => {
@@ -249,8 +256,12 @@ export default function PartiesScreen() {
     onSuccess: () => {
       invalidateAllQueries(queryClient);
       setSelectedParty(null);
+      Alert.alert("Success", `${entityLabel} deleted successfully.`);
     },
-    onError: (err: any) => { Alert.alert("Cannot Delete", err.response?.data?.detail || "This record has linked transactions. Deactivate instead."); }
+    onError: (err: any) => {
+      const msg = err.response?.data?.detail || `This ${entityLabel.toLowerCase()} has existing invoices or payment history. Deletion is blocked to protect your tax & accounting records.\n\nPlease mark them as INACTIVE instead.`;
+      Alert.alert(`Cannot Delete ${entityLabel}`, msg);
+    }
   });
 
   const set = (key: string, val: any) => setFormData((f: any) => ({ ...f, [key]: val }));
@@ -349,23 +360,33 @@ export default function PartiesScreen() {
       render: (row: Party) => <Text style={{ fontSize: 13.5, color: C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>{row.phone || row.mobile_no || "—"}</Text>
     },
     {
-      header: isCustomer ? "BALANCE / CREDIT" : "BALANCE / TERMS", accessorKey: "outstanding_balance", flex: 1.5, align: "right" as any,
+      header: isCustomer ? "OUTSTANDING / CREDIT" : "OUTSTANDING / TERMS", accessorKey: "outstanding_balance", flex: 1.5, align: "right" as any,
       render: (row: Party) => {
         const out = Number(row.outstanding_balance ?? row.opening_balance ?? 0);
+        const credLim = Number(row.credit_limit || 0);
+        const credDays = Number(row.credit_days || 0);
+
+        let subtext = "";
+        if (isCustomer) {
+          if (credLim > 0 || credDays > 0) {
+            const limStr = credLim > 0 ? `₹${credLim.toLocaleString("en-IN")}` : "No Limit";
+            const daysStr = credDays > 0 ? `${credDays}d` : "";
+            subtext = `Lim: ${limStr}${daysStr ? ` | ${daysStr}` : ""}`;
+          } else {
+            subtext = "No Credit Limit";
+          }
+        } else {
+          subtext = `Terms: ${row.payment_terms || "Immediate"}`;
+        }
+
         return (
-          <View style={{ alignItems: "flex-end" }}>
+          <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
             <Text style={{ fontSize: 13.5, fontWeight: "700", color: out > 0 ? (isCustomer ? C.accent : "#EF4444") : C.textPrimary, fontFamily: "Segoe UI Variable Text" }}>
               ₹{out.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
-            {isCustomer ? (
-              <Text style={{ fontSize: 11, color: C.textSecondary }}>
-                Lim: ₹{Number(row.credit_limit || 0).toLocaleString("en-IN")} | {row.credit_days || 0}d
-              </Text>
-            ) : (
-              <Text style={{ fontSize: 11, color: C.textSecondary }}>
-                Terms: {row.payment_terms || "Immediate"}
-              </Text>
-            )}
+            <Text style={{ fontSize: 11, color: C.textSecondary, fontFamily: "Segoe UI Variable Text", marginTop: 2 }}>
+              {subtext}
+            </Text>
           </View>
         );
       }
@@ -445,74 +466,154 @@ export default function PartiesScreen() {
 
       {/* ─── RIGHT: DETAIL PANEL ─── */}
       {selectedParty && (
-        <View style={{ flex: 0.4, backgroundColor: C.surface }}>
-          <ScrollView contentContainerStyle={{ padding: 22 }} showsVerticalScrollIndicator={true}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 22, fontWeight: "700", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }} numberOfLines={2}>{selectedParty.name}</Text>
-                <View style={{ marginTop: 6, alignSelf: "flex-start", backgroundColor: selectedParty.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"), borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 }}>
-                  <Text style={{ fontSize: 11.5, fontWeight: "800", fontFamily: "Segoe UI Variable Text", color: selectedParty.is_active ? C.statusActive : C.statusInactive }}>
-                    {selectedParty.is_active ? "ACTIVE" : "INACTIVE"}
-                  </Text>
+        <View style={{ flex: 0.4, backgroundColor: C.card, borderLeftWidth: 1, borderLeftColor: C.border }}>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }} showsVerticalScrollIndicator={true}>
+            
+            {/* Header: Title, Active Switch & Close */}
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: C.textPrimary, fontFamily: "Segoe UI Variable Display" }} numberOfLines={2}>
+                  {selectedParty.name}
+                </Text>
+                
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 }}>
+                  {/* Entity Type Badge */}
+                  <View style={{ backgroundColor: isDarkMode ? "rgba(56,189,248,0.15)" : "#E0F2FE", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 }}>
+                    <Text style={{ fontSize: 11.5, fontWeight: "800", color: C.accent }}>
+                      {isCustomer ? "CUSTOMER REGISTRY" : "VENDOR REGISTRY"}
+                    </Text>
+                  </View>
+
+                  {/* Active / Inactive Switch Pill */}
+                  <Pressable
+                    onPress={() => {
+                      const newStatus = !selectedParty.is_active;
+                      updateMutation.mutate({
+                        id: selectedParty.id,
+                        data: { ...selectedParty, is_active: newStatus }
+                      });
+                    }}
+                    style={({ hovered }: any) => [
+                      {
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        backgroundColor: selectedParty.is_active ? (isDarkMode ? "#14532D" : "#DCFCE7") : (isDarkMode ? "#450A0A" : "#FEE2E2"),
+                        borderColor: selectedParty.is_active ? (isDarkMode ? "#22C55E" : "#86EFAC") : (isDarkMode ? "#EF4444" : "#FCA5A5"),
+                        borderWidth: 1,
+                        borderRadius: 14,
+                        paddingHorizontal: 10,
+                        paddingVertical: 3
+                      },
+                      hovered && { opacity: 0.85 }
+                    ]}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "800", fontFamily: "Segoe UI Variable Text", color: selectedParty.is_active ? (isDarkMode ? "#86EFAC" : "#16A34A") : (isDarkMode ? "#FCA5A5" : "#DC2626") }}>
+                      {selectedParty.is_active ? "ACTIVE" : "INACTIVE"}
+                    </Text>
+                    <View style={{
+                      width: 26,
+                      height: 14,
+                      borderRadius: 7,
+                      backgroundColor: selectedParty.is_active ? "#16A34A" : "#94A3B8",
+                      padding: 2,
+                      justifyContent: "center",
+                      alignItems: selectedParty.is_active ? "flex-end" : "flex-start"
+                    }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "#FFFFFF" }} />
+                    </View>
+                  </Pressable>
                 </View>
               </View>
+
               <Pressable onPress={() => setSelectedParty(null)} style={({ hovered }: any) => ({ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: hovered ? "#E81123" : (isDarkMode ? "rgba(239,68,68,0.15)" : "#FEE2E2") })}>
-                <Text style={{ fontSize: 16, fontWeight: "bold", color: isDarkMode ? "#EF4444" : "#DC2626" }}>×</Text>
+                <Text style={{ fontSize: 16, fontWeight: "bold", color: isDarkMode ? "#EF4444" : "#DC2626" }}>✕</Text>
               </Pressable>
             </View>
 
-            <View style={{ height: 1, backgroundColor: C.divider, marginBottom: 14 }} />
-
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
-              <Button title="✎ Edit" onPress={() => openEdit(selectedParty)} variant="primary" size="medium" style={{ flex: 1 }} />
-              <Button title="Delete" onPress={() => Alert.alert("Delete Confirmation", `Delete "${selectedParty.name}"?`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selectedParty.id) }])} variant="secondary" size="medium" style={{ flex: 1 }} />
+            {/* Outstanding Balance Highlight Card */}
+            <View style={{ borderWidth: 1, borderColor: isDarkMode ? "#1E3A5F" : "#BFDBFE", borderRadius: 10, padding: 16, backgroundColor: isDarkMode ? "#1A2536" : "#EFF6FF", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <View>
+                <Text style={{ fontSize: 11, fontWeight: "800", color: C.textSecondary, letterSpacing: 0.8 }}>CURRENT OUTSTANDING BALANCE</Text>
+                <Text style={{ fontSize: 24, fontWeight: "900", fontFamily: "Segoe UI Variable Display", color: Number(selectedParty.outstanding_balance || 0) > 0 ? (isCustomer ? C.accent : "#EF4444") : C.textPrimary, marginTop: 2 }}>
+                  ₹{Number(selectedParty.outstanding_balance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Text>
+              </View>
+              <View style={{ backgroundColor: isDarkMode ? "rgba(56,189,248,0.15)" : "#FFFFFF", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: isDarkMode ? "transparent" : "#BFDBFE" }}>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: C.accent }}>
+                  {isCustomer ? "RECEIVABLE" : "PAYABLE"}
+                </Text>
+              </View>
             </View>
 
-            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC" }}>
+            {/* Action Toolbar */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Button title="✎ Edit Profile" onPress={() => openEdit(selectedParty)} variant="primary" size="medium" style={{ flex: 1 }} />
+              <Button icon={<Text style={{ fontFamily: "Segoe MDL2 Assets", fontSize: 14, color: "#EF4444", fontWeight: "bold" }}>{"\uE74D"}</Text>} title="Delete Record" onPress={() => deleteMutation.mutate(selectedParty.id)} variant="secondary" size="medium" style={{ flex: 1 }} textStyle={{ color: "#EF4444" }} />
+            </View>
+
+            {/* Card 1: CONTACT INFORMATION */}
+            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 16, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", gap: 10 }}>
               <SecHeader label="CONTACT INFORMATION" accent={C.accent} />
-              <DetailRow label="PHONE" value={selectedParty.phone} C={C} />
-              <DetailRow label="MOBILE" value={selectedParty.mobile_no} C={C} />
-              <DetailRow label="EMAIL" value={selectedParty.email} C={C} />
-              <DetailRow label="GSTIN" value={selectedParty.gst_number} C={C} />
-              <DetailRow label="GST TREATMENT" value={selectedParty.gst_treatment} C={C} />
-              <DetailRow label="PAN" value={selectedParty.pan_number} C={C} />
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}><DetailRow label="PHONE" value={selectedParty.phone} C={C} /></View>
+                <View style={{ flex: 1 }}><DetailRow label="MOBILE NO." value={selectedParty.mobile_no} C={C} /></View>
+              </View>
+              <DetailRow label="EMAIL ADDRESS" value={selectedParty.email} C={C} />
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}><DetailRow label="GSTIN NUMBER" value={selectedParty.gst_number} C={C} /></View>
+                <View style={{ flex: 1 }}><DetailRow label="GST TREATMENT" value={selectedParty.gst_treatment} C={C} /></View>
+              </View>
+              <DetailRow label="PAN NUMBER" value={selectedParty.pan_number} C={C} />
             </View>
 
-            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", marginTop: 12 }}>
-              <SecHeader label="ADDRESS" accent={C.accent} />
+            {/* Card 2: ADDRESS & STATION */}
+            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 16, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", gap: 10 }}>
+              <SecHeader label="ADDRESS & STATION" accent={C.accent} />
               <DetailRow label="ADDRESS LINE 1" value={selectedParty.address} C={C} />
               {selectedParty.street2 && <DetailRow label="ADDRESS LINE 2" value={selectedParty.street2} C={C} />}
-              <DetailRow label="CITY" value={selectedParty.city} C={C} />
-              <DetailRow label="STATE" value={selectedParty.state} C={C} />
-              <DetailRow label="PINCODE" value={selectedParty.pincode} C={C} />
-              <DetailRow label="COUNTRY" value={selectedParty.country} C={C} />
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}><DetailRow label="CITY" value={selectedParty.city} C={C} /></View>
+                <View style={{ flex: 1 }}><DetailRow label="STATE" value={selectedParty.state} C={C} /></View>
+                <View style={{ flex: 0.8 }}><DetailRow label="PINCODE" value={selectedParty.pincode} C={C} /></View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}><DetailRow label="COUNTRY" value={selectedParty.country} C={C} /></View>
+                <View style={{ flex: 1 }}><DetailRow label="STATION / AREA" value={selectedParty.station} C={C} /></View>
+              </View>
             </View>
 
-            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", marginTop: 12 }}>
-              <SecHeader label="FINANCIAL TERMS" accent={C.accent} />
-              <View style={{ flexDirection: "row", gap: 10 }}>
+            {/* Card 3: FINANCIAL TERMS & CREDIT STANDING */}
+            <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 16, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", gap: 10 }}>
+              <SecHeader label="FINANCIAL TERMS & CREDIT STANDING" accent={C.accent} />
+              <View style={{ flexDirection: "row", gap: 12 }}>
                 <View style={{ flex: 1 }}><DetailRow label="OPENING BALANCE" value={`₹${Number(selectedParty.opening_balance || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })} ${(selectedParty.opening_balance_type || "dr").toUpperCase()}`} C={C} /></View>
                 <View style={{ flex: 1 }}><DetailRow label="PAYMENT TERMS" value={selectedParty.payment_terms} C={C} /></View>
               </View>
               {isCustomer && (
-                <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flexDirection: "row", gap: 12 }}>
                   <View style={{ flex: 1 }}><DetailRow label="CREDIT LIMIT" value={`₹${Number(selectedParty.credit_limit || 0).toLocaleString("en-IN")}`} C={C} /></View>
                   <View style={{ flex: 1 }}><DetailRow label="CREDIT DAYS" value={`${selectedParty.credit_days || 0} days`} C={C} /></View>
                 </View>
               )}
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <View style={{ flex: 1 }}><DetailRow label="DISCOUNT %" value={selectedParty.discount_pct} C={C} /></View>
-                <View style={{ flex: 1 }}><DetailRow label="TDS RATE %" value={selectedParty.tds_rate} C={C} /></View>
+              <View style={{ flexDirection: "row", gap: 12 }}>
+                <View style={{ flex: 1 }}><DetailRow label="DISCOUNT %" value={selectedParty.discount_pct ? `${selectedParty.discount_pct}%` : "—"} C={C} /></View>
+                <View style={{ flex: 1 }}><DetailRow label="TDS RATE %" value={selectedParty.tds_rate ? `${selectedParty.tds_rate}%` : "—"} C={C} /></View>
               </View>
             </View>
 
+            {/* Card 4: BANKING & SETTLEMENT DETAILS */}
             {(selectedParty.bank_name || selectedParty.bank_account_no) && (
-              <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", marginTop: 12 }}>
-                <SecHeader label="BANK DETAILS" accent={C.accent} />
-                <DetailRow label="BANK" value={selectedParty.bank_name} C={C} />
-                <DetailRow label="BRANCH" value={selectedParty.bank_branch} C={C} />
-                <DetailRow label="ACCOUNT NO." value={selectedParty.bank_account_no} C={C} />
-                <DetailRow label="IFSC" value={selectedParty.ifsc_code} C={C} />
+              <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 16, backgroundColor: isDarkMode ? "#0F172A" : "#F8FAFC", gap: 10 }}>
+                <SecHeader label="BANKING DETAILS" accent={C.accent} />
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <View style={{ flex: 1 }}><DetailRow label="BANK NAME" value={selectedParty.bank_name} C={C} /></View>
+                  <View style={{ flex: 1 }}><DetailRow label="BRANCH" value={selectedParty.bank_branch} C={C} /></View>
+                </View>
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  <View style={{ flex: 1 }}><DetailRow label="ACCOUNT NO." value={selectedParty.bank_account_no} C={C} /></View>
+                  <View style={{ flex: 1 }}><DetailRow label="IFSC CODE" value={selectedParty.ifsc_code} C={C} /></View>
+                </View>
               </View>
             )}
           </ScrollView>

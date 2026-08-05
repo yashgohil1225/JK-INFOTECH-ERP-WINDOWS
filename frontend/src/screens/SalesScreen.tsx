@@ -327,6 +327,11 @@ export default function SalesScreen() {
       setTimeout(() => {
         paymentAmountRef.current?.focus();
       }, 250);
+      if (paymentForm.payment_method !== "CASH" && filteredBankAccounts.length >= 2) {
+        setTimeout(() => {
+          paymentBankRef.current?.open();
+        }, 350);
+      }
     }
   }, [isPaymentModalOpen]);
 
@@ -667,6 +672,28 @@ export default function SalesScreen() {
     },
   });
 
+  function handleDeleteInvoice(inv: Invoice) {
+    const hasPayments = Number(inv.amount_paid) > 0;
+    const formattedAmount = Number(inv.amount_paid).toLocaleString("en-IN", { minimumFractionDigits: 2 });
+    const alertTitle = hasPayments ? "⚠️ Delete Paid Invoice?" : "Delete Invoice";
+    const alertMsg = hasPayments
+      ? `Warning: Payments of ₹${formattedAmount} have been received against invoice ${inv.invoice_number}.\n\nDeleting this invoice will also permanently delete all associated payment records and adjust your cash/bank balances.\n\nAre you sure you want to proceed?`
+      : `Are you sure you want to delete invoice ${inv.invoice_number}?`;
+
+    Alert.alert(
+      alertTitle,
+      alertMsg,
+      [
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteMutation.mutate(inv.id)
+        },
+        { text: "Cancel", style: "cancel" }
+      ]
+    );
+  }
+
   const triggerPreview = async (inv: Invoice) => {
     setPreviewInv(inv);
     setIsPreviewOpen(true);
@@ -737,8 +764,11 @@ export default function SalesScreen() {
       queryClient.invalidateQueries({ queryKey: ["allAccounts"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       // ────────────────────────────────────────────────────────────────────
 
       setIsPaymentModalOpen(false);
@@ -812,9 +842,12 @@ export default function SalesScreen() {
     onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["invoicePayments", selectedInv?.id] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_kpis"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_sales_trend"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard_liquidity"] });
+      invalidateAllQueries(queryClient);
       Alert.alert("Success", "Payment receipt deleted successfully.");
 
       if (selectedInv) {
@@ -1242,13 +1275,14 @@ export default function SalesScreen() {
                     {canReceive && (
                       <Pressable
                         onPress={() => {
+                          const initialBank = filteredBankAccounts[0]?.name || "";
                           setPaymentForm({
                             amount: String(row.balance_due),
                             tds_amount: "0",
                             apply_remaining_as_tds: true,
                             payment_date: toUIDate(new Date().toISOString().split("T")[0]),
                             payment_method: "BANK_TRANSFER",
-                            bank_account: bankAccounts[0]?.name || "",
+                            bank_account: initialBank,
                             reference_number: "",
                             notes: `Payment for invoice ${row.invoice_number}`
                           });
@@ -1264,6 +1298,30 @@ export default function SalesScreen() {
                         <Text style={styles.tableReceiveBtnText}>Receive Payment</Text>
                       </Pressable>
                     )}
+
+                    {/* Delete Icon Button */}
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleDeleteInvoice(row);
+                      }}
+                      style={({ hovered, pressed }: any) => [
+                        {
+                          paddingHorizontal: 8,
+                          paddingVertical: 6,
+                          borderRadius: 4,
+                          borderWidth: 1,
+                          borderColor: C.btnDanger,
+                          backgroundColor: isDarkMode ? "rgba(239,68,68,0.12)" : "#FEE2E2",
+                          justifyContent: "center",
+                          alignItems: "center"
+                        },
+                        hovered && { backgroundColor: isDarkMode ? "rgba(239,68,68,0.25)" : "#FCA5A5" },
+                        pressed && { transform: [{ scale: 0.96 }] }
+                      ]}
+                    >
+                      <Text style={{ fontFamily: "Segoe MDL2 Assets", fontSize: 13, color: C.btnDanger, fontWeight: "bold" }}>{"\uE74D"}</Text>
+                    </Pressable>
                   </View>
                 );
               }
@@ -2232,7 +2290,7 @@ export default function SalesScreen() {
                   keyboardType="numeric"
                   placeholder="0.00"
                   onSubmitEditing={() => paymentDateRef.current?.focus()}
-                  style={{ fontSize: 22, fontWeight: "700", paddingVertical: 10 }}
+                  style={{ fontSize: 20, fontWeight: "700", height: 48, paddingTop: 6, paddingBottom: 6 }}
                 />
               </View>
 
@@ -2313,6 +2371,11 @@ export default function SalesScreen() {
                         } else {
                           if (!targetBank || targetBank === "Cash In Hand" || !filteredBankAccounts.some(b => b.name === targetBank)) {
                             targetBank = filteredBankAccounts[0]?.name || "";
+                          }
+                          if (filteredBankAccounts.length >= 2) {
+                            setTimeout(() => {
+                              paymentBankRef.current?.open();
+                            }, 100);
                           }
                         }
                         setPaymentForm(f => ({
@@ -2430,7 +2493,7 @@ export default function SalesScreen() {
         getPdfUrl={(orientation, search, theme, copyType) =>
           `${apiClient.defaults.baseURL}/api/v1/sales/invoices/public/${previewInv?.id}/pdf?theme=${theme}&copy_type=${copyType}&orientation=${orientation}&search=${encodeURIComponent(search)}`
         }
-        showThemeSelector={true}
+        showThemeSelector={false}
         showCopySelector={true}
       />
 

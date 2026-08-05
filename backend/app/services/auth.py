@@ -203,7 +203,7 @@ class AuthService:
             select(User)
             .join(Company, User.company_id == Company.id)
             .where(User.is_active == True, Company.is_active == True)
-            .order_by(User.last_login.desc().nulls_last(), User.created_at.desc())
+            .order_by(User.last_login.desc(), User.created_at.desc())
         )
         result = await self.db.execute(stmt)
         user = result.scalars().first()
@@ -366,10 +366,14 @@ class AuthService:
         elif data.pin:
             for u in users:
                 if u.pin_hash and verify_password(data.pin, u.pin_hash):
-                    if u.pin_locked_until and u.pin_locked_until > datetime.now(timezone.utc):
-                        diff = u.pin_locked_until - datetime.now(timezone.utc)
-                        minutes = max(1, int(diff.total_seconds() // 60))
-                        raise ValueError(f"PIN entry is locked. Try again in {minutes}m or use Password.")
+                    if u.pin_locked_until:
+                        locked_until = u.pin_locked_until
+                        if locked_until.tzinfo is None:
+                            locked_until = locked_until.replace(tzinfo=timezone.utc)
+                        if locked_until > datetime.now(timezone.utc):
+                            diff = locked_until - datetime.now(timezone.utc)
+                            minutes = max(1, int(diff.total_seconds() // 60))
+                            raise ValueError(f"PIN entry is locked. Try again in {minutes}m or use Password.")
                     u.failed_pin_attempts = 0
                     u.pin_locked_until = None
                     valid_user = u
@@ -458,19 +462,23 @@ class AuthService:
         session = result.scalars().first()
 
         # ── SECURITY CASE: Token Reuse Detection (Replay Attack) ──
-        if session and (session.is_revoked or session.expires_at < datetime.now(timezone.utc)):
-            # Someone is trying to reuse a token that was already refreshed or has expired.
-            # This is a major red flag (stolen token). We revoke EVERYTHING for this user.
-            logger.warning(f"SECURITY ALERT: Token reuse detected for user {user_id}. Revoking all sessions.")
-            revoke_stmt = (
-                select(UserSession)
-                .where(UserSession.user_id == user_id, UserSession.is_revoked == False)
-            )
-            all_sessions = (await self.db.execute(revoke_stmt)).scalars().all()
-            for s in all_sessions:
-                s.is_revoked = True
-            await self.db.commit()
-            raise ValueError("Security breach detected. Please log in again using your credentials.")
+        if session:
+            expires_at = session.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if session.is_revoked or expires_at < datetime.now(timezone.utc):
+                # Someone is trying to reuse a token that was already refreshed or has expired.
+                # This is a major red flag (stolen token). We revoke EVERYTHING for this user.
+                logger.warning(f"SECURITY ALERT: Token reuse detected for user {user_id}. Revoking all sessions.")
+                revoke_stmt = (
+                    select(UserSession)
+                    .where(UserSession.user_id == user_id, UserSession.is_revoked == False)
+                )
+                all_sessions = (await self.db.execute(revoke_stmt)).scalars().all()
+                for s in all_sessions:
+                    s.is_revoked = True
+                await self.db.commit()
+                raise ValueError("Security breach detected. Please log in again using your credentials.")
 
         if not session:
             # If "Remember Me" wasn't checked, the token won't be in DB.
@@ -490,7 +498,9 @@ class AuthService:
         
         # Detect if this was a "Remembered" session to set the new expiry
         # If the original session had more than 2 days total duration, we treat it as "Remembered"
-        was_remembered = (session.expires_at - session.created_at) > timedelta(days=1, hours=1)
+        was_remembered = False
+        if session.expires_at and session.created_at:
+            was_remembered = (session.expires_at - session.created_at) > timedelta(days=1, hours=1)
         new_expiry_duration = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS) if was_remembered else timedelta(days=1)
         
         # Mark old session as revoked
@@ -751,12 +761,16 @@ class AuthService:
                 raise ValueError("PIN authentication is not configured for this account.")
             
             # 3. Check if currently locked
-            if target_user.pin_locked_until and target_user.pin_locked_until > datetime.now(timezone.utc):
-                diff = target_user.pin_locked_until - datetime.now(timezone.utc)
-                minutes = int(diff.total_seconds() // 60)
-                if minutes < 1:
-                    minutes = 1
-                raise ValueError(f"PIN entry is locked. Try again in {minutes}m or use OTP to unlock.")
+            if target_user.pin_locked_until:
+                locked_until = target_user.pin_locked_until
+                if locked_until.tzinfo is None:
+                    locked_until = locked_until.replace(tzinfo=timezone.utc)
+                if locked_until > datetime.now(timezone.utc):
+                    diff = locked_until - datetime.now(timezone.utc)
+                    minutes = int(diff.total_seconds() // 60)
+                    if minutes < 1:
+                        minutes = 1
+                    raise ValueError(f"PIN entry is locked. Try again in {minutes}m or use OTP to unlock.")
 
             # 4. Verify PIN (if we didn't already verify it in the login_id branch)
             if not verify_password(pin, target_user.pin_hash):

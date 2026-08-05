@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.middleware.auth import get_current_user, get_current_company
-from app.models import Customer, Supplier, Company, Invoice, PurchaseBill
+from app.models import Customer, Supplier, Company, Invoice, PurchaseBill, SalesOrder, PurchaseOrder, Payment
 from app.schemas.parties import (
     Customer as CustomerSchema, CustomerCreate, CustomerUpdate,
     Supplier as SupplierSchema, SupplierCreate, SupplierUpdate,
@@ -26,6 +26,8 @@ from app.core.redis import cache_manager
 # --- Customers ---
 @router.get("/customers/light", response_model=List[CustomerLight])
 @router.get("/customers/light/", response_model=List[CustomerLight])
+@router.get("/parties/customers/light", response_model=List[CustomerLight])
+@router.get("/parties/customers/light/", response_model=List[CustomerLight])
 async def list_customers_light(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -46,6 +48,8 @@ async def list_customers_light(
 
 @router.get("/customers/", response_model=List[CustomerSchema])
 @router.get("/customers", response_model=List[CustomerSchema])
+@router.get("/parties/customers/", response_model=List[CustomerSchema])
+@router.get("/parties/customers", response_model=List[CustomerSchema])
 async def list_customers(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -80,6 +84,7 @@ async def list_customers(
     return out
 
 @router.get("/customers/{customer_id}", response_model=CustomerSchema)
+@router.get("/parties/customers/{customer_id}", response_model=CustomerSchema)
 async def get_customer(
     customer_id: UUID, 
     db: AsyncSession = Depends(get_db),
@@ -92,10 +97,21 @@ async def get_customer(
     customer = result.scalar_one_or_none()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found in this company context")
-    return customer
+
+    bal_res = await db.execute(
+        select(func.coalesce(func.sum(Invoice.balance_due), 0))
+        .where(Invoice.customer_id == customer_id, Invoice.company_id == company.id)
+    )
+    due_sum = bal_res.scalar() or 0
+
+    c_dict = CustomerSchema.model_validate(customer).model_dump()
+    c_dict["outstanding_balance"] = Decimal(str(customer.opening_balance or 0)) + Decimal(str(due_sum))
+    return c_dict
 
 @router.post("/customers/", response_model=CustomerSchema, status_code=status.HTTP_201_CREATED)
 @router.post("/customers", response_model=CustomerSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/parties/customers/", response_model=CustomerSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/parties/customers", response_model=CustomerSchema, status_code=status.HTTP_201_CREATED)
 async def create_customer(
     customer_in: CustomerCreate, 
     db: AsyncSession = Depends(get_db),
@@ -114,6 +130,7 @@ async def create_customer(
     return new_customer
 
 @router.put("/customers/{customer_id}", response_model=CustomerSchema)
+@router.put("/parties/customers/{customer_id}", response_model=CustomerSchema)
 async def update_customer_route(
     customer_id: UUID, 
     customer_in: CustomerUpdate, 
@@ -141,6 +158,7 @@ async def update_customer_route(
     return customer
 
 @router.delete("/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/parties/customers/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_customer_route(
     customer_id: UUID, 
     db: AsyncSession = Depends(get_db),
@@ -154,6 +172,38 @@ async def delete_customer_route(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
+    # 1. Check linked Invoices
+    inv_check = await db.execute(
+        select(func.count(Invoice.id)).where(Invoice.customer_id == customer_id, Invoice.company_id == company.id)
+    )
+    inv_count = inv_check.scalar() or 0
+
+    # 2. Check linked Sales Orders
+    so_check = await db.execute(
+        select(func.count(SalesOrder.id)).where(SalesOrder.customer_id == customer_id, SalesOrder.company_id == company.id)
+    )
+    so_count = so_check.scalar() or 0
+
+    # 3. Check linked Payments
+    pmt_check = await db.execute(
+        select(func.count(Payment.id)).where(Payment.party_id == customer_id, Payment.company_id == company.id)
+    )
+    pmt_count = pmt_check.scalar() or 0
+
+    # 4. Check outstanding / opening balance
+    bal_check = await db.execute(
+        select(func.coalesce(func.sum(Invoice.balance_due), 0))
+        .where(Invoice.customer_id == customer_id, Invoice.company_id == company.id)
+    )
+    due_sum = bal_check.scalar() or 0
+    total_outstanding = Decimal(str(customer.opening_balance or 0)) + Decimal(str(due_sum))
+
+    if inv_count > 0 or so_count > 0 or pmt_count > 0 or total_outstanding > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail="This customer has existing invoices or payment history. Deletion is blocked to protect your tax & accounting records. Please mark this customer as INACTIVE instead."
+        )
+
     try:
         await db.delete(customer)
         await db.commit()
@@ -164,13 +214,15 @@ async def delete_customer_route(
         await db.rollback()
         raise HTTPException(
             status_code=400, 
-            detail="Integrity Breach: This entity has dependent transaction history. Record termination aborted to preserve audit trail. Please deactivate the node instead."
+            detail="This customer has existing invoices or payment history. Deletion is blocked to protect your tax & accounting records. Please mark this customer as INACTIVE instead."
         )
     return None
 
 # --- Suppliers ---
 @router.get("/suppliers/light", response_model=List[SupplierLight])
 @router.get("/suppliers/light/", response_model=List[SupplierLight])
+@router.get("/parties/suppliers/light", response_model=List[SupplierLight])
+@router.get("/parties/suppliers/light/", response_model=List[SupplierLight])
 async def list_suppliers_light(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -191,6 +243,8 @@ async def list_suppliers_light(
 
 @router.get("/suppliers/", response_model=List[SupplierSchema])
 @router.get("/suppliers", response_model=List[SupplierSchema])
+@router.get("/parties/suppliers/", response_model=List[SupplierSchema])
+@router.get("/parties/suppliers", response_model=List[SupplierSchema])
 async def list_suppliers(
     db: AsyncSession = Depends(get_db),
     company: Company = Depends(get_current_company)
@@ -225,6 +279,7 @@ async def list_suppliers(
     return out
 
 @router.get("/suppliers/{supplier_id}", response_model=SupplierSchema)
+@router.get("/parties/suppliers/{supplier_id}", response_model=SupplierSchema)
 async def get_supplier(
     supplier_id: UUID, 
     db: AsyncSession = Depends(get_db),
@@ -237,10 +292,21 @@ async def get_supplier(
     supplier = result.scalar_one_or_none()
     if not supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
-    return supplier
+
+    bal_res = await db.execute(
+        select(func.coalesce(func.sum(PurchaseBill.balance_due), 0))
+        .where(PurchaseBill.supplier_id == supplier_id, PurchaseBill.company_id == company.id)
+    )
+    due_sum = bal_res.scalar() or 0
+
+    s_dict = SupplierSchema.model_validate(supplier).model_dump()
+    s_dict["outstanding_balance"] = Decimal(str(supplier.opening_balance or 0)) + Decimal(str(due_sum))
+    return s_dict
 
 @router.post("/suppliers/", response_model=SupplierSchema, status_code=status.HTTP_201_CREATED)
 @router.post("/suppliers", response_model=SupplierSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/parties/suppliers/", response_model=SupplierSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/parties/suppliers", response_model=SupplierSchema, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     supplier_in: SupplierCreate, 
     db: AsyncSession = Depends(get_db),
@@ -259,6 +325,7 @@ async def create_supplier(
     return new_supplier
 
 @router.put("/suppliers/{supplier_id}", response_model=SupplierSchema)
+@router.put("/parties/suppliers/{supplier_id}", response_model=SupplierSchema)
 async def update_supplier_route(
     supplier_id: UUID, 
     supplier_in: SupplierUpdate, 
@@ -285,6 +352,7 @@ async def update_supplier_route(
     return supplier
 
 @router.delete("/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/parties/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_supplier_route(
     supplier_id: UUID, 
     db: AsyncSession = Depends(get_db),
@@ -298,6 +366,38 @@ async def delete_supplier_route(
     if not supplier:
         raise HTTPException(status_code=404, detail="Supplier not found")
     
+    # 1. Check linked Purchase Bills
+    bill_check = await db.execute(
+        select(func.count(PurchaseBill.id)).where(PurchaseBill.supplier_id == supplier_id, PurchaseBill.company_id == company.id)
+    )
+    bill_count = bill_check.scalar() or 0
+
+    # 2. Check linked Purchase Orders
+    po_check = await db.execute(
+        select(func.count(PurchaseOrder.id)).where(PurchaseOrder.supplier_id == supplier_id, PurchaseOrder.company_id == company.id)
+    )
+    po_count = po_check.scalar() or 0
+
+    # 3. Check linked Payments
+    pmt_check = await db.execute(
+        select(func.count(Payment.id)).where(Payment.party_id == supplier_id, Payment.company_id == company.id)
+    )
+    pmt_count = pmt_check.scalar() or 0
+
+    # 4. Check outstanding / opening balance
+    bal_check = await db.execute(
+        select(func.coalesce(func.sum(PurchaseBill.balance_due), 0))
+        .where(PurchaseBill.supplier_id == supplier_id, PurchaseBill.company_id == company.id)
+    )
+    due_sum = bal_check.scalar() or 0
+    total_outstanding = Decimal(str(supplier.opening_balance or 0)) + Decimal(str(due_sum))
+
+    if bill_count > 0 or po_count > 0 or pmt_count > 0 or total_outstanding > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail="This vendor has existing purchase bills or payment history. Deletion is blocked to protect your tax & accounting records. Please mark this vendor as INACTIVE instead."
+        )
+
     try:
         await db.delete(supplier)
         await db.commit()
@@ -308,6 +408,6 @@ async def delete_supplier_route(
         await db.rollback()
         raise HTTPException(
             status_code=400, 
-            detail="Integrity Breach: This vendor has dependent procurement history. Record termination aborted. Please deactivate the node instead."
+            detail="This vendor has existing purchase bills or payment history. Deletion is blocked to protect your tax & accounting records. Please mark this vendor as INACTIVE instead."
         )
     return None

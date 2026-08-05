@@ -5,7 +5,7 @@
 
 $ErrorActionPreference = "Stop"
 $WorkspaceRoot = $PSScriptRoot
-$AppVersion = "1.2.8"
+$AppVersion = "1.6.8"
 
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host "JK INFOTECH ERP v$AppVersion — Full Release Packaging" -ForegroundColor Cyan
@@ -39,20 +39,27 @@ if (-not $isccPath) {
 }
 Write-Host "[✓] Inno Setup Compiler found: $isccPath" -ForegroundColor Green
 
-# ---------------------------------------------------------------------
-# Step 1.5: Bundle PostgreSQL Engine Binaries if Missing
-# ---------------------------------------------------------------------
-$pgsqlLocal = Join-Path $WorkspaceRoot "pgsql"
-$pgSystem = "C:\Program Files\PostgreSQL\16"
-
-if (-not (Test-Path $pgsqlLocal) -and (Test-Path $pgSystem)) {
-    Write-Host "`n[1.5/4] Bundling PostgreSQL Engine from $pgSystem..." -ForegroundColor Yellow
-    New-Item -ItemType Directory -Path $pgsqlLocal -Force | Out-Null
-    Copy-Item -Path (Join-Path $pgSystem "bin") -Destination (Join-Path $pgsqlLocal "bin") -Recurse -Force
-    Copy-Item -Path (Join-Path $pgSystem "lib") -Destination (Join-Path $pgsqlLocal "lib") -Recurse -Force
-    Copy-Item -Path (Join-Path $pgSystem "share") -Destination (Join-Path $pgsqlLocal "share") -Recurse -Force
-    Write-Host "[✓] PostgreSQL engine binaries bundled into $pgsqlLocal" -ForegroundColor Green
+# Bundle VC_redist.x64.exe prerequisite installer
+$redistDir = Join-Path $WorkspaceRoot "redist"
+$vcRedistExe = Join-Path $redistDir "vc_redist.x64.exe"
+if (-not (Test-Path $vcRedistExe)) {
+    New-Item -ItemType Directory -Path $redistDir -Force | Out-Null
+    $vsRedistCandidates = @(
+        "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC\v143\vc_redist.x64.exe",
+        "C:\Program Files (x86)\Microsoft Visual Studio\Installer\resources\app\layout\VC_redist.x64.exe"
+    )
+    foreach ($candidate in $vsRedistCandidates) {
+        if (Test-Path $candidate) {
+            Copy-Item -Path $candidate -Destination $vcRedistExe -Force
+            break
+        }
+    }
+    if (-not (Test-Path $vcRedistExe)) {
+        Write-Host "Downloading Microsoft Visual C++ 2015-2022 Redistributable..." -ForegroundColor Yellow
+        Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $vcRedistExe
+    }
 }
+Write-Host "[✓] VC++ Redistributable bundled at: $vcRedistExe" -ForegroundColor Green
 
 # ---------------------------------------------------------------------
 # Step 2: Build Python Backend Executable (PyInstaller)
@@ -74,6 +81,28 @@ try {
         throw "backend.exe output not found at $distExe after PyInstaller build."
     }
     Write-Host "[✓] Python backend built successfully: $([math]::Round((Get-Item $distExe).Length / 1MB, 2)) MB" -ForegroundColor Green
+
+    # Compile standalone migrate-db.exe for setup installer & runtime migration
+    Write-Host "Building standalone database migration executable (migrate-db.exe)..." -ForegroundColor Yellow
+    $migrateScript = Join-Path $WorkspaceRoot "scripts\migrate_pg_to_sqlite.py"
+    $scriptsOutputDir = Join-Path $WorkspaceRoot "scripts"
+    if (Test-Path $venvPy) {
+        & $venvPy -m PyInstaller --noconfirm --onefile --windowed --name "migrate-db" --collect-all "psycopg2" --hidden-import "sqlite3" --distpath $scriptsOutputDir $migrateScript
+    } else {
+        pyinstaller --noconfirm --onefile --windowed --name "migrate-db" --collect-all "psycopg2" --hidden-import "sqlite3" --distpath $scriptsOutputDir $migrateScript
+    }
+    Write-Host "[✓] Standalone migration tool built successfully: $(Join-Path $scriptsOutputDir 'migrate-db.exe')" -ForegroundColor Green
+
+    # Compile single launcher executable (JK_Infotech_ERP.exe) for setup installer
+    Write-Host "Building single compiled launcher executable (JK_Infotech_ERP.exe)..." -ForegroundColor Yellow
+    $launcherScript = Join-Path $WorkspaceRoot "scripts\launcher.py"
+    $iconPath = Join-Path $WorkspaceRoot "JK INFOTECH branding assests\ico\jk-infotech-icon.ico"
+    if (Test-Path $venvPy) {
+        & $venvPy -m PyInstaller --noconfirm --onefile --windowed --name "JK_Infotech_ERP" --icon $iconPath --distpath $scriptsOutputDir $launcherScript
+    } else {
+        pyinstaller --noconfirm --onefile --windowed --name "JK_Infotech_ERP" --icon $iconPath --distpath $scriptsOutputDir $launcherScript
+    }
+    Write-Host "[✓] Single compiled launcher built successfully: $(Join-Path $scriptsOutputDir 'JK_Infotech_ERP.exe')" -ForegroundColor Green
 } finally {
     Pop-Location
 }
@@ -86,8 +115,11 @@ $frontendDir = Join-Path $WorkspaceRoot "frontend"
 Push-Location $frontendDir
 
 try {
-    # Build React Native Windows App Package
-    npx react-native run-windows --logging --release --no-launch
+    # Recompile JS bundle to guarantee index.windows.bundle reflects latest code changes
+    npx react-native bundle --platform windows --dev false --entry-file index.js --bundle-output windows/JKErpWindows/ReactAssets/index.windows.bundle --assets-dest windows/JKErpWindows/ReactAssets
+
+    # Build React Native Windows App Package with sideload package creation enabled
+    npx react-native run-windows --logging --release --no-launch --arch x64 --msbuildprops "AppxPackageSigningEnabled=true,UapAppxPackageBuildMode=SideLoadOnly,AppxBundle=Never"
     
     $appxDir = Join-Path $frontendDir "windows\AppPackages\JKErpWindows\JKErpWindows_${AppVersion}.0_x64_Test"
     if (-not (Test-Path $appxDir)) {
@@ -96,10 +128,20 @@ try {
         if ($appxDirFallback) {
             $appxDir = $appxDirFallback.FullName
         } else {
-            Write-Warning "AppPackages v$AppVersion folder not found automatically. Using available package."
+            throw "AppPackages folder not found at $appxDir after React Native Windows build."
         }
     }
     Write-Host "[✓] Windows UWP app built at: $appxDir" -ForegroundColor Green
+    
+    # Inject UWP C++ runtime _app.dll files into standalone Release binary folder
+    $releaseBinDir = Join-Path $frontendDir "windows\x64\Release\JKErpWindows"
+    if (Test-Path $releaseBinDir) {
+        $cbsDir = "C:\Windows\SystemApps\MicrosoftWindows.Client.CBS_cw5n1h2txyewy"
+        if (Test-Path $cbsDir) {
+            Copy-Item -Path "$cbsDir\*_app.dll" -Destination $releaseBinDir -Force -ErrorAction SilentlyContinue
+            Write-Host "[✓] UWP C++ runtime DLLs (msvcp140_app.dll) injected into standalone client folder" -ForegroundColor Green
+        }
+    }
 } finally {
     Pop-Location
 }
@@ -122,28 +164,6 @@ if (-not (Test-Path $setupExePath)) {
     throw "Setup executable not found at $setupExePath after Inno Setup compilation."
 }
 Write-Host "[✓] Setup installer compiled successfully: $setupExePath ($([math]::Round((Get-Item $setupExePath).Length / 1MB, 2)) MB)" -ForegroundColor Green
-
-# ---------------------------------------------------------------------
-# Step 5: Generate ZIP Updater File
-# ---------------------------------------------------------------------
-Write-Host "`n[4/4] Packaging ZIP Updater Archive..." -ForegroundColor Yellow
-$zipPath = Join-Path $outputDir "JK_Infotech_ERP_v${AppVersion}.zip"
-$updatesZipPath = Join-Path $WorkspaceRoot "updates\JK_Infotech_ERP_v${AppVersion}.zip"
-
-if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force }
-
-# Create ZIP archive containing the Setup Executable
-Compress-Archive -Path $setupExePath -DestinationPath $zipPath -Force
-
-# Copy to updates directory for local release distribution testing
-if (-not (Test-Path (Join-Path $WorkspaceRoot "updates"))) {
-    New-Item -ItemType Directory -Path (Join-Path $WorkspaceRoot "updates") -Force | Out-Null
-}
-Copy-Item -Path $zipPath -Destination $updatesZipPath -Force
-
-Write-Host "[✓] Updater ZIP created successfully:" -ForegroundColor Green
-Write-Host "    - Output ZIP: $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB, 2)) MB)" -ForegroundColor Green
-Write-Host "    - Updates ZIP: $updatesZipPath" -ForegroundColor Green
 
 Write-Host "`n===================================================" -ForegroundColor Cyan
 Write-Host "RELEASE BUILD COMPLETE — ALL ARTIFACTS VERIFIED!" -ForegroundColor Cyan

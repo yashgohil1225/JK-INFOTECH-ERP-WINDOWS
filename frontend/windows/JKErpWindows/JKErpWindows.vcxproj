@@ -119,6 +119,7 @@
     </ClInclude>
     <ClInclude Include="ReactPackageProvider.h" />
     <ClInclude Include="PdfRendererModule.h" />
+    <ClInclude Include="PdfScrollViewerModule.h" />
     <ClInclude Include="AutolinkedNativeModules.g.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="App.h">

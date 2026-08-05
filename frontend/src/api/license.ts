@@ -15,7 +15,7 @@ export interface LicenseStatus {
 
 export const licenseApi = {
   getStatus: async (): Promise<LicenseStatus> => {
-    const response = await apiClient.get<LicenseStatus>("/api/v1/license/status");
+    const response = await apiClient.get<LicenseStatus>("/api/v1/license/status", { timeout: 2500 });
     return response.data;
   },
 

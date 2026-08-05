@@ -2,6 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict
 
 
@@ -25,7 +26,7 @@ class PurchaseOrderItem(PurchaseOrderItemBase):
     total: Decimal
 
 class PurchaseOrderBase(BaseModel):
-    supplier_id: UUID
+    supplier_id: Optional[UUID] = None
     po_number: str
     order_date: datetime
     expected_date: Optional[datetime] = None
@@ -71,7 +72,7 @@ class PurchaseBillItem(PurchaseBillItemBase):
 
 
 class PurchaseBillBase(BaseModel):
-    supplier_id: UUID
+    supplier_id: Optional[UUID] = None
     purchase_order_id: Optional[UUID] = None
     bill_number: str
     bill_date: datetime
@@ -118,10 +119,11 @@ class DebitNoteItem(DebitNoteItemBase):
     total: Decimal
 
 class DebitNoteCreate(BaseModel):
-    supplier_id: UUID
+    supplier_id: Optional[UUID] = None
     bill_id: Optional[UUID] = None
     note_date: datetime
     reason: Optional[str] = None
+    return_mode: Optional[str] = "GOODS_RETURN"
     items: List[DebitNoteItemBase]
 
 class DebitNote(BaseModel):

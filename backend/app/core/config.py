@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # ── App ──────────────────────────────────────────────────
     APP_NAME: str       = "JK INFOTECT ERP"
-    APP_VERSION: str    = "1.0.0"
+    APP_VERSION: str    = "1.6.8"
     ENVIRONMENT: str    = "development"   # development | staging | production
     DEBUG: bool         = True
 
@@ -47,24 +47,40 @@ class Settings(BaseSettings):
     DB_ECHO: bool       = False           # set True to log SQL queries
 
     @property
+    def SQLITE_DB_PATH(self) -> str:
+        """Resolves absolute path to SQLite database file. Checks root level sqlite_data/jkerp.db first, then ProgramData."""
+        import os
+        import sys
+
+        # Resolve app root directory (supports standard Python execution and PyInstaller frozen executable)
+        if getattr(sys, 'frozen', False):
+            exec_dir = os.path.dirname(os.path.abspath(sys.executable))
+            if os.path.basename(exec_dir).lower() == "backend":
+                app_dir = os.path.dirname(exec_dir)
+            else:
+                app_dir = exec_dir
+        else:
+            core_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(core_dir)))
+
+        root_db = os.path.join(app_dir, "sqlite_data", "jkerp.db")
+        if os.path.exists(root_db):
+            return root_db.replace("\\", "/")
+
+        program_data = os.environ.get("PROGRAMDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+        db_dir = os.path.join(program_data, "JK Infotech ERP", "sqlite_data")
+        os.makedirs(db_dir, exist_ok=True)
+        return os.path.join(db_dir, "jkerp.db").replace("\\", "/")
+
+    @property
     def DATABASE_URL_ASYNC(self) -> str:
-        """asyncpg URL — used by FastAPI routes."""
-        user = quote_plus(self.DATABASE_USER)
-        password = quote_plus(self.DATABASE_PASSWORD)
-        return (
-            f"postgresql+asyncpg://{user}:{password}"
-            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
-        )
+        """aiosqlite URL — used by FastAPI routes."""
+        return f"sqlite+aiosqlite:///{self.SQLITE_DB_PATH}"
 
     @property
     def DATABASE_URL_SYNC(self) -> str:
-        """psycopg2 URL — used by Alembic only."""
-        user = quote_plus(self.DATABASE_USER)
-        password = quote_plus(self.DATABASE_PASSWORD)
-        return (
-            f"postgresql://{user}:{password}"
-            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
-        )
+        """sqlite3 sync URL — used by setup migrations."""
+        return f"sqlite:///{self.SQLITE_DB_PATH}"
 
 
     # ── JWT Auth ─────────────────────────────────────────────

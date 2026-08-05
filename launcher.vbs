@@ -1,39 +1,59 @@
 ' =====================================================================
 ' JK INFOTECH ERP — Silent Fast Launcher Script
-' Ensures PostgreSQL, Redis and Backend Engine are active before opening UI
+' Ensures SQLite database & Backend Engine are active before opening UI
 ' =====================================================================
 
 Set WshShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 strAppDir = objFSO.GetParentFolderName(WScript.ScriptFullName)
+WshShell.CurrentDirectory = strAppDir
 
-strPgCtl = strAppDir & "\pgsql\bin\pg_ctl.exe"
-strPgData = strAppDir & "\pg_data"
-strPgInit = strAppDir & "\pgsql\bin\initdb.exe"
-strCreateDb = strAppDir & "\pgsql\bin\createdb.exe"
-strPgVersion = strPgData & "\PG_VERSION"
-strRedisExe = strAppDir & "\redis\redis-server.exe"
-strRedisConf = strAppDir & "\redis\redis.windows.conf"
+strProgramData = WshShell.ExpandEnvironmentStrings("%PROGRAMDATA%")
+If strProgramData = "" Or strProgramData = "%PROGRAMDATA%" Then
+    strProgramData = WshShell.ExpandEnvironmentStrings("%APPDATA%")
+End If
+strSqliteDir  = strProgramData & "\JK Infotech ERP\sqlite_data"
+
+strPgVersion  = strAppDir & "\pg_data\PG_VERSION"
+strSqliteDb   = strSqliteDir & "\jkerp.db"
 strBackendExe = strAppDir & "\backend\backend.exe"
-strPyExe = strAppDir & "\.venv\Scripts\python.exe"
-strRunPy = strAppDir & "\backend\run.py"
+strMigratePy  = strAppDir & "\scripts\migrate_pg_to_sqlite.py"
 
-' 1. Launch UWP Desktop Client Interface INSTANTLY (0.1s response)
-WshShell.Run "cmd.exe /c start shell:AppsFolder\9428b0f2-9cad-4953-a4b8-da3e6a84d40a_242epvxd83p06!App", 0, False
+' ---------------------------------------------------------------------
+' WMI-based process check — runs entirely in-process, spawns ZERO windows.
+' ---------------------------------------------------------------------
+Function IsProcessRunning(procName)
+    Dim oWMI, oProcs
+    On Error Resume Next
+    Set oWMI = GetObject("winmgmts:\\.\root\cimv2")
+    If Err.Number <> 0 Then IsProcessRunning = False : Exit Function
+    Set oProcs = oWMI.ExecQuery("SELECT Name FROM Win32_Process WHERE Name='" & procName & "'")
+    IsProcessRunning = (oProcs.Count > 0)
+    On Error GoTo 0
+End Function
 
-' 2. Auto-initialize PostgreSQL cluster & create database if missing
-If Not objFSO.FileExists(strPgVersion) Then
-    WshShell.Run """" & strPgInit & """ -D """ & strPgData & """ -U postgres --auth-host=trust --auth-local=trust", 0, True
-    WshShell.Run """" & strPgCtl & """ -D """ & strPgData & """ -o ""-p 5432"" -l """ & strPgData & "\postgres.log"" start", 0, True
-    WshShell.Run """" & strCreateDb & """ -U postgres -h localhost jk_erp", 0, True
+' 1. One-time visual migration from PostgreSQL to SQLite if legacy database is present
+strMarkerFile = strSqliteDir & "\.migrated_from_pg"
+If objFSO.FileExists(strPgVersion) And Not objFSO.FileExists(strMarkerFile) Then
+    strMigrateExe = strAppDir & "\scripts\migrate-db.exe"
+    If objFSO.FileExists(strMigrateExe) Then
+        WshShell.Run """" & strMigrateExe & """", 1, True
+    ElseIf objFSO.FileExists(strMigratePy) Then
+        WshShell.Run "python.exe """ & strMigratePy & """", 1, True
+    End If
 End If
 
-' 3. Start Database, Cache, and Backend Engine in parallel background
-WshShell.Run "cmd.exe /c start /b ""pg"" """ & strPgCtl & """ -D """ & strPgData & """ -o ""-p 5432"" -l """ & strPgData & "\postgres.log"" start", 0, False
-WshShell.Run "cmd.exe /c start /b ""redis"" """ & strRedisExe & """ """ & strRedisConf & """ --port 6379", 0, False
-
-If objFSO.FileExists(strBackendExe) Then
-    WshShell.Run "cmd.exe /c start /b ""backend"" """ & strBackendExe & """", 0, False
-ElseIf objFSO.FileExists(strPyExe) And objFSO.FileExists(strRunPy) Then
-    WshShell.Run "cmd.exe /c start /b ""backend_py"" """ & strPyExe & """ """ & strRunPy & """", 0, False
+' 2. Start Backend Server Engine asynchronously - ONLY if not already running
+If Not IsProcessRunning("backend.exe") Then
+    If objFSO.FileExists(strBackendExe) Then
+        WshShell.Run """" & strBackendExe & """", 0, False
+    End If
 End If
+
+' 3. Instant UI Launch via Windows AppX activation (sub-50ms parallel activation)
+Dim strLaunchScript
+strLaunchScript = strAppDir & "\scripts\launch-app.ps1"
+If Not objFSO.FileExists(strLaunchScript) Then
+    strLaunchScript = strAppDir & "\launch-app.ps1"
+End If
+WshShell.Run "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & strLaunchScript & """", 0, False

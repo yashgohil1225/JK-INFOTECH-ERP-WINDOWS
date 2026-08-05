@@ -191,9 +191,11 @@ async def local_auto_login(
             )
         return result
     except Exception as e:
+        err_str = str(e).lower()
+        is_db_startup = any(term in err_str for term in ["connect", "database", "operationalerror", "initializing", "connection", "refused", "closed"])
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE if is_db_startup else status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Local database initializing: {str(e)}" if is_db_startup else str(e),
         )
 
 

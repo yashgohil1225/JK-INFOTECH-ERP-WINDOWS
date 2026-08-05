@@ -5,19 +5,34 @@
   <title>GSTR-2 Summary Report</title>
   <style>
     @page {
-      size: A4 landscape;
-      margin: 10mm;
+      size: A4 {% if landscape %}landscape{% else %}portrait{% endif %};
+      margin: 8mm 6mm;
     }
-    body {
+    html, body {
+      width: 100% !important;
+      max-width: 100% !important;
       font-family: 'Courier New', Courier, monospace;
       font-size: 11px;
       color: #000;
       background-color: #fff;
       margin: 0;
-      padding: 0;
+      padding: 0 0 30px 0;
+      box-sizing: border-box !important;
     }
     .container {
-      width: 100%;
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    table {
+      width: 100% !important;
+      max-width: 100% !important;
+      border-collapse: collapse;
+    }
+    th, td {
+      word-wrap: break-word !important;
+      word-break: break-word !important;
+      white-space: normal !important;
     }
     .header {
       text-align: center;
@@ -101,16 +116,16 @@
       <thead>
         <tr>
           <th style="width: 8%;">BILL-DATE</th>
-          <th style="width: 8%;">BILL-NO.</th>
-          <th style="width: 14%;">GSTIN-NUMBERS</th>
-          <th style="width: 20%;">SUPPLIER NAME</th>
+          <th style="width: 7%;">BILL-NO.</th>
+          <th style="width: 13%;">GSTIN-NUMBERS</th>
+          <th style="width: 18%;">SUPPLIER NAME</th>
           <th class="text-right" style="width: 10%;">TAXABLE-AMOUNTRS.</th>
           <th class="text-right" style="width: 8%;">IGST-AMOUNTRS.</th>
           <th class="text-right" style="width: 8%;">CGST-AMOUNTRS.</th>
           <th class="text-right" style="width: 8%;">SGST-AMOUNTRS.</th>
           <th class="text-right" style="width: 6%;">CESS-AMOUNTRS.</th>
-          <th class="text-right" style="width: 10%;">TOTALGST-AMOUNTRS.</th>
-          <th class="text-right" style="width: 10%;">NETBILL-AMOUNTRS.</th>
+          <th class="text-right" style="width: 7%;">TOTALGST-AMOUNTRS.</th>
+          <th class="text-right" style="width: 7%;">NETBILL-AMOUNTRS.</th>
         </tr>
       </thead>
       <tbody id="report-body">

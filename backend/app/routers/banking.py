@@ -1,8 +1,11 @@
 from typing import List, Optional
 from uuid import UUID
 from decimal import Decimal
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, HTTPException, status
+# pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
+# pyrefly: ignore [missing-import]
 from sqlalchemy import select, func, delete
 from datetime import datetime
 
@@ -198,6 +201,8 @@ async def delete_payment(
     await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"analytics:{company.id}")
     await cache_manager.invalidate_prefix(f"company:{company.id}:report")
+    await cache_manager.invalidate_prefix(f"customers:{company.id}")
+    await cache_manager.invalidate_prefix(f"suppliers:{company.id}")
 
 
 @router.post("/payments", response_model=PaymentSchema)
@@ -256,11 +261,16 @@ async def create_payment(
     db.add(new_payment)
     await db.commit()
     await db.refresh(new_payment)
+    if not new_payment.created_at:
+        from datetime import timezone
+        new_payment.created_at = datetime.now(timezone.utc)
 
     await cache_manager.invalidate_prefix(f"banking_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"all_accounts:{company.id}")
     await cache_manager.invalidate_prefix(f"analytics:{company.id}")
     await cache_manager.invalidate_prefix(f"company:{company.id}:report")
+    await cache_manager.invalidate_prefix(f"customers:{company.id}")
+    await cache_manager.invalidate_prefix(f"suppliers:{company.id}")
     return new_payment
 
 # --- Capital Transfer ---

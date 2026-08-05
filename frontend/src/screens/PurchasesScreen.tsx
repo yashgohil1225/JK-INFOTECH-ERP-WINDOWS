@@ -2020,7 +2020,7 @@ export default function PurchasesScreen() {
           const token = getAccessToken() || "";
           return `${apiClient.defaults.baseURL}/api/v1/purchase/bills/${previewBill.id}/excel?token=${encodeURIComponent(token)}`;
         }}
-        showThemeSelector={true}
+        showThemeSelector={false}
         showCopySelector={true}
       />
 

@@ -163,7 +163,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isAuthenticating: true, isLoading: true, error: null });
         
         let lastErr: any = null;
-        for (let attempt = 1; attempt <= 5; attempt++) {
+        for (let attempt = 1; attempt <= 20; attempt++) {
           try {
             const response = await authApi.localAutoLogin();
             await setTokens(response.tokens.access_token, response.tokens.refresh_token, true);
@@ -206,14 +206,22 @@ export const useAuthStore = create<AuthState>()(
             return;
           } catch (err: any) {
             lastErr = err;
-            console.warn(`[authStore] localAutoLogin attempt ${attempt}/5 failed:`, err);
-            if (attempt < 5) {
-              await new Promise<void>(resolve => setTimeout(() => resolve(), 1200));
+            console.warn(`[authStore] localAutoLogin attempt ${attempt}/20 failed:`, err);
+            if (attempt < 20) {
+              await new Promise<void>(resolve => setTimeout(() => resolve(), 1000));
             }
           }
         }
 
-        set({ isLoading: false, isAuthenticating: false, error: lastErr?.message || "Connection failed to local backend server.", isLoggedIn: false });
+        let userMsg = "Database service starting up... Please wait a moment.";
+        if (lastErr?.response?.data?.detail) {
+          const d = lastErr.response.data.detail;
+          if (typeof d === "string") userMsg = d;
+        } else if (lastErr?.message && !lastErr.message.includes("500")) {
+          userMsg = lastErr.message;
+        }
+
+        set({ isLoading: false, isAuthenticating: false, error: userMsg, isLoggedIn: false });
       },
 
       // —— Register ——————————————————————————————————————————————

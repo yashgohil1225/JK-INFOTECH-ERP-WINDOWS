@@ -22,48 +22,27 @@ logger = logging.getLogger("auto_backup_service")
 
 
 async def generate_postgresql_bak_file(destination_path: str) -> bool:
-    """Generates a PostgreSQL logical backup using pg_dump directly to destination_path."""
-    db_host = settings.DATABASE_HOST
-    db_port = str(settings.DATABASE_PORT)
-    db_name = settings.DATABASE_NAME
-    db_user = settings.DATABASE_USER
-    db_password = settings.DATABASE_PASSWORD
-
-    env = os.environ.copy()
-    env["PGPASSWORD"] = db_password
-
-    pg_dump_cmd = "pg_dump"
-    possible_paths = [
-        r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\15\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\14\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\13\bin\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\12\bin\pg_dump.exe",
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            pg_dump_cmd = path
-            break
-
-    cmd = [
-        pg_dump_cmd,
-        "-h", db_host,
-        "-p", db_port,
-        "-U", db_user,
-        "-d", db_name,
-        "-F", "c",
-        "-f", destination_path
-    ]
-
+    """Generates an online SQLite binary database backup snapshot directly to destination_path."""
     try:
+        import sqlite3
+        src_db = settings.SQLITE_DB_PATH
+        dest_dir = os.path.dirname(destination_path)
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
+
+        def _sqlite_backup():
+            con_src = sqlite3.connect(src_db)
+            con_dest = sqlite3.connect(destination_path)
+            with con_dest:
+                con_src.backup(con_dest)
+            con_dest.close()
+            con_src.close()
+
         loop = asyncio.get_running_loop()
-        def _run():
-            return subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
-        
-        await loop.run_in_executor(None, _run)
+        await loop.run_in_executor(None, _sqlite_backup)
         return True
     except Exception as e:
-        logger.error(f"Failed pg_dump execution: {str(e)}")
+        logger.error(f"Failed SQLite database backup generation: {str(e)}")
         raise e
 
 

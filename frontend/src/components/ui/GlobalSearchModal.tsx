@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useUIStore } from "../../store/uiStore";
 import apiClient from "../../api/client";
+import { ModalStackManager } from "../../utils/modalStackManager";
 
 interface SearchResultItem {
   id: string;
@@ -55,6 +56,19 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<TextInput>(null);
+
+  const modalIdRef = useRef(`globalsearch_modal_${Math.random().toString(36).substring(2, 9)}`);
+
+  useEffect(() => {
+    if (isOpen) {
+      ModalStackManager.register(modalIdRef.current, onClose);
+    } else {
+      ModalStackManager.unregister(modalIdRef.current);
+    }
+    return () => {
+      ModalStackManager.unregister(modalIdRef.current);
+    };
+  }, [isOpen, onClose]);
 
   const colors = isDarkMode
     ? {
@@ -148,23 +162,28 @@ export function GlobalSearchModal({ isOpen, onClose }: GlobalSearchModalProps) {
 
   const SCREEN_MAP: Record<string, string> = {
     SalesScreen: "SALES",
-    PurchasesScreen: "PURCHASES",
-    PartiesScreen: "PARTIES",
+    PurchasesScreen: "PURCHASE",
+    PartiesScreen: "CUSTOMERS",
     InventoryScreen: "INVENTORY",
     SettingsScreen: "SETTINGS",
     ReportsScreen: "REPORTS",
-    BankingScreen: "BANKING",
-    SalesOrdersScreen: "ORDERS",
+    BankingScreen: "BANK_CASH",
+    SalesOrdersScreen: "SALES_ORDERS",
     ReturnsScreen: "RETURNS",
     CompanySelectScreen: "COMPANY_SELECT",
     SALES: "SALES",
-    PURCHASES: "PURCHASES",
-    PARTIES: "PARTIES",
+    PURCHASES: "PURCHASE",
+    PURCHASE: "PURCHASE",
+    PARTIES: "CUSTOMERS",
+    CUSTOMERS: "CUSTOMERS",
+    VENDORS: "VENDORS",
     INVENTORY: "INVENTORY",
     SETTINGS: "SETTINGS",
     REPORTS: "REPORTS",
-    BANKING: "BANKING",
-    ORDERS: "ORDERS",
+    BANKING: "BANK_CASH",
+    BANK_CASH: "BANK_CASH",
+    ORDERS: "SALES_ORDERS",
+    SALES_ORDERS: "SALES_ORDERS",
     RETURNS: "RETURNS",
   };
 

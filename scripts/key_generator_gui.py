@@ -10,8 +10,19 @@ import base64
 import hmac
 import hashlib
 from datetime import datetime, timedelta, timezone
+import winreg
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+def is_windows_dark_theme() -> bool:
+    """Detect if Windows OS is set to Dark Theme or Light Theme."""
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+        winreg.CloseKey(key)
+        return val == 0  # 0 = Dark Theme, 1 = Light Theme
+    except Exception:
+        return False  # Default to Light theme if registry check fails
 
 # ── Load Core Signing Configuration ──────────────────────────────────
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,24 +58,45 @@ class LicenseGeneratorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("JK INFOTECH ERP — License Key Generator")
-        self.root.geometry("640x720")
-        self.root.resizable(False, False)
+        self.root.geometry("800x750")
+        self.root.resizable(True, True)
+        try:
+            self.root.state("zoomed")  # Open maximized by default on Windows
+        except Exception:
+            pass
         
-        # WinUI 3 Dark Theme Palette
-        self.colors = {
-            "bg": "#0F172A",
-            "card_bg": "#1E293B",
-            "card_border": "#334155",
-            "text": "#F8FAFC",
-            "text_secondary": "#94A3B8",
-            "accent": "#0284C7",
-            "accent_hover": "#0369A1",
-            "accent_light": "rgba(56, 189, 248, 0.12)",
-            "success": "#22C55E",
-            "success_hover": "#16A34A",
-            "input_bg": "#0F172A",
-            "input_border": "#475569"
-        }
+        # Dynamic System Theme Palette (Light vs Dark)
+        self.is_dark = is_windows_dark_theme()
+        if self.is_dark:
+            self.colors = {
+                "bg": "#0F172A",
+                "card_bg": "#1E293B",
+                "card_border": "#334155",
+                "text": "#F8FAFC",
+                "text_secondary": "#94A3B8",
+                "accent": "#0284C7",
+                "accent_hover": "#38BDF8",
+                "accent_light": "rgba(56, 189, 248, 0.12)",
+                "success": "#22C55E",
+                "success_hover": "#16A34A",
+                "input_bg": "#0F172A",
+                "input_border": "#475569"
+            }
+        else:
+            self.colors = {
+                "bg": "#F1F5F9",
+                "card_bg": "#FFFFFF",
+                "card_border": "#CBD5E1",
+                "text": "#0F172A",
+                "text_secondary": "#64748B",
+                "accent": "#0284C7",
+                "accent_hover": "#0369A1",
+                "accent_light": "rgba(2, 132, 199, 0.12)",
+                "success": "#059669",
+                "success_hover": "#047857",
+                "input_bg": "#F8FAFC",
+                "input_border": "#CBD5E1"
+            }
         
         self.root.configure(bg=self.colors["bg"])
         self._setup_ui()
@@ -78,7 +110,7 @@ class LicenseGeneratorGUI:
             highlightthickness=1,
             bd=0
         )
-        card.place(x=24, y=20, width=592, height=676)
+        card.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Header Section
         lbl_subtitle = tk.Label(
@@ -164,7 +196,7 @@ class LicenseGeneratorGUI:
             duration_frame,
             text="🎁 DEMO TRIAL OPTIONS:",
             font=("Segoe UI", 8, "bold"),
-            fg="#F59E0B",
+            fg="#D97706" if not self.is_dark else "#F59E0B",
             bg=self.colors["card_bg"]
         )
         lbl_demo_sec.pack(anchor="w", pady=(0, 2))
@@ -179,6 +211,8 @@ class LicenseGeneratorGUI:
             ("15 Days Demo", "15d")
         ]
 
+        select_bg = self.colors["card_bg"]
+
         for label, val in demo_durations:
             rb = tk.Radiobutton(
                 demo_f,
@@ -186,12 +220,13 @@ class LicenseGeneratorGUI:
                 value=val,
                 variable=self.var_duration,
                 font=("Segoe UI", 9, "bold"),
-                fg="#FBBF24",
+                fg="#D97706" if not self.is_dark else "#FBBF24",
                 bg=self.colors["card_bg"],
-                selectcolor="#0F172A",
+                selectcolor=select_bg,
                 activebackground=self.colors["card_bg"],
-                activeforeground="#FBBF24",
-                cursor="hand2"
+                activeforeground="#D97706" if not self.is_dark else "#FBBF24",
+                cursor="hand2",
+                command=self._update_duration_label
             )
             rb.pack(side="left", padx=(0, 12))
 
@@ -200,7 +235,7 @@ class LicenseGeneratorGUI:
             duration_frame,
             text="💼 STANDARD / ENTERPRISE LICENSES:",
             font=("Segoe UI", 8, "bold"),
-            fg="#38BDF8",
+            fg=self.colors["accent"],
             bg=self.colors["card_bg"]
         )
         lbl_paid_sec.pack(anchor="w", pady=(4, 2))
@@ -228,12 +263,23 @@ class LicenseGeneratorGUI:
                 font=("Segoe UI", 9, "bold"),
                 fg=self.colors["text"],
                 bg=self.colors["card_bg"],
-                selectcolor="#0F172A",
+                selectcolor=select_bg,
                 activebackground=self.colors["card_bg"],
-                activeforeground="#38BDF8",
-                cursor="hand2"
+                activeforeground=self.colors["accent"],
+                cursor="hand2",
+                command=self._update_duration_label
             )
             rb.pack(side="left", padx=(0, 16))
+
+        # Live Selected Duration Indicator Label
+        self.lbl_selected_dur = tk.Label(
+            duration_frame,
+            text="Selected Plan: 1 Year (12 Months) Subscription",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.colors["accent"],
+            bg=self.colors["card_bg"]
+        )
+        self.lbl_selected_dur.pack(anchor="w", pady=(8, 0))
 
         # Button: Generate Key
         btn_generate = tk.Button(
@@ -317,6 +363,24 @@ class LicenseGeneratorGUI:
             bg=self.colors["card_bg"]
         )
         self.lbl_status.pack(anchor="w", padx=28, pady=(0, 10))
+
+    def _update_duration_label(self):
+        val = self.var_duration.get()
+        labels_map = {
+            "5min": "5 Min Test (Quick Trial)",
+            "3d": "3 Days Demo Trial",
+            "7d": "7 Days Demo Trial",
+            "15d": "15 Days Demo Trial",
+            "1": "1 Month Subscription",
+            "3": "3 Months Subscription",
+            "6": "6 Months Subscription",
+            "12": "1 Year (12 Months) Subscription",
+            "24": "2 Years (24 Months) Subscription",
+            "lifetime": "Lifetime License (Unlimited)"
+        }
+        selected_text = labels_map.get(val, val)
+        if hasattr(self, "lbl_selected_dur"):
+            self.lbl_selected_dur.config(text=f"Selected Plan: {selected_text}")
 
     def _paste_hwid(self):
         try:

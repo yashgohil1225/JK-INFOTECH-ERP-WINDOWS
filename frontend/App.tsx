@@ -314,17 +314,21 @@ function AppContent() {
       case "SALES":
         return <SalesScreen />;
       case "SALES_ORDERS":
+      case "ORDERS":
         return <SalesOrdersScreen />;
       case "RETURNS":
         return <ReturnsScreen />;
       case "PURCHASE":
+      case "PURCHASES":
         return <PurchasesScreen />;
       case "INVENTORY":
         return <InventoryScreen />;
       case "BANK_CASH":
+      case "BANKING":
         return <BankingScreen />;
       case "CUSTOMERS":
       case "VENDORS":
+      case "PARTIES":
         return <PartiesScreen />;
       case "REPORTS":
         return <ReportsScreen />;

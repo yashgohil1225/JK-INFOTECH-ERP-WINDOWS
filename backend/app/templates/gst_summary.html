@@ -5,16 +5,29 @@
   <title>GST Summary Report</title>
   <style>
     @page {
-      size: A4 portrait;
-      margin: 15mm 10mm;
+      size: A4 {% if landscape %}landscape{% else %}portrait{% endif %};
+      margin: 10mm 8mm;
     }
-    body {
+    html, body {
+      width: 100% !important;
+      max-width: 100% !important;
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 12px;
       color: #1e293b;
       background-color: #fff;
       margin: 0;
       padding: 0;
+      box-sizing: border-box !important;
+    }
+    table {
+      width: 100% !important;
+      max-width: 100% !important;
+      border-collapse: collapse;
+    }
+    th, td {
+      word-wrap: break-word !important;
+      word-break: break-word !important;
+      white-space: normal !important;
     }
     .header {
       margin-bottom: 25px;

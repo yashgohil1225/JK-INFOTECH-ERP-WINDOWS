@@ -25,7 +25,7 @@ class CustomerCreate(CustomerBase):
 class Customer(CustomerBase):
     id: UUID
     company_id: UUID
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -53,7 +53,7 @@ class SalesOrderItem(SalesOrderItemBase):
     model_config = ConfigDict(from_attributes=True)
 
 class SalesOrderBase(BaseModel):
-    customer_id: UUID
+    customer_id: Optional[UUID] = None
     so_number: str
     order_date: date
     delivery_date: Optional[date] = None
@@ -70,7 +70,7 @@ class SalesOrder(SalesOrderBase):
     discount_amount: Decimal
     tax_amount: Decimal
     total: Decimal
-    created_at: datetime
+    created_at: Optional[datetime] = None
     items: List[SalesOrderItem]
     
     model_config = ConfigDict(from_attributes=True)
@@ -103,7 +103,7 @@ class InvoiceItem(InvoiceItemBase):
     
     model_config = ConfigDict(from_attributes=True)
 class InvoiceBase(BaseModel):
-    customer_id: UUID
+    customer_id: Optional[UUID] = None
     invoice_number: str
     invoice_date: date
     due_date: Optional[date] = None
@@ -195,7 +195,7 @@ class Invoice(InvoiceBase):
     company_id: UUID
     amount_paid: Decimal
     balance_due: Decimal
-    created_at: datetime
+    created_at: Optional[datetime] = None
     customer: Optional[Customer] = None
     items: List[InvoiceItem] = []
     
@@ -221,6 +221,7 @@ class CreditNoteCreate(BaseModel):
     invoice_id: Optional[UUID] = None
     note_date: datetime
     reason: Optional[str] = None
+    return_mode: Optional[str] = "GOODS_RETURN"
     items: List[CreditNoteItemBase]
 
 class CreditNote(BaseModel):

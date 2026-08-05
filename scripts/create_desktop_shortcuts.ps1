@@ -46,9 +46,29 @@ foreach ($sLoc in @($s2Desktop, $s2Root)) {
     $sc.IconLocation = "C:\Windows\System32\shell32.dll, 44" # Distinct Golden Key Icon
     $sc.Save()
 }
+# 3. Version Upgrader Shortcut (Silent Windowless Launch with Native Windows Update/Package Icon)
+$upgraderPy = Join-Path $workspaceRoot "scripts\version_upgrader_gui.py"
+$s3Desktop = Join-Path $desktopDir "Version Upgrader.lnk"
+$s3Root = Join-Path $workspaceRoot "Version Upgrader.lnk"
+
+foreach ($sLoc in @($s3Desktop, $s3Root)) {
+    $sc = $WshShell.CreateShortcut($sLoc)
+    $sc.TargetPath = $pythonw
+    $sc.Arguments = "`"$upgraderPy`""
+    $sc.WorkingDirectory = $workspaceRoot
+    # Native Windows System Update Package Icon
+    if (Test-Path "C:\Windows\System32\imageres.dll") {
+        $sc.IconLocation = "C:\Windows\System32\imageres.dll, -5330"
+    } else {
+        $sc.IconLocation = "C:\Windows\System32\shell32.dll, 238"
+    }
+    $sc.Save()
+}
 
 # Clean up raw batch file shortcuts from Desktop if present
 Remove-Item -Path "$desktopDir\reset-fresh-client.bat" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$desktopDir\generate-license-key.bat" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$desktopDir\version-upgrader.bat" -Force -ErrorAction SilentlyContinue
 
-Write-Host "SUCCESS: Updated Generate License Key shortcut to launch silently without CMD window!" -ForegroundColor Green
+Write-Host "SUCCESS: Created Version Upgrader & License Key shortcuts with native icons on Desktop!" -ForegroundColor Green
+

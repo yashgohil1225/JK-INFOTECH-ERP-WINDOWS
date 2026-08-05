@@ -5,6 +5,7 @@
 
 import uuid
 import os
+import sys
 from decimal import Decimal
 from typing import Optional
 from datetime import datetime, date
@@ -203,45 +204,79 @@ def _playwright_worker():
                 except Exception:
                     pass
                 pw_instance = sync_playwright().start()
+                launch_args = [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-extensions",
+                ]
                 try:
-                    pw_browser = pw_instance.chromium.launch(
-                        headless=True,
-                        args=[
-                            "--no-sandbox",
-                            "--disable-setuid-sandbox",
-                            "--disable-gpu",
-                            "--disable-dev-shm-usage",
-                            "--no-first-run",
-                            "--no-default-browser-check",
-                            "--disable-extensions",
-                        ],
-                    )
+                    pw_browser = pw_instance.chromium.launch(headless=True, args=launch_args)
                 except Exception as launch_err:
-                    print(f"JK ERP: Chromium launch failed ({launch_err}). Attempting inline installation...")
-                    try:
-                        from playwright.cli.main import main as playwright_main
+                    print(f"JK ERP: Sync Playwright Chromium launch failed ({launch_err}). Trying direct MS Edge EXE...")
+                    _edge_profile_dir = os.path.join(tempfile.gettempdir(), "jk_pdf_edge_profile")
+                    os.makedirs(_edge_profile_dir, exist_ok=True)
+
+                    # Priority 1: Direct MS Edge executable (most reliable on client PCs)
+                    edge_paths = [
+                        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+                        os.path.expandvars(r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe"),
+                        os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe"),
+                    ]
+                    found_edge = next((exe for exe in edge_paths if exe and os.path.exists(exe)), None)
+                    if found_edge:
                         try:
-                            playwright_main(["install", "chromium"])
-                        except SystemExit:
-                            pass
-                        pw_browser = pw_instance.chromium.launch(
-                            headless=True,
-                            args=[
-                                "--no-sandbox",
-                                "--disable-setuid-sandbox",
-                                "--disable-gpu",
-                                "--disable-dev-shm-usage",
-                                "--no-first-run",
-                                "--no-default-browser-check",
-                                "--disable-extensions",
-                            ],
-                        )
-                    except Exception as retry_err:
-                        raise RuntimeError(f"PDF Generator Engine is initializing. Please retry in a few seconds. Details: {retry_err}")
+                            edge_args = launch_args + [f"--user-data-dir={_edge_profile_dir}"]
+                            pw_browser = pw_instance.chromium.launch(executable_path=found_edge, headless=True, args=edge_args)
+                            print(f"JK ERP: Sync PDF engine launched via direct MS Edge at: {found_edge}")
+                        except Exception as e_edge:
+                            print(f"JK ERP: Direct MS Edge EXE launch failed ({e_edge}). Trying MS Edge channel...")
+
+                    # Priority 2: MS Edge channel
+                    if pw_browser is None or not pw_browser.is_connected():
+                        try:
+                            pw_browser = pw_instance.chromium.launch(channel="msedge", headless=True, args=launch_args)
+                        except Exception as e2:
+                            print(f"JK ERP: MS Edge channel launch failed ({e2}). Trying Chrome channel...")
+
+                    # Priority 3: Chrome channel
+                    if pw_browser is None or not pw_browser.is_connected():
+                        try:
+                            pw_browser = pw_instance.chromium.launch(channel="chrome", headless=True, args=launch_args)
+                        except Exception as e3:
+                            print(f"JK ERP: Chrome channel launch failed ({e3}). Trying direct Chrome EXE...")
+
+                    # Priority 4: Direct Chrome executable
+                    if pw_browser is None or not pw_browser.is_connected():
+                        chrome_paths = [
+                            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+                        ]
+                        found_chrome = next((exe for exe in chrome_paths if exe and os.path.exists(exe)), None)
+                        if found_chrome:
+                            chrome_args = launch_args + [f"--user-data-dir={_edge_profile_dir}"]
+                            pw_browser = pw_instance.chromium.launch(executable_path=found_chrome, headless=True, args=chrome_args)
+                        else:
+                            raise launch_err
 
             page = pw_browser.new_page()
             try:
-                page.set_content(html_content, wait_until="domcontentloaded")
+                # For landscape: use 1400px wide viewport to match A4 landscape printable area
+                # For portrait: use 900px wide viewport to match A4 portrait
+                vp_w = 1400 if landscape else 900
+                vp_h = 900 if landscape else 1400
+                page.set_viewport_size({"width": vp_w, "height": vp_h})
+                # Use load/domcontentloaded to prevent networkidle timeouts on offline/slow connections
+                try:
+                    page.set_content(html_content, wait_until="load", timeout=12000)
+                except Exception:
+                    page.set_content(html_content, wait_until="domcontentloaded", timeout=12000)
                 if search_query:
                     highlight_script = f"""
                     () => {{
@@ -266,14 +301,15 @@ def _playwright_worker():
                     }}
                     """
                     page.evaluate(highlight_script)
-                page.pdf(
-                    path=pdf_path,
-                    format="A4",
-                    print_background=True,
-                    margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-                    scale=0.95,
-                    landscape=landscape,
-                )
+                pdf_kwargs = {
+                    "path": pdf_path,
+                    "print_background": True,
+                    "margin": {"top": "0", "right": "0", "bottom": "0", "left": "0"},
+                    "scale": 1.0,
+                    "prefer_css_page_size": True,
+                    "landscape": landscape,
+                }
+                page.pdf(**pdf_kwargs)
                 result_holder["error"] = None
             finally:
                 page.close()
@@ -329,114 +365,127 @@ def _render_pdf_sync(html_content: str, pdf_path: str, landscape: bool = False, 
         raise result_holder["error"]
 
 
+def _auto_install_chromium_if_missing():
+    try:
+        browsers_path = _resolve_browsers_path()
+        if browsers_path and os.path.exists(browsers_path) and os.listdir(browsers_path):
+            return
+        from playwright._impl._driver import compute_driver_executable
+        driver_exec, env = compute_driver_executable()
+        env["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path or os.path.expandvars(r"%LOCALAPPDATA%\ms-playwright")
+        import subprocess
+        subprocess.run([str(driver_exec), "install", "chromium"], env=env, capture_output=True, timeout=120)
+    except Exception as e:
+        print(f"JK ERP: Auto-install chromium notice: {e}")
+
+
 async def _generate_pdf_async(html_content: str, landscape: bool = False, search_query: Optional[str] = None) -> bytes:
     """
-    Generate a PDF from HTML.
-
-    - In frozen/client mode: uses the persistent in-process Chromium browser
-      (launched once, reused forever). No external Python required.
-    - In dev mode: same in-process approach (consistent behaviour everywhere).
-
-    Speed: first call ~2-3s (browser start), subsequent calls ~0.3-0.8s (page only).
+    Generate a PDF from HTML using Async Playwright.
+    Compatible with FastAPI's asyncio event loop on Windows/Linux.
+    Uses robust 5-stage browser resolution:
+      1. Standard Playwright Chromium (dev/downloaded)
+      2. Direct MS Edge EXE path (most reliable on client PCs)
+      3. MS Edge Playwright channel
+      4. Chrome Playwright channel
+      5. Direct Chrome EXE path
     """
-    import sys
+    browsers_path = _resolve_browsers_path()
+    if browsers_path:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
 
-    is_frozen = getattr(sys, 'frozen', False)
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        launch_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-extensions",
+        ]
+        browser = None
+        
+        # Reusable temp profile directory to avoid creating hundreds of temp dirs
+        _edge_profile_dir = os.path.join(tempfile.gettempdir(), "jk_pdf_edge_profile")
+        os.makedirs(_edge_profile_dir, exist_ok=True)
 
-    pdf_fd = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    pdf_fd.close()
-    pdf_path = pdf_fd.name
-
-    try:
-        if is_frozen:
-            # Frozen/client mode — run Playwright in-process in a thread
-            await anyio.to_thread.run_sync(
-                lambda: _render_pdf_sync(html_content, pdf_path, landscape=landscape, search_query=search_query)
-            )
-        else:
-            # Dev mode — also use in-process for speed consistency,
-            # but fall back to subprocess if something goes wrong.
-            try:
-                await anyio.to_thread.run_sync(
-                    lambda: _render_pdf_sync(html_content, pdf_path, landscape=landscape, search_query=search_query)
-                )
-            except Exception as in_proc_err:
-                print(f"WARNING: In-process PDF rendering failed: {in_proc_err}")
-                if os.environ.get("DISABLE_PDF_FALLBACK") == "true":
-                    raise
-                # Subprocess fallback for dev-mode edge cases (e.g. test isolation)
-                import subprocess, json
-                worker_content = r'''
-import sys, json, os
-args = json.load(open(sys.argv[1], "r", encoding="utf-8"))
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = args.get("browsers_path", "")
-html_content = args["html_content"]
-pdf_path = args["pdf_path"]
-landscape = args.get("landscape", False)
-search_query = args.get("search_query", None)
-from playwright.sync_api import sync_playwright
-with sync_playwright() as p:
-    b = p.chromium.launch(headless=True, args=["--no-sandbox","--disable-gpu","--disable-dev-shm-usage"])
-    pg = b.new_page()
-    pg.set_content(html_content, wait_until="networkidle")
-    if search_query:
-        highlight_script = f"""
-        () => {{
-            const search = "{search_query}".replace(/[-\/\\^$*+?.()|[\]{{}}]/g, '\\$&');
-            if (!search) return;
-            const regex = new RegExp("(" + search + ")", "gi");
-            
-            function walk(node) {{
-                if (node.nodeType === 3) {{
-                    const matches = node.nodeValue.match(regex);
-                    if (matches) {{
-                        const span = document.createElement("span");
-                        span.innerHTML = node.nodeValue.replace(regex, '<mark style="background-color: #FACC15; color: #000000; font-weight: bold; padding: 1px 2px; border-radius: 2px;">$1</mark>');
-                        node.parentNode.replaceChild(span, node);
-                    }}
-                }} else if (node.nodeType === 1 && node.nodeName !== "SCRIPT" && node.nodeName !== "STYLE") {{
-                    for (let i = node.childNodes.length - 1; i >= 0; i--) {{
-                        walk(node.childNodes[i]);
-                    }}
-                }}
-            }}
-            walk(document.body);
-        }}
-        """
-        pg.evaluate(highlight_script)
-    pg.pdf(path=pdf_path, format="A4", print_background=True, margin={"top":"0","right":"0","bottom":"0","left":"0"}, scale=0.95, landscape=landscape)
-    b.close()
-print("PDF_OK")
-'''
-                wf = tempfile.NamedTemporaryFile(mode="w", suffix="_pdfw.py", delete=False, encoding="utf-8")
-                wf.write(worker_content)
-                wf.close()
-                af = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
-                json.dump({"browsers_path": _resolve_browsers_path(), "html_content": html_content, "pdf_path": pdf_path, "landscape": landscape, "search_query": search_query}, af)
-                af.close()
-                try:
-                    def _sub():
-                        r = subprocess.run(
-                            [sys.executable, wf.name, af.name],
-                            capture_output=True, text=True, timeout=60,
-                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-                        )
-                        if r.returncode != 0:
-                            raise RuntimeError(f"PDF subprocess failed:\n{r.stderr}")
-                    await anyio.to_thread.run_sync(_sub)
-                finally:
-                    for _p in (wf.name, af.name):
-                        try: os.unlink(_p)
-                        except OSError: pass
-
-        with open(pdf_path, "rb") as f:
-            return f.read()
-
-    finally:
+        # Attempt 1: Standard Playwright bundled/downloaded Chromium
         try:
-            os.unlink(pdf_path)
-        except OSError:
-            pass
+            browser = await p.chromium.launch(headless=True, args=launch_args)
+        except Exception as e1:
+            print(f"JK ERP: Standard Playwright Chromium launch notice ({e1}). Trying direct MS Edge EXE...")
+            _auto_install_chromium_if_missing()
+
+            # Attempt 2: Direct MS Edge executable path (highest reliability on Windows 10/11 client PCs)
+            edge_paths = [
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+                os.path.expandvars(r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe"),
+                os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe"),
+            ]
+            found_edge = next((exe for exe in edge_paths if exe and os.path.exists(exe)), None)
+            if found_edge:
+                try:
+                    edge_args = launch_args + [f"--user-data-dir={_edge_profile_dir}"]
+                    browser = await p.chromium.launch(executable_path=found_edge, headless=True, args=edge_args)
+                    print(f"JK ERP: PDF engine launched via direct MS Edge at: {found_edge}")
+                except Exception as e_edge:
+                    print(f"JK ERP: Direct MS Edge EXE launch failed ({e_edge}). Trying MS Edge channel...")
+
+            # Attempt 3: MS Edge Playwright channel
+            if browser is None:
+                try:
+                    browser = await p.chromium.launch(channel="msedge", headless=True, args=launch_args)
+                except Exception as e2:
+                    print(f"JK ERP: MS Edge channel launch notice ({e2}). Trying Chrome channel...")
+
+            # Attempt 4: System Google Chrome channel
+            if browser is None:
+                try:
+                    browser = await p.chromium.launch(channel="chrome", headless=True, args=launch_args)
+                except Exception as e3:
+                    print(f"JK ERP: Chrome channel launch notice ({e3}). Trying direct Chrome EXE...")
+
+            # Attempt 5: Direct Chrome executable path
+            if browser is None:
+                chrome_paths = [
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+                ]
+                found_chrome = next((exe for exe in chrome_paths if exe and os.path.exists(exe)), None)
+                if found_chrome:
+                    chrome_args = launch_args + [f"--user-data-dir={_edge_profile_dir}"]
+                    browser = await p.chromium.launch(executable_path=found_chrome, headless=True, args=chrome_args)
+                    print(f"JK ERP: PDF engine launched via direct Chrome at: {found_chrome}")
+                else:
+                    raise e1
+
+        try:
+            page = await browser.new_page()
+            vp_w = 1400 if landscape else 900
+            vp_h = 900 if landscape else 1400
+            await page.set_viewport_size({"width": vp_w, "height": vp_h})
+            
+            try:
+                await page.set_content(html_content, wait_until="load", timeout=12000)
+            except Exception:
+                await page.set_content(html_content, wait_until="domcontentloaded", timeout=12000)
+
+            pdf_bytes = await page.pdf(
+                print_background=True,
+                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+                scale=1.0,
+                prefer_css_page_size=True,
+                landscape=landscape
+            )
+            return pdf_bytes
+        finally:
+            if browser:
+                await browser.close()
 
 
 class ReportService:
@@ -445,10 +494,49 @@ class ReportService:
         self.company_id = company_id
         self.landscape = landscape
         self.search_query = search_query
-        # Set up Jinja2 environment
-        template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
-        self.jinja_env = Environment(loader=FileSystemLoader(template_dir))
+        # Set up Jinja2 environment with PyInstaller sys._MEIPASS multi-path fallback
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        meipass_dir = getattr(sys, "_MEIPASS", "")
+        template_dirs = [
+            os.path.join(base_dir, "templates"),
+            os.path.join(meipass_dir, "app", "templates") if meipass_dir else "",
+            os.path.join(os.getcwd(), "app", "templates"),
+        ]
+        template_dirs = [d for d in template_dirs if d and os.path.exists(d)]
+        self.jinja_env = Environment(loader=FileSystemLoader(template_dirs))
         self.jinja_env.filters["indian_format"] = self._indian_amount_format
+    async def _generate_pdf(self, html_content: str, landscape: bool = False, search_query: Optional[str] = None) -> bytes:
+        l_flag = landscape if landscape is not None else self.landscape
+        s_query = search_query if search_query is not None else self.search_query
+        
+        # Calculate search matches in HTML
+        self.match_counts = []
+        if s_query:
+            try:
+                parser = InvoiceSearchParser(s_query)
+                parser.feed(html_content)
+                self.match_counts = parser.get_matches_per_page()
+            except Exception as parse_err:
+                print(f"Error parsing search matches: {parse_err}")
+
+        try:
+            return await _generate_pdf_async(html_content, landscape=l_flag, search_query=s_query)
+        except Exception as async_err:
+            print(f"JK ERP: Async Playwright failed ({async_err}). Trying Sync Playwright worker fallback...")
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                _render_pdf_sync(html_content, tmp_path, landscape=l_flag, search_query=s_query)
+                with open(tmp_path, "rb") as f:
+                    pdf_bytes = f.read()
+                return pdf_bytes
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
 
     def _get_company_dict(self, company) -> dict:
         if not company:
@@ -711,7 +799,8 @@ class ReportService:
         
         template = self.jinja_env.get_template("day_book.html")
         html_out = template.render(
-            db_data_json=json.dumps(jsonable_encoder(data))
+            db_data_json=json.dumps(jsonable_encoder(data)),
+            landscape=self.landscape
         )
         
         try:
@@ -2036,11 +2125,8 @@ class ReportService:
         comp_bank = f"Bank: {company.bank_name or ''}\nA/c: {company.account_no or ''}\nIFSC: {company.ifsc_code or ''}" if company.bank_name else None
         bank_details = (getattr(invoice, 'bank_details', None) or comp_bank or "Bank Details Not Configured")
 
-        # 5. Render HTML
-        if theme == 'riddhi':
-            template = self.jinja_env.get_template("invoice_riddhi.html")
-        else:
-            template = self.jinja_env.get_template("invoice.html")
+        # 5. Render HTML (Theme 2 Classic ERP Invoice standard)
+        template = self.jinja_env.get_template("invoice_riddhi.html")
         html_out = template.render(
             invoice=invoice,
             company=company,
@@ -2245,75 +2331,65 @@ class ReportService:
         except Exception:
             amount_in_words = self.indian_number_to_words(int(total_rounded))
 
-        # Payment Term Derivation
-        payment_terms_days = 0
-        if invoice.due_date and invoice.invoice_date:
-            delta = invoice.due_date - invoice.invoice_date
-            payment_terms_days = delta.days
-
-        # Bank Details Fallback
+        # 5. Render HTML & Generate PDF with Unstoppable Master Fail-Safe
+        # Bank Details derivation (must be defined before template.render())
         comp_bank = f"Bank: {company.bank_name or ''}\nA/c: {company.account_no or ''}\nIFSC: {company.ifsc_code or ''}" if company.bank_name else None
         bank_details = (getattr(invoice, 'bank_details', None) or comp_bank or "Bank Details Not Configured")
 
-        # 5. Render HTML
-        if theme == 'classic':
-            template = self.jinja_env.get_template("invoice_riddhi.html")
-        else:
-            template = self.jinja_env.get_template("invoice.html")
-        html_out = template.render(
-            invoice=invoice,
-            company=company,
-            customer=invoice.customer,
-            items=items,
-            total_qty=total_qty,
-            cgst_rate=cgst_rate,
-            sgst_rate=sgst_rate,
-            igst_rate=igst_rate,
-            cgst_amount=cgst_amount,
-            sgst_amount=sgst_amount,
-            igst_amount=igst_amount,
-            round_off=round_off,
-            amount_in_words=amount_in_words,
-            payment_terms_days=payment_terms_days,
-            bank_details=bank_details,
-            logo_svg=logo_svg,
-            background_image_path=background_image_path,
-            header_background_image_path=header_background_image_path,
-            theme=theme,
-            copy_types=copy_types,
-            now=datetime.now(),
-            landscape=landscape
-        )
-        # Count search matches page-by-page using fast in-memory HTMLParser
-        match_counts = []
-        if search_query:
-            try:
-                parser = InvoiceSearchParser(search_query)
-                parser.feed(html_out)
-                match_counts = parser.get_matches_per_page()
-            except Exception as parse_err:
-                print(f"Error parsing invoice search matches: {parse_err}")
-
-        # 6. Generate PDF via Sync Playwright in a dedicated thread (Ultimate Stability)
         try:
-            # anyio.to_thread.run_sync is the most robust way to run sync browser operations
+            # Payment Term Derivation
+            payment_terms_days = 0
+            if getattr(invoice, 'due_date', None) and getattr(invoice, 'invoice_date', None):
+                try:
+                    d_due = invoice.due_date if hasattr(invoice.due_date, 'year') else datetime.strptime(str(invoice.due_date)[:10], "%Y-%m-%d").date()
+                    d_inv = invoice.invoice_date if hasattr(invoice.invoice_date, 'year') else datetime.strptime(str(invoice.invoice_date)[:10], "%Y-%m-%d").date()
+                    payment_terms_days = (d_due - d_inv).days
+                except Exception:
+                    payment_terms_days = 0
+
+            # Render HTML (Theme 2 Classic ERP Invoice standard)
+            template = self.jinja_env.get_template("invoice_riddhi.html")
+                
+            html_out = template.render(
+                invoice=invoice,
+                company=company,
+                customer=invoice.customer,
+                items=items,
+                total_qty=total_qty,
+                cgst_rate=cgst_rate,
+                sgst_rate=sgst_rate,
+                igst_rate=igst_rate,
+                cgst_amount=cgst_amount,
+                sgst_amount=sgst_amount,
+                igst_amount=igst_amount,
+                round_off=round_off,
+                amount_in_words=amount_in_words,
+                payment_terms_days=payment_terms_days,
+                bank_details=bank_details,
+                logo_svg=logo_svg,
+                background_image_path=background_image_path,
+                header_background_image_path=header_background_image_path,
+                theme=theme,
+                copy_types=copy_types,
+                now=datetime.now(),
+                landscape=landscape
+            )
+            
+            # Count search matches page-by-page using fast in-memory HTMLParser
+            match_counts = []
+            if search_query:
+                try:
+                    parser = InvoiceSearchParser(search_query)
+                    parser.feed(html_out)
+                    match_counts = parser.get_matches_per_page()
+                except Exception as parse_err:
+                    print(f"Error parsing invoice search matches: {parse_err}")
+
             pdf_bytes = await self._generate_pdf(html_out, landscape=landscape, search_query=search_query)
             return pdf_bytes, match_counts
-        except Exception as e:
-            loop_type = "Unknown"
-            try:
-                import asyncio
-                loop_type = type(asyncio.get_running_loop()).__name__
-            except:
-                pass
-            error_msg = f"Threaded PDF Failure: {str(e)}\nLoop: {loop_type}\n{traceback.format_exc()}"
-            try:
-                print(error_msg)
-            except Exception:
-                pass
-            with open("diagnostic_log.txt", "a", encoding="utf-8") as f:
-                f.write(error_msg + "\n")
-            raise HTTPException(status_code=500, detail=f"PDF Generation Error (Threaded): {type(e).__name__} - {str(e)}")
+        except Exception as err:
+            print(f"JK ERP: Invoice PDF rendering error ({err})")
+            raise HTTPException(status_code=500, detail=f"Invoice PDF Generation Error: {str(err)}")
 
     async def generate_purchase_bill_excel(self, bill_id: uuid.UUID, company_id: uuid.UUID) -> bytes:
         """
@@ -2696,7 +2772,8 @@ class ReportService:
             period=data["period"],
             notes=data["notes"],
             type="Credit",
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         return await self._generate_pdf(html_out)
 
@@ -2710,9 +2787,252 @@ class ReportService:
             period=data["period"],
             notes=data["notes"],
             type="Debit",
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
-        return await self._generate_pdf(html_out)
+    async def generate_credit_note_pdf(self, note_id: uuid.UUID, company_id: uuid.UUID) -> tuple:
+        """
+        Generates a professional Credit Note Return Slip PDF using Playwright with ReportLab fail-safe fallback.
+        """
+        from num2words import num2words
+        from app.models import CreditNote, CreditNoteItem, Company
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(CreditNote)
+            .options(
+                selectinload(CreditNote.items).selectinload(CreditNoteItem.product),
+                selectinload(CreditNote.customer),
+                selectinload(CreditNote.invoice)
+            )
+            .where(CreditNote.id == note_id, CreditNote.company_id == company_id)
+        )
+        res = await self.db.execute(stmt)
+        note = res.scalar_one_or_none()
+        if not note:
+            raise ValueError(f"Credit Note {note_id} not found.")
+
+        comp_stmt = select(Company).where(Company.id == company_id)
+        comp_res = await self.db.execute(comp_stmt)
+        company = comp_res.scalar_one()
+
+        subtotal = float(note.subtotal or 0)
+        tax_amount = float(note.tax_amount or 0)
+        cgst_amount = tax_amount / 2
+        sgst_amount = tax_amount / 2
+        total_amount = float(note.total or 0)
+
+        try:
+            words = num2words(total_amount, lang='en_IN').title() + " Only"
+        except Exception:
+            words = f"Rupees {total_amount:.2f} Only"
+
+        items = note.items or []
+
+        try:
+            template = self.jinja_env.get_template("return_voucher.html")
+            html_out = template.render(
+                note_type_title="CREDIT NOTE VOUCHER",
+                note=note,
+                company=company,
+                party=note.customer,
+                party_label="CUSTOMER",
+                ref_doc_number=note.invoice.invoice_number if note.invoice else None,
+                return_mode=getattr(note, "return_mode", "GOODS_RETURN"),
+                items=items,
+                subtotal=subtotal,
+                cgst_amount=cgst_amount,
+                sgst_amount=sgst_amount,
+                total_amount=total_amount,
+                amount_in_words=words
+            )
+            pdf_bytes = await self._generate_pdf(html_out)
+            return pdf_bytes, note.note_number
+        except Exception as err:
+            print(f"Playwright PDF generation failed for Credit Note {note_id}, falling back to ReportLab: {err}")
+            pdf_bytes = self._generate_reportlab_return_voucher_pdf(
+                note_type_title="CREDIT NOTE VOUCHER",
+                note_number=note.note_number,
+                note_date=note.note_date.strftime('%d-%b-%Y') if note.note_date else '',
+                company=company,
+                party_name=note.customer.name if note.customer else 'Customer',
+                party_gstin=note.customer.gst_number if note.customer else 'Unregistered',
+                party_phone=note.customer.phone if note.customer else '',
+                ref_doc_number=note.invoice.invoice_number if note.invoice else '',
+                reason=note.reason or '',
+                items=[{
+                    "product_name": i.product.name if i.product else "Item",
+                    "quantity": float(i.quantity),
+                    "unit_price": float(i.unit_price),
+                    "tax_rate": float(i.tax_rate),
+                    "total": float(i.total)
+                } for i in items],
+                subtotal=subtotal,
+                cgst_amount=cgst_amount,
+                sgst_amount=sgst_amount,
+                total=total_amount,
+                amount_in_words=words
+            )
+            return pdf_bytes, note.note_number
+
+    async def generate_debit_note_pdf(self, note_id: uuid.UUID, company_id: uuid.UUID) -> tuple:
+        """
+        Generates a professional Debit Note Return Slip PDF using Playwright with ReportLab fail-safe fallback.
+        """
+        from num2words import num2words
+        from app.models import DebitNote, DebitNoteItem, Company
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(DebitNote)
+            .options(
+                selectinload(DebitNote.items).selectinload(DebitNoteItem.product),
+                selectinload(DebitNote.supplier),
+                selectinload(DebitNote.bill)
+            )
+            .where(DebitNote.id == note_id, DebitNote.company_id == company_id)
+        )
+        res = await self.db.execute(stmt)
+        note = res.scalar_one_or_none()
+        if not note:
+            raise ValueError(f"Debit Note {note_id} not found.")
+
+        comp_stmt = select(Company).where(Company.id == company_id)
+        comp_res = await self.db.execute(comp_stmt)
+        company = comp_res.scalar_one()
+
+        subtotal = float(note.subtotal or 0)
+        tax_amount = float(note.tax_amount or 0)
+        cgst_amount = tax_amount / 2
+        sgst_amount = tax_amount / 2
+        total_amount = float(note.total or 0)
+
+        try:
+            words = num2words(total_amount, lang='en_IN').title() + " Only"
+        except Exception:
+            words = f"Rupees {total_amount:.2f} Only"
+
+        items = note.items or []
+
+        try:
+            template = self.jinja_env.get_template("return_voucher.html")
+            html_out = template.render(
+                note_type_title="DEBIT NOTE VOUCHER",
+                note=note,
+                company=company,
+                party=note.supplier,
+                party_label="SUPPLIER / VENDOR",
+                ref_doc_number=note.bill.bill_number if note.bill else None,
+                return_mode=getattr(note, "return_mode", "GOODS_RETURN"),
+                items=items,
+                subtotal=subtotal,
+                cgst_amount=cgst_amount,
+                sgst_amount=sgst_amount,
+                total_amount=total_amount,
+                amount_in_words=words
+            )
+            pdf_bytes = await self._generate_pdf(html_out)
+            return pdf_bytes, note.note_number
+        except Exception as err:
+            print(f"Playwright PDF generation failed for Debit Note {note_id}, falling back to ReportLab: {err}")
+            pdf_bytes = self._generate_reportlab_return_voucher_pdf(
+                note_type_title="DEBIT NOTE VOUCHER",
+                note_number=note.note_number,
+                note_date=note.note_date.strftime('%d-%b-%Y') if note.note_date else '',
+                company=company,
+                party_name=note.supplier.name if note.supplier else 'Supplier',
+                party_gstin=note.supplier.gst_number if note.supplier else 'Unregistered',
+                party_phone=note.supplier.phone if note.supplier else '',
+                ref_doc_number=note.bill.bill_number if note.bill else '',
+                reason=note.reason or '',
+                items=[{
+                    "product_name": i.product.name if i.product else "Item",
+                    "quantity": float(i.quantity),
+                    "unit_price": float(i.unit_price),
+                    "tax_rate": float(i.tax_rate),
+                    "total": float(i.total)
+                } for i in items],
+                subtotal=subtotal,
+                cgst_amount=cgst_amount,
+                sgst_amount=sgst_amount,
+                total=total_amount,
+                amount_in_words=words
+            )
+            return pdf_bytes, note.note_number
+
+    def _generate_reportlab_return_voucher_pdf(
+        self,
+        note_type_title: str,
+        note_number: str,
+        note_date: str,
+        company: any,
+        party_name: str,
+        party_gstin: str,
+        party_phone: str,
+        ref_doc_number: str,
+        reason: str,
+        items: list,
+        subtotal: float,
+        cgst_amount: float,
+        sgst_amount: float,
+        total: float,
+        amount_in_words: str
+    ) -> bytes:
+        import io
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+        elements = []
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=18, textColor=colors.HexColor('#0284c7'))
+        header_style = ParagraphStyle(name='HeaderStyle', fontName='Helvetica-Bold', fontSize=10, textColor=colors.HexColor('#0f172a'))
+        body_style = ParagraphStyle(name='BodyStyle', fontName='Helvetica', fontSize=9, textColor=colors.HexColor('#334155'))
+
+        elements.append(Paragraph(f"{company.name} - {note_type_title}", title_style))
+        elements.append(Paragraph(f"Voucher No: {note_number} | Date: {note_date} | Ref: {ref_doc_number or 'N/A'}", header_style))
+        elements.append(Spacer(1, 12))
+
+        elements.append(Paragraph(f"<b>Party:</b> {party_name} (GSTIN: {party_gstin})", body_style))
+        if reason:
+            elements.append(Paragraph(f"<b>Reason:</b> {reason}", body_style))
+        elements.append(Spacer(1, 12))
+
+        table_data = [["#", "Item Description", "Qty", "Rate (INR)", "GST %", "Total (INR)"]]
+        for idx, item in enumerate(items, 1):
+            table_data.append([
+                str(idx),
+                item.get("product_name", "Item"),
+                f"{item.get('quantity', 0):.2f}",
+                f"{item.get('unit_price', 0):.2f}",
+                f"{item.get('tax_rate', 18):.1f}%",
+                f"{item.get('total', 0):.2f}"
+            ])
+        table_data.append(["", "", "", "", "Subtotal:", f"INR {subtotal:.2f}"])
+        table_data.append(["", "", "", "", "CGST (50%):", f"INR {cgst_amount:.2f}"])
+        table_data.append(["", "", "", "", "SGST (50%):", f"INR {sgst_amount:.2f}"])
+        table_data.append(["", "", "", "", "Net Return Value:", f"INR {total:.2f}"])
+
+        t = Table(table_data, colWidths=[25, 200, 45, 75, 55, 95])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f1f5f9')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#0f172a')),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0,0), (-1,0), 6),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('ALIGN', (2,0), (-1,-1), 'RIGHT'),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 16))
+        elements.append(Paragraph(f"<b>Amount in Words:</b> {amount_in_words}", body_style))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
 
     async def get_account_ledger(self, account_id: uuid.UUID, start_date: date, end_date: date) -> dict:
         """Fetch transaction lines and running balance for a specific account across all accounting modules."""
@@ -3079,23 +3399,6 @@ class ReportService:
             now=datetime.now()
         )
         return await self._generate_pdf(html_out)
-
-    async def _generate_pdf(self, html_content: str, landscape: bool = False, search_query: Optional[str] = None) -> bytes:
-        """Async PDF generation using Playwright's async API directly."""
-        actual_landscape = landscape or getattr(self, 'landscape', False)
-        actual_search = search_query or getattr(self, 'search_query', None)
-        
-        # Calculate search matches in HTML
-        self.match_counts = []
-        if actual_search:
-            try:
-                parser = InvoiceSearchParser(actual_search)
-                parser.feed(html_content)
-                self.match_counts = parser.get_matches_per_page()
-            except Exception as parse_err:
-                print(f"Error parsing search matches: {parse_err}")
-                
-        return await _generate_pdf_async(html_content, landscape=actual_landscape, search_query=actual_search)
 
     def indian_number_to_words(self, number: int) -> str:
         """Simple helper for Indian currency words."""
@@ -3516,7 +3819,8 @@ class ReportService:
         html_out = template.render(
             gstr3b=data,
             gstr3b_json=json.dumps(jsonable_encoder(data)),
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         
         return await self._generate_pdf(html_out)
@@ -3600,7 +3904,8 @@ class ReportService:
         
         template = self.jinja_env.get_template("outstanding_summary.html")
         html_out = template.render(
-            db_data_json=json.dumps(jsonable_encoder(report_data))
+            db_data_json=json.dumps(jsonable_encoder(report_data)),
+            landscape=self.landscape
         )
         return await self._generate_pdf(html_out)
 
@@ -3616,7 +3921,8 @@ class ReportService:
         html_out = template.render(
             gstr1=data,
             gstr1_json=json.dumps(jsonable_encoder(data)),
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         
         return await self._generate_pdf(html_out)
@@ -3793,7 +4099,8 @@ class ReportService:
         html_out = template.render(
             report=data,
             report_json=json.dumps(jsonable_encoder(data)),
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         
         return await self._generate_pdf(html_out)
@@ -4168,7 +4475,8 @@ class ReportService:
         template = self.jinja_env.get_template("gstr2.html")
         html_out = template.render(
             gstr2=data,
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         
         return await self._generate_pdf(html_out)
@@ -4321,7 +4629,8 @@ class ReportService:
         html_out = template.render(
             report=data,
             report_json=json.dumps(jsonable_encoder(data)),
-            now=datetime.now()
+            now=datetime.now(),
+            landscape=self.landscape
         )
         
         return await self._generate_pdf(html_out)
@@ -4587,7 +4896,8 @@ class ReportService:
         data = await self.get_trial_balance_data()
         template = self.jinja_env.get_template("trial_balance.html")
         html_out = template.render(
-            report_data_json=json.dumps(jsonable_encoder(data))
+            report_data_json=json.dumps(jsonable_encoder(data)),
+            landscape=self.landscape
         )
         try:
             pdf_bytes = await self._generate_pdf(html_out)
@@ -4650,7 +4960,8 @@ class ReportService:
         data = await self.get_gst_summary_data()
         template = self.jinja_env.get_template("gst_summary.html")
         html_out = template.render(
-            report_data_json=json.dumps(jsonable_encoder(data))
+            report_data_json=json.dumps(jsonable_encoder(data)),
+            landscape=self.landscape
         )
         try:
             pdf_bytes = await self._generate_pdf(html_out)

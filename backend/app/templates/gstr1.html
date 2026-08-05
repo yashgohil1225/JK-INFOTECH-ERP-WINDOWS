@@ -1,428 +1,307 @@
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-xmlns:x="urn:schemas-microsoft-com:office:excel"
-xmlns="http://www.w3.org/TR/REC-html40">
-
+<!DOCTYPE html>
+<html>
 <head>
-<meta http-equiv=Content-Type content="text/html; charset=utf-8">
-<meta name=ProgId content=Excel.Sheet>
-<meta name=Generator content="Microsoft Excel 15">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>GSTR-1 Return Report</title>
 <style>
 @page {
-  size: A4 landscape;
-  margin: 10mm 5mm 10mm 5mm; /* sleek landscape margins */
+  size: A4 {% if landscape %}landscape{% else %}portrait{% endif %};
+  margin: 8mm;
 }
-body {
+*, *::before, *::after {
+  box-sizing: border-box !important;
+}
+html, body {
   margin: 0;
   padding: 0;
-  font-family: Arial, sans-serif;
-  color: black;
-  background-color: white;
+  font-family: Arial, Helvetica, sans-serif;
+  color: #000000;
+  background-color: #ffffff;
+  width: 100%;
 }
-table {
-  mso-displayed-decimal-separator: "\.";
-  mso-displayed-thousand-separator: "\,";
+table.report-table {
   border-collapse: collapse;
   width: 100%;
-  table-layout: fixed; /* Ensures strict adherence to column widths */
+  table-layout: fixed;
+  margin-top: 2px;
 }
-th, td {
-  border: 1px solid #d4d4d8;
-  padding: 5px 6px;
-  font-family: Arial, sans-serif;
-  font-size: 8.5pt; /* Premium condensed size to eliminate squeezing and overlaps */
-  white-space: normal !important; /* Force text wrapping */
+table.report-table th, table.report-table td {
+  border: 1px solid #000000;
+  padding: 4px 5px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 8pt;
   word-wrap: break-word;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
-.xl6310809 {
-  color: black;
-  font-size: 8.5pt;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
-}
-.xl6410809 {
-  color: black;
-  font-size: 9.0pt;
+.company-title {
+  font-size: 15pt;
   font-weight: 700;
-  font-family: Arial, sans-serif;
-  text-align: center;
-  white-space: normal !important;
-}
-.xl6510809 {
-  color: black;
-  font-size: 8.5pt;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
-  text-align: right;
-}
-.xl6610809 {
-  color: black;
-  font-size: 9.0pt;
-  font-weight: 700;
-  font-family: Arial, sans-serif;
-  text-align: right;
-  white-space: normal !important;
-}
-.xl6710809 {
-  color: black;
-  font-size: 8.5pt;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
-  text-align: left;
-}
-.xl6810809 {
-  color: black;
-  font-size: 9.0pt;
-  font-weight: 700;
-  font-family: Arial, sans-serif;
-  text-align: left;
-  white-space: normal !important;
-}
-.xl6910809 {
-  color: black;
-  font-size: 8.5pt;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
-  text-align: center;
-}
-.xl7010809, .xl7110809, .xl7210809, .xl7310809 {
-  color: black;
-  font-size: 8.5pt;
-  font-weight: 400;
-  font-family: Arial, sans-serif;
-  text-align: right;
-}
-.xl7410809, .xl7510809, .xl7610809, .xl7710809 {
-  color: black;
-  font-size: 9.0pt;
-  font-weight: 700;
-  font-family: Arial, sans-serif;
-  text-align: right;
-  white-space: normal !important;
-}
-.xl7810809 {
-  color: black;
-  font-size: 16.0pt; /* beautifully balanced size */
-  font-weight: 700;
-  font-family: Arial, sans-serif;
   text-align: center;
   border: none !important;
+  padding-bottom: 2px;
 }
-.xl8010809 {
-  color: black;
-  font-size: 10.0pt;
+.company-sub {
+  font-size: 9pt;
   font-weight: 400;
-  font-family: Arial, sans-serif;
   text-align: center;
   border: none !important;
+  padding-bottom: 2px;
+}
+.bold-header {
+  font-size: 8.5pt;
+  font-weight: 700;
+  text-align: center;
+}
+.bold-left {
+  font-size: 8.5pt;
+  font-weight: 700;
+  text-align: left;
+}
+.bold-right {
+  font-size: 8.5pt;
+  font-weight: 700;
+  text-align: right;
+}
+.data-center {
+  font-size: 8pt;
+  text-align: center;
+}
+.data-right {
+  font-size: 8pt;
+  text-align: right;
+}
+.data-left {
+  font-size: 8pt;
+  text-align: left;
 }
 </style>
 </head>
 
 <body>
-<div id="GSTR-1 return_10809" x:publishsource="Excel">
+<table class="report-table">
+ <col style='width:9%'>
+ <col style='width:8%'>
+ <col style='width:13%'>
+ <col style='width:17%'>
+ <col style='width:9.5%'>
+ <col style='width:7.5%'>
+ <col style='width:7.5%'>
+ <col style='width:7.5%'>
+ <col style='width:6.5%'>
+ <col style='width:7.5%'>
+ <col style='width:7.5%'>
 
-<table border=0 cellpadding=0 cellspacing=0 width=1810 class=xl6310809 style='border-collapse:collapse;table-layout:fixed;width:100%'>
- <!-- Perfect column percentage distribution to eliminate overlapping -->
- <col style='width: 8%;'>
- <col style='width: 7%;'>
- <col style='width: 12%;'>
- <col style='width: 14%;'>
- <col style='width: 11%;'>
- <col style='width: 8%;'>
- <col style='width: 8%;'>
- <col style='width: 8%;'>
- <col style='width: 6%;'>
- <col style='width: 9%;'>
- <col style='width: 9%;'>
- 
- <tr height=33 style='height:24.6pt'>
-  <td colspan=11 height=33 class=xl7810809 id="company-name" style='height:24.6pt;'>GOHIL BROTHERS PRIVATE LIMITED</td>
- </tr>
- <tr height=20 style='height:15.0pt'>
-  <td colspan=11 height=20 class=xl8010809 id="company-address" style='height:15.0pt'>Address Node</td>
- </tr>
- <tr height=21 style='height:15.6pt'>
-  <td colspan=11 height=21 class=xl6410809 id="company-gstin" style='height:15.6pt'>GOODS AND SERVICES TAX IDENTIFICATION NUMBER: </td>
- </tr>
- <tr height=21 style='height:15.6pt'>
-  <td colspan=11 height=21 class=xl6410809 id="report-title" style='height:15.6pt'>GOODS AND SERVICES TAX MONTHLY ANALYSIS REPORT</td>
- </tr>
- 
- <tr height=25 style='height:18.6pt;'>
-  <td height=25 class=xl6410809 style='height:18.6pt; font-weight:700;'>INVOICE-DATE</td>
-  <td class=xl6610809 style='font-weight:700;'>INVOICE-NO.</td>
-  <td class=xl6410809 style='font-weight:700;'>GSTIN-NUMBERS</td>
-  <td class=xl6810809 style='font-weight:700;'>ACCOUNTS NAME</td>
-  <td class=xl6610809 style='font-weight:700;'>TAXABLE-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>IGST-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>CGST-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>SGST-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>CESS-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>TOTALGST-AMOUNT RS.</td>
-  <td class=xl6610809 style='font-weight:700;'>NETBILL-AMOUNT RS.</td>
- </tr>
+ <thead>
+  <tr>
+   <td colspan="11" class="company-title">{{ gstr1.company.name if gstr1 and gstr1.company else 'COMPANY NAME' }}</td>
+  </tr>
+  <tr>
+   <td colspan="11" class="company-sub">{{ gstr1.company.address if gstr1 and gstr1.company and gstr1.company.address and gstr1.company.address != 'None' else '' }}</td>
+  </tr>
+  <tr>
+   <td colspan="11" class="bold-header">
+     {% if gstr1 and gstr1.company and gstr1.company.gst_number %}GSTIN: {{ gstr1.company.gst_number }}{% else %}GSTIN: URP{% endif %}
+     {% if gstr1 and gstr1.company and gstr1.company.pan_number %}  |  PAN: {{ gstr1.company.pan_number }}{% endif %}
+   </td>
+  </tr>
+  <tr>
+   <td colspan="11" class="bold-header">GOODS AND SERVICES TAX MONTHLY ANALYSIS REPORT FROM : {{ gstr1.period.start if gstr1 and gstr1.period else '' }} TO : {{ gstr1.period.end if gstr1 and gstr1.period else '' }}</td>
+  </tr>
 
- <tbody id="report-body">
-  <!-- Dynamic content will be injected here -->
+  <tr style='background-color:#f1f5f9;'>
+   <th class="bold-header">INVOICE-<br>DATE</th>
+   <th class="bold-right">INVOICE-<br>NO.</th>
+   <th class="bold-header">GSTIN-NUMBERS</th>
+   <th class="bold-left">ACCOUNTS NAME</th>
+   <th class="bold-right">TAXABLE-<br>AMOUNT RS.</th>
+   <th class="bold-right">IGST-<br>AMOUNT RS.</th>
+   <th class="bold-right">CGST-<br>AMOUNT RS.</th>
+   <th class="bold-right">SGST-<br>AMOUNT RS.</th>
+   <th class="bold-right">CESS-<br>AMOUNT RS.</th>
+   <th class="bold-right">TOTALGST-<br>AMOUNT RS.</th>
+   <th class="bold-right">NETBILL-<br>AMOUNT RS.</th>
+  </tr>
+ </thead>
+
+ <tbody>
+  {% set total_taxable = namespace(val=0.0) %}
+  {% set total_igst = namespace(val=0.0) %}
+  {% set total_cgst = namespace(val=0.0) %}
+  {% set total_sgst = namespace(val=0.0) %}
+  {% set total_cess = namespace(val=0.0) %}
+  {% set total_gst = namespace(val=0.0) %}
+  {% set total_net = namespace(val=0.0) %}
+
+  {% if gstr1 and gstr1.b2b and gstr1.b2b|length > 0 %}
+    <tr style="background-color:#dbeafe;">
+      <td colspan="11" class="bold-left">DAYBOOK : SALES OF BUSINESS TO BUSINESS-(B2B)</td>
+    </tr>
+    {% set b2b_taxable = namespace(val=0.0) %}
+    {% set b2b_igst = namespace(val=0.0) %}
+    {% set b2b_cgst = namespace(val=0.0) %}
+    {% set b2b_sgst = namespace(val=0.0) %}
+    {% set b2b_cess = namespace(val=0.0) %}
+    {% set b2b_gst = namespace(val=0.0) %}
+    {% set b2b_net = namespace(val=0.0) %}
+
+    {% for inv in gstr1.b2b %}
+      {% set tx = inv.taxable_value|float if inv.taxable_value else 0.0 %}
+      {% set ig = inv.igst|float if inv.igst else 0.0 %}
+      {% set cg = inv.cgst|float if inv.cgst else 0.0 %}
+      {% set sg = inv.sgst|float if inv.sgst else 0.0 %}
+      {% set cs = inv.cess|float if inv.cess else 0.0 %}
+      {% set gst = ig + cg + sg %}
+      {% set net = inv.value|float if inv.value else (tx + gst) %}
+
+      {% set b2b_taxable.val = b2b_taxable.val + tx %}
+      {% set b2b_igst.val = b2b_igst.val + ig %}
+      {% set b2b_cgst.val = b2b_cgst.val + cg %}
+      {% set b2b_sgst.val = b2b_sgst.val + sg %}
+      {% set b2b_cess.val = b2b_cess.val + cs %}
+      {% set b2b_gst.val = b2b_gst.val + gst %}
+      {% set b2b_net.val = b2b_net.val + net %}
+
+      <tr>
+        <td class="data-center">{{ inv.date }}</td>
+        <td class="data-right">{{ inv.inv_no }}</td>
+        <td class="data-left">{{ inv.gstin or 'URP' }}</td>
+        <td class="data-left">{{ inv.receiver_name or '' }}</td>
+        <td class="data-right">{{ "%.2f"|format(tx) }}</td>
+        <td class="data-right">{{ "%.2f"|format(ig) }}</td>
+        <td class="data-right">{{ "%.2f"|format(cg) }}</td>
+        <td class="data-right">{{ "%.2f"|format(sg) }}</td>
+        <td class="data-right">{{ "%.2f"|format(cs) }}</td>
+        <td class="data-right">{{ "%.2f"|format(gst) }}</td>
+        <td class="data-right">{{ "%.2f"|format(net) }}</td>
+      </tr>
+    {% endfor %}
+
+    <tr style="background-color:#f8fafc;">
+      <td colspan="4" class="bold-left">TOTAL OF SALES OF BUSINESS TO BUSINESS-(B2B) RS.:</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_taxable.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_igst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_cgst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_sgst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_cess.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_gst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2b_net.val) }}</td>
+    </tr>
+
+    {% set total_taxable.val = total_taxable.val + b2b_taxable.val %}
+    {% set total_igst.val = total_igst.val + b2b_igst.val %}
+    {% set total_cgst.val = total_cgst.val + b2b_cgst.val %}
+    {% set total_sgst.val = total_sgst.val + b2b_sgst.val %}
+    {% set total_cess.val = total_cess.val + b2b_cess.val %}
+    {% set total_gst.val = total_gst.val + b2b_gst.val %}
+    {% set total_net.val = total_net.val + b2b_net.val %}
+  {% endif %}
+
+  {% if gstr1 and gstr1.b2cs and gstr1.b2cs|length > 0 %}
+    <tr style="background-color:#dbeafe;">
+      <td colspan="11" class="bold-left">DAYBOOK : SALES OF BUSINESS TO CONSUMER SMALL-(B2CS)</td>
+    </tr>
+    {% set b2cs_taxable = namespace(val=0.0) %}
+    {% set b2cs_igst = namespace(val=0.0) %}
+    {% set b2cs_cgst = namespace(val=0.0) %}
+    {% set b2cs_sgst = namespace(val=0.0) %}
+    {% set b2cs_cess = namespace(val=0.0) %}
+    {% set b2cs_gst = namespace(val=0.0) %}
+    {% set b2cs_net = namespace(val=0.0) %}
+
+    {% for inv in gstr1.b2cs %}
+      {% set tx = inv.taxable_value|float if inv.taxable_value else 0.0 %}
+      {% set ig = inv.igst|float if inv.igst else 0.0 %}
+      {% set cg = inv.cgst|float if inv.cgst else 0.0 %}
+      {% set sg = inv.sgst|float if inv.sgst else 0.0 %}
+      {% set cs = inv.cess|float if inv.cess else 0.0 %}
+      {% set gst = ig + cg + sg %}
+      {% set net = tx + gst %}
+
+      {% set b2cs_taxable.val = b2cs_taxable.val + tx %}
+      {% set b2cs_igst.val = b2cs_igst.val + ig %}
+      {% set b2cs_cgst.val = b2cs_cgst.val + cg %}
+      {% set b2cs_sgst.val = b2cs_sgst.val + sg %}
+      {% set b2cs_cess.val = b2cs_cess.val + cs %}
+      {% set b2cs_gst.val = b2cs_gst.val + gst %}
+      {% set b2cs_net.val = b2cs_net.val + net %}
+
+      <tr>
+        <td class="data-center">{{ gstr1.period.start if gstr1 and gstr1.period else '' }}</td>
+        <td class="data-right">B2CS-{{ loop.index }}</td>
+        <td class="data-left">URP</td>
+        <td class="data-left">Consumer Small - {{ inv.pos or '' }}</td>
+        <td class="data-right">{{ "%.2f"|format(tx) }}</td>
+        <td class="data-right">{{ "%.2f"|format(ig) }}</td>
+        <td class="data-right">{{ "%.2f"|format(cg) }}</td>
+        <td class="data-right">{{ "%.2f"|format(sg) }}</td>
+        <td class="data-right">{{ "%.2f"|format(cs) }}</td>
+        <td class="data-right">{{ "%.2f"|format(gst) }}</td>
+        <td class="data-right">{{ "%.2f"|format(net) }}</td>
+      </tr>
+    {% endfor %}
+
+    <tr style="background-color:#f8fafc;">
+      <td colspan="4" class="bold-left">TOTAL OF SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_taxable.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_igst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_cgst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_sgst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_cess.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_gst.val) }}</td>
+      <td class="bold-right">{{ "%.2f"|format(b2cs_net.val) }}</td>
+    </tr>
+
+    {% set total_taxable.val = total_taxable.val + b2cs_taxable.val %}
+    {% set total_igst.val = total_igst.val + b2cs_igst.val %}
+    {% set total_cgst.val = total_cgst.val + b2cs_cgst.val %}
+    {% set total_sgst.val = total_sgst.val + b2cs_sgst.val %}
+    {% set total_cess.val = total_cess.val + b2cs_cess.val %}
+    {% set total_gst.val = total_gst.val + b2cs_gst.val %}
+    {% set total_net.val = total_net.val + b2cs_net.val %}
+  {% endif %}
+
+  <tr style="background-color:#dbeafe;">
+    <td colspan="11" class="bold-left">DAYBOOKS SUMMARY :-</td>
+  </tr>
+
+  {% if gstr1 and gstr1.b2b and gstr1.b2b|length > 0 %}
+    <tr>
+      <td colspan="4" class="data-left">SALES OF BUSINESS TO BUSINESS-(B2B) RS.:</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_taxable.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_igst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_cgst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_sgst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_cess.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_gst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2b_net.val) }}</td>
+    </tr>
+  {% endif %}
+
+  {% if gstr1 and gstr1.b2cs and gstr1.b2cs|length > 0 %}
+    <tr>
+      <td colspan="4" class="data-left">SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_taxable.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_igst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_cgst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_sgst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_cess.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_gst.val) }}</td>
+      <td class="data-right">{{ "%.2f"|format(b2cs_net.val) }}</td>
+    </tr>
+  {% endif %}
+
+  <tr style="background-color:#f1f5f9;">
+    <td colspan="4" class="bold-left">NET PAYABLE GOODS AND SERVICES TAX RS.:</td>
+    <td class="bold-right">{{ "%.2f"|format(total_taxable.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_igst.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_cgst.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_sgst.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_cess.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_gst.val) }}</td>
+    <td class="bold-right">{{ "%.2f"|format(total_net.val) }}</td>
+  </tr>
  </tbody>
 </table>
-
-</div>
-
-<script>
-// Dynamic data injected by reports router
-const rawData = '{{ gstr1_json | safe }}';
-const reportData = JSON.parse(rawData);
-
-// Bind Company Info
-document.getElementById('company-name').textContent = reportData.company.name;
-document.getElementById('company-address').textContent = reportData.company.address;
-const gstStr = reportData.company.gst_number ? ('GSTIN: ' + reportData.company.gst_number) : '';
-const panStr = reportData.company.pan_number ? ('PAN: ' + reportData.company.pan_number) : (reportData.company.gst_number && reportData.company.gst_number.length >= 12 ? 'PAN: ' + reportData.company.gst_number.substring(2, 12) : '');
-const combinedIdStr = [gstStr, panStr].filter(Boolean).join('  |  ') || 'GSTIN: URP';
-document.getElementById('company-gstin').textContent = combinedIdStr;
-document.getElementById('report-title').textContent = 'GOODS AND SERVICES TAX MONTHLY ANALYSIS REPORT FROM : ' + reportData.period.start + ' TO : ' + reportData.period.end;
-
-const tbody = document.getElementById('report-body');
-
-// Formatting helper
-function fmt(val) {
-  return Number(val || 0).toFixed(2);
-}
-
-// Date formatter helper
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  return `${day}-${month}-${year}`;
-}
-
-let totalTaxable = 0;
-let totalIgst = 0;
-let totalCgst = 0;
-let totalSgst = 0;
-let totalCess = 0;
-let totalGst = 0;
-let totalNet = 0;
-
-// 1. Render B2B Section
-if (reportData.b2b && reportData.b2b.length > 0) {
-  // Section Header
-  const b2bHeader = document.createElement('tr');
-  b2bHeader.style.height = '21px';
-  b2bHeader.innerHTML = `<td colspan="11" class="xl6810809" style="height:21px; font-weight:700;">DAYBOOK : SALES OF BUSINESS TO BUSINESS-(B2B)</td>`;
-  tbody.appendChild(b2bHeader);
-
-  let b2bTaxable = 0;
-  let b2bIgst = 0;
-  let b2bCgst = 0;
-  let b2bSgst = 0;
-  let b2bCess = 0;
-  let b2bGst = 0;
-  let b2bNet = 0;
-
-  reportData.b2b.forEach(inv => {
-    const taxable = Number(inv.taxable_value || 0);
-    const igst = Number(inv.igst || 0);
-    const cgst = Number(inv.cgst || 0);
-    const sgst = Number(inv.sgst || 0);
-    const cess = Number(inv.cess || 0);
-    const gst = igst + cgst + sgst;
-    const net = Number(inv.value || 0);
-
-    b2bTaxable += taxable;
-    b2bIgst += igst;
-    b2bCgst += cgst;
-    b2bSgst += sgst;
-    b2bCess += cess;
-    b2bGst += gst;
-    b2bNet += net;
-
-    const row = document.createElement('tr');
-    row.style.height = '18px';
-    row.innerHTML = `
-      <td class="xl6910809" style="height:18px;">${formatDate(inv.date)}</td>
-      <td class="xl6510809">${inv.inv_no}</td>
-      <td class="xl6710809">${inv.gstin}</td>
-      <td class="xl6710809">${inv.receiver_name}</td>
-      <td class="xl7010809">${fmt(taxable)}</td>
-      <td class="xl7110809">${fmt(igst)}</td>
-      <td class="xl7210809">${fmt(cgst)}</td>
-      <td class="xl7210809">${fmt(sgst)}</td>
-      <td class="xl7110809">${fmt(cess)}</td>
-      <td class="xl7310809">${fmt(gst)}</td>
-      <td class="xl7310809">${fmt(net)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  // B2B Totals Row
-  const b2bTotalRow = document.createElement('tr');
-  b2bTotalRow.style.height = '21px';
-  b2bTotalRow.innerHTML = `
-    <td colspan="4" class="xl6810809" style="height:21px; font-weight:700;">TOTAL OF SALES OF BUSINESS TO BUSINESS-(B2B) RS.:</td>
-    <td class="xl7410809">${fmt(b2bTaxable)}</td>
-    <td class="xl7510809">${fmt(b2bIgst)}</td>
-    <td class="xl7610809">${fmt(b2bCgst)}</td>
-    <td class="xl7610809">${fmt(b2bSgst)}</td>
-    <td class="xl7510809">${fmt(b2bCess)}</td>
-    <td class="xl7710809">${fmt(b2bGst)}</td>
-    <td class="xl7710809">${fmt(b2bNet)}</td>
-  `;
-  tbody.appendChild(b2bTotalRow);
-
-  totalTaxable += b2bTaxable;
-  totalIgst += b2bIgst;
-  totalCgst += b2bCgst;
-  totalSgst += b2bSgst;
-  totalCess += b2bCess;
-  totalGst += b2bGst;
-  totalNet += b2bNet;
-}
-
-// 2. Render B2CS (B2C Small) Section
-if (reportData.b2cs && reportData.b2cs.length > 0) {
-  const b2csHeader = document.createElement('tr');
-  b2csHeader.style.height = '21px';
-  b2csHeader.innerHTML = `<td colspan="11" class="xl6810809" style="height:21px; font-weight:700;">DAYBOOK : SALES OF BUSINESS TO CONSUMER SMALL-(B2CS)</td>`;
-  tbody.appendChild(b2csHeader);
-
-  let b2csTaxable = 0;
-  let b2csIgst = 0;
-  let b2csCgst = 0;
-  let b2csSgst = 0;
-  let b2csCess = 0;
-  let b2csGst = 0;
-  let b2csNet = 0;
-
-  reportData.b2cs.forEach((inv, index) => {
-    const taxable = Number(inv.taxable_value || 0);
-    const igst = Number(inv.igst || 0);
-    const cgst = Number(inv.cgst || 0);
-    const sgst = Number(inv.sgst || 0);
-    const cess = Number(inv.cess || 0);
-    const gst = igst + cgst + sgst;
-    const net = taxable + gst;
-
-    b2csTaxable += taxable;
-    b2csIgst += igst;
-    b2csCgst += cgst;
-    b2csSgst += sgst;
-    b2csCess += cess;
-    b2csGst += gst;
-    b2csNet += net;
-
-    const row = document.createElement('tr');
-    row.style.height = '18px';
-    row.innerHTML = `
-      <td class="xl6910809" style="height:18px;">${reportData.period.start}</td>
-      <td class="xl6510809">B2CS-${index + 1}</td>
-      <td class="xl6710809">URP</td>
-      <td class="xl6710809">Consumer Small - ${inv.pos}</td>
-      <td class="xl7010809">${fmt(taxable)}</td>
-      <td class="xl7110809">${fmt(igst)}</td>
-      <td class="xl7210809">${fmt(cgst)}</td>
-      <td class="xl7210809">${fmt(sgst)}</td>
-      <td class="xl7110809">${fmt(cess)}</td>
-      <td class="xl7310809">${fmt(gst)}</td>
-      <td class="xl7310809">${fmt(net)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  // B2CS Totals Row
-  const b2csTotalRow = document.createElement('tr');
-  b2csTotalRow.style.height = '21px';
-  b2csTotalRow.innerHTML = `
-    <td colspan="4" class="xl6810809" style="height:21px; font-weight:700;">TOTAL OF SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:</td>
-    <td class="xl7410809">${fmt(b2csTaxable)}</td>
-    <td class="xl7510809">${fmt(b2csIgst)}</td>
-    <td class="xl7610809">${fmt(b2csCgst)}</td>
-    <td class="xl7610809">${fmt(b2csSgst)}</td>
-    <td class="xl7510809">${fmt(b2csCess)}</td>
-    <td class="xl7710809">${fmt(b2csGst)}</td>
-    <td class="xl7710809">${fmt(b2csNet)}</td>
-  `;
-  tbody.appendChild(b2csTotalRow);
-
-  totalTaxable += b2csTaxable;
-  totalIgst += b2csIgst;
-  totalCgst += b2csCgst;
-  totalSgst += b2csSgst;
-  totalCess += b2csCess;
-  totalGst += b2csGst;
-  totalNet += b2csNet;
-}
-
-// 3. Render Summary Header
-const summaryHeader = document.createElement('tr');
-summaryHeader.style.height = '21px';
-summaryHeader.innerHTML = `<td colspan="11" class="xl6810809" style="height:21px; font-weight:700;">DAYBOOKS SUMMARY :-</td>`;
-tbody.appendChild(summaryHeader);
-
-// B2B Summary Row
-if (reportData.b2b && reportData.b2b.length > 0) {
-  const b2bSumRow = document.createElement('tr');
-  b2bSumRow.style.height = '18px';
-  b2bSumRow.innerHTML = `
-    <td colspan="4" class="xl6710809" style="height:18px;">SALES OF BUSINESS TO BUSINESS-(B2B) RS.:</td>
-    <td class="xl7010809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.taxable_value || 0), 0))}</td>
-    <td class="xl7110809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.igst || 0), 0))}</td>
-    <td class="xl7210809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.cgst || 0), 0))}</td>
-    <td class="xl7210809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.sgst || 0), 0))}</td>
-    <td class="xl7110809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.cess || 0), 0))}</td>
-    <td class="xl7310809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.igst || 0) + Number(b.cgst || 0) + Number(b.sgst || 0), 0))}</td>
-    <td class="xl7310809">${fmt(reportData.b2b.reduce((a, b) => a + Number(b.value || 0), 0))}</td>
-  `;
-  tbody.appendChild(b2bSumRow);
-}
-
-// B2CS Summary Row
-if (reportData.b2cs && reportData.b2cs.length > 0) {
-  const b2csSumRow = document.createElement('tr');
-  b2csSumRow.style.height = '18px';
-  const sumTaxable = reportData.b2cs.reduce((a, b) => a + Number(b.taxable_value || 0), 0);
-  const sumIgst = reportData.b2cs.reduce((a, b) => a + Number(b.igst || 0), 0);
-  const sumCgst = reportData.b2cs.reduce((a, b) => a + Number(b.cgst || 0), 0);
-  const sumSgst = reportData.b2cs.reduce((a, b) => a + Number(b.sgst || 0), 0);
-  const sumCess = reportData.b2cs.reduce((a, b) => a + Number(b.cess || 0), 0);
-  const sumGst = sumIgst + sumCgst + sumSgst;
-  const sumNet = sumTaxable + sumGst;
-  
-  b2csSumRow.innerHTML = `
-    <td colspan="4" class="xl6710809" style="height:18px;">SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:</td>
-    <td class="xl7010809">${fmt(sumTaxable)}</td>
-    <td class="xl7110809">${fmt(sumIgst)}</td>
-    <td class="xl7210809">${fmt(sumCgst)}</td>
-    <td class="xl7210809">${fmt(sumSgst)}</td>
-    <td class="xl7110809">${fmt(sumCess)}</td>
-    <td class="xl7310809">${fmt(sumGst)}</td>
-    <td class="xl7310809">${fmt(sumNet)}</td>
-  `;
-  tbody.appendChild(b2csSumRow);
-}
-
-// Final Net Payable row
-const netPayableRow = document.createElement('tr');
-netPayableRow.style.height = '21px';
-netPayableRow.innerHTML = `
-  <td colspan="4" class="xl6810809" style="height:21px; font-weight:700;">NET PAYABLE GOODS AND SERVICES TAX RS.:</td>
-  <td class="xl7410809">${fmt(totalTaxable)}</td>
-  <td class="xl7510809">${fmt(totalIgst)}</td>
-  <td class="xl7610809">${fmt(totalCgst)}</td>
-  <td class="xl7610809">${fmt(totalSgst)}</td>
-  <td class="xl7510809">${fmt(totalCess)}</td>
-  <td class="xl7710809">${fmt(totalGst)}</td>
-  <td class="xl7710809">${fmt(totalNet)}</td>
-`;
-tbody.appendChild(netPayableRow);
-</script>
 </body>
-
 </html>

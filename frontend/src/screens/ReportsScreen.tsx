@@ -38,15 +38,45 @@ const fmtQty = (n: number | undefined | null) => {
   if (n == null) return "0.00";
   return Number(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
-const today = () => new Date().toISOString().split("T")[0];
-const monthStart = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
+const formatYYYYMMDD = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
-const fyStart = () => {
+
+const today = (): string => formatYYYYMMDD(new Date());
+
+const monthStart = (): string => {
+  const d = new Date();
+  return formatYYYYMMDD(new Date(d.getFullYear(), d.getMonth(), 1));
+};
+
+const monthEnd = (): string => {
+  const d = new Date();
+  return formatYYYYMMDD(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+};
+
+const lastMonthStart = (): string => {
+  const d = new Date();
+  return formatYYYYMMDD(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+};
+
+const lastMonthEnd = (): string => {
+  const d = new Date();
+  return formatYYYYMMDD(new Date(d.getFullYear(), d.getMonth(), 0));
+};
+
+const fyStart = (): string => {
   const d = new Date();
   const yr = d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear();
   return `${yr}-04-01`;
+};
+
+const fyEnd = (): string => {
+  const d = new Date();
+  const yr = d.getMonth() < 3 ? d.getFullYear() : d.getFullYear() + 1;
+  return `${yr}-03-31`;
 };
 
 // ─── Types ────────────────────────────────────────────────────
@@ -343,7 +373,7 @@ export default function ReportsScreen() {
   const [selectedReport, setSelectedReport] = useState<ReportMeta | null>(REPORT_CATEGORIES[0].reports[0]);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [startDate, setStartDate] = useState(monthStart());
-  const [endDate, setEndDate] = useState(today());
+  const [endDate, setEndDate] = useState(monthEnd());
   const [asOf, setAsOf] = useState(today());
   const [accountId, setAccountId] = useState("");
   const [partyId, setPartyId] = useState("");
@@ -355,8 +385,6 @@ export default function ReportsScreen() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>("financial");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
-
-
 
   // ── Data Queries ───────────────────────────────────────────
   const { data: accounts = [] } = useQuery<any[]>({
@@ -398,6 +426,13 @@ export default function ReportsScreen() {
     }
   }, [accounts]);
 
+  // Auto-refresh active report when parameters or date range change
+  useEffect(() => {
+    if (selectedReport && reportData) {
+      handleViewData();
+    }
+  }, [startDate, endDate, asOf, accountId, partyId, partyType]);
+
   const currentParams: ReportParams = { startDate, endDate, asOf, accountId, partyId, partyType };
 
   // ── Handlers ──────────────────────────────────────────────
@@ -415,32 +450,46 @@ export default function ReportsScreen() {
       setEndDate(today());
     } else if (report.hasDateRange) {
       setStartDate(monthStart());
-      setEndDate(today());
+      setEndDate(monthEnd());
     }
   };
 
-  const handleViewData = async () => {
-    if (!selectedReport?.dataEndpoint) {
-      Alert.alert("Info", "Use PDF or Excel export for this report.");
+  const handleViewData = async (overrideParams?: Partial<ReportParams>) => {
+    if (!selectedReport?.dataEndpoint && !selectedReport?.pdfEndpoint) {
+      Alert.alert("Info", "No preview endpoint available for this report.");
       return;
     }
-    if (selectedReport.hasAccountSelector && !accountId) {
+    const params: ReportParams = {
+      startDate, endDate, asOf, accountId, partyId, partyType,
+      ...overrideParams
+    };
+    if (selectedReport?.hasAccountSelector && !params.accountId) {
       Alert.alert("Select Account", "Please select an account first."); return;
     }
-    if (selectedReport.hasPartySelector && !partyId) {
+    if (selectedReport?.hasPartySelector && !params.partyId) {
       Alert.alert("Select Party", "Please select a party first."); return;
     }
-    let endpoint = selectedReport.dataEndpoint(currentParams);
 
     setIsLoadingData(true); setDataError(null); setReportData(null);
+
     try {
-      const res = await apiClient.get(endpoint);
-      setReportData(res.data);
+      if (selectedReport.dataEndpoint) {
+        let endpoint = selectedReport.dataEndpoint(params);
+        const res = await apiClient.get(endpoint);
+        setReportData(res.data);
+      }
     } catch (e: any) {
+      console.warn("View Data Error:", e);
       setDataError(e.response?.data?.detail || e.message || "Failed to load report.");
     } finally {
       setIsLoadingData(false);
     }
+  };
+
+  const handleQuickSet = (start: string, end: string) => {
+    setStartDate(start);
+    setEndDate(end);
+    handleViewData({ startDate: start, endDate: end });
   };
 
   const handlePdf = async () => {
@@ -467,103 +516,139 @@ export default function ReportsScreen() {
     if (!reportData) return null;
     const key = selectedReport?.key;
 
+    const companyName = company?.name || "JK INFOTECH PVT LTD.";
+    const gstinNum = company?.gst_number || "URP";
 
-    // Trial Balance
+    const HeaderDoc = ({ title, periodText }: { title: string; periodText?: string }) => (
+      <View style={{ alignItems: "center", marginBottom: 16, borderBottomWidth: 2, borderBottomColor: "#0F172A", paddingBottom: 12 }}>
+        <Text style={{ fontSize: 18, fontWeight: "800", color: "#0F172A", letterSpacing: 0.5, fontFamily: "Segoe UI Variable Display" }}>
+          {companyName}
+        </Text>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: "#475569", marginTop: 2, fontFamily: "Segoe UI Variable Text" }}>
+          GSTIN: {gstinNum}
+        </Text>
+        <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent, marginTop: 4, fontFamily: "Segoe UI Variable Display", textTransform: "uppercase" }}>
+          {title} {periodText ? periodText : `FROM : ${startDate} TO : ${endDate}`}
+        </Text>
+      </View>
+    );
+
+
+    // 1. Trial Balance
     if (key === "trial_balance" && Array.isArray(reportData)) {
-      const totD = reportData.reduce((s: number, r: any) => s + r.total_debit, 0);
-      const totC = reportData.reduce((s: number, r: any) => s + r.total_credit, 0);
+      const totD = reportData.reduce((s: number, r: any) => s + Number(r.total_debit || 0), 0);
+      const totC = reportData.reduce((s: number, r: any) => s + Number(r.total_credit || 0), 0);
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Trial Balance ({reportData.length} accounts)</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Account</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Debit</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Credit</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Net</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="TRIAL BALANCE STATEMENT" />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>ACCOUNT NAME</Text>
+            <Text style={[styles.reportTh, { flex: 2 }]}>GROUP / TYPE</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>DEBIT (DR) RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>CREDIT (CR) RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>NET BALANCE RS.</Text>
           </View>
-          <ScrollView style={{ maxHeight: 300 }}>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => (
-              <View key={r.account_id} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <View style={{ flex: 3 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.account_name}</Text>
-                  <Text style={[styles.tdSub, { color: colors.textSecondary }]}>{r.account_type}</Text>
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_debit)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_credit)}</Text>
-                <Text style={[styles.td, { color: r.net_balance >= 0 ? colors.textPrimary : "#F87171", flex: 1.5, textAlign: "right" }]}>{fmt(r.net_balance)}</Text>
+              <View key={r.account_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.account_name}</Text>
+                <Text style={[styles.reportTd, { flex: 2, color: "#64748B" }]}>{r.account_type}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.total_debit)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.total_credit)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right", fontWeight: "700", color: r.net_balance >= 0 ? "#0F172A" : "#EF4444" }]}>{fmt(r.net_balance)}</Text>
               </View>
             ))}
           </ScrollView>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 3 }]}>Totals</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(totD)}</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(totC)}</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(totD - totC)}</Text>
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 8 }}>
+            <Text style={{ flex: 5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 12, fontFamily: "Segoe UI Variable Display" }}>TOTALS RS.:</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totD)}</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totC)}</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", paddingRight: 12, fontFamily: "Consolas" }}>{fmt(totD - totC)}</Text>
           </View>
         </View>
       );
     }
 
-    // Profit & Loss
+    // 2. Profit & Loss
     if (key === "profit_loss") {
-      const d = reportData;
+      const d = reportData || {};
       const netProfit = (d.total_income ?? 0) - (d.total_expenses ?? 0);
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Profit & Loss Statement</Text>
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>Income</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="PROFIT & LOSS STATEMENT" />
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>INCOME ACCOUNTS</Text>
+          </View>
           {(d.income_items || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Total Income" value={fmt(d.total_income)} colors={colors} />
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Expenses</Text>
+          <KVRow label="TOTAL REVENUE / INCOME" value={fmt(d.total_income)} colors={colors} />
+
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 14, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>EXPENSE ACCOUNTS</Text>
+          </View>
           {(d.expense_items || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Total Expenses" value={fmt(d.total_expenses)} colors={colors} />
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>Net Profit / (Loss)</Text>
-            <Text style={[styles.totalValue, { color: netProfit >= 0 ? "#4ADE80" : "#F87171" }]}>{fmt(netProfit)}</Text>
+          <KVRow label="TOTAL OPERATING EXPENSES" value={fmt(d.total_expenses)} colors={colors} />
+
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 10, paddingHorizontal: 12, marginTop: 16 }}>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "800", color: "#FFFFFF", fontFamily: "Segoe UI Variable Display" }}>NET PROFIT / (NET LOSS) RS.:</Text>
+            <Text style={{ fontSize: 14, fontWeight: "800", color: netProfit >= 0 ? "#4ADE80" : "#F87171", fontFamily: "Consolas" }}>{fmt(netProfit)}</Text>
           </View>
         </View>
       );
     }
 
-    // Balance Sheet
+    // 3. Balance Sheet
     if (key === "balance_sheet") {
-      const d = reportData;
+      const d = reportData || {};
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Balance Sheet</Text>
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>Assets</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="BALANCE SHEET STATEMENT" periodText={`AS OF : ${asOf}`} />
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>ASSETS</Text>
+          </View>
           {(d.assets || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Total Assets" value={fmt(d.total_assets)} colors={colors} />
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Liabilities & Equity</Text>
+          <KVRow label="TOTAL ASSETS" value={fmt(d.total_assets)} colors={colors} />
+
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 14, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>LIABILITIES & EQUITY</Text>
+          </View>
           {(d.liabilities || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Total Liabilities" value={fmt(d.total_liabilities)} colors={colors} />
+          <KVRow label="TOTAL LIABILITIES & CAPITAL" value={fmt(d.total_liabilities)} colors={colors} />
         </View>
       );
     }
 
-    // Cash Flow
+    // 4. Cash Flow
     if (key === "cashflow") {
-      const d = reportData;
+      const d = reportData || {};
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Cash Flow Statement</Text>
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>Operating Activities</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="CASH FLOW STATEMENT" />
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>OPERATING ACTIVITIES</Text>
+          </View>
           {(d.operating || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Net Operating" value={fmt(d.net_operating)} colors={colors} />
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Investing Activities</Text>
+          <KVRow label="NET OPERATING CASH FLOW" value={fmt(d.net_operating)} colors={colors} />
+
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 12, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>INVESTING ACTIVITIES</Text>
+          </View>
           {(d.investing || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <KVRow label="Net Investing" value={fmt(d.net_investing)} colors={colors} />
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Financing Activities</Text>
+          <KVRow label="NET INVESTING CASH FLOW" value={fmt(d.net_investing)} colors={colors} />
+
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 12, marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>FINANCING ACTIVITIES</Text>
+          </View>
           {(d.financing || []).map((item: any, i: number) => <KVRow key={i} label={item.name} value={fmt(item.amount)} colors={colors} />)}
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>Net Cash Change</Text>
-            <Text style={[styles.totalValue, { color: colors.accent }]}>{fmt(d.net_cash_change)}</Text>
+
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 10, paddingHorizontal: 12, marginTop: 16 }}>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "800", color: "#FFFFFF", fontFamily: "Segoe UI Variable Display" }}>NET CHANGE IN CASH RS.:</Text>
+            <Text style={{ fontSize: 14, fontWeight: "800", color: "#38BDF8", fontFamily: "Consolas" }}>{fmt(d.net_cash_change)}</Text>
           </View>
         </View>
       );
     }
 
-    // Outstanding
+    // 5. Outstanding Summary
     if (key === "outstanding") {
       const d = reportData || {};
       const recParties = Array.isArray(d.receivables) ? d.receivables : (d.receivables?.parties || []);
@@ -572,194 +657,199 @@ export default function ReportsScreen() {
       const totPay = d.total_payable ?? d.payables?.total ?? 0;
 
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Outstanding Summary</Text>
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>Receivables (Customers) — {recParties.length} parties</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="OUTSTANDING RECEIVABLES & PAYABLES SUMMARY" periodText={`AS OF : ${endDate}`} />
+          
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+              RECEIVABLES (CUSTOMERS) — {recParties.length} PARTIES
+            </Text>
+          </View>
           {recParties.map((r: any, i: number) => (
             <KVRow key={i} label={r.party_name || r.name} value={fmt(r.total_due ?? r.outstanding_amount ?? r.amount)} colors={colors} />
           ))}
-          <KVRow label="Total Receivable" value={fmt(totRec)} colors={colors} />
+          <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 16 }}>
+            <Text style={{ flex: 1, fontSize: 12, fontWeight: "800", color: "#0F172A" }}>TOTAL RECEIVABLE RS.:</Text>
+            <Text style={{ fontSize: 13, fontWeight: "800", color: colors.accent }}>{fmt(totRec)}</Text>
+          </View>
 
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 12 }]}>Payables (Suppliers) — {payParties.length} parties</Text>
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+              PAYABLES (SUPPLIERS) — {payParties.length} PARTIES
+            </Text>
+          </View>
           {payParties.map((r: any, i: number) => (
             <KVRow key={i} label={r.party_name || r.name} value={fmt(r.total_due ?? r.outstanding_amount ?? r.amount)} colors={colors} />
           ))}
-          <KVRow label="Total Payable" value={fmt(totPay)} colors={colors} />
+          <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", paddingVertical: 6, paddingHorizontal: 8 }}>
+            <Text style={{ flex: 1, fontSize: 12, fontWeight: "800", color: "#0F172A" }}>TOTAL PAYABLE RS.:</Text>
+            <Text style={{ fontSize: 13, fontWeight: "800", color: colors.accent }}>{fmt(totPay)}</Text>
+          </View>
         </View>
       );
     }
 
-    // Day Book / Ledger / Party Ledger
+    // 6. Day Book / Ledger / Party Ledger
     if (key === "daybook" || key === "ledger" || key === "party_ledger") {
       const entries = Array.isArray(reportData)
         ? reportData
         : (reportData?.transactions || reportData?.entries || []);
       const title = key === "daybook"
-        ? "Day Book (Daily Journal)"
+        ? "DAY BOOK (DAILY JOURNAL REGISTER)"
         : key === "ledger"
-        ? `Account Ledger ${reportData?.account_name ? `— ${reportData.account_name}` : ""}`
-        : `Party Ledger ${reportData?.party_name ? `— ${reportData.party_name}` : ""}`;
+        ? `ACCOUNT LEDGER STATEMENT ${reportData?.account_name ? `(${reportData.account_name.toUpperCase()})` : ""}`
+        : `PARTY LEDGER STATEMENT ${reportData?.party_name ? `(${reportData.party_name.toUpperCase()})` : ""}`;
+
+      const totDr = entries.reduce((s: number, r: any) => s + Number(r.total_debit ?? r.debit ?? 0), 0);
+      const totCr = entries.reduce((s: number, r: any) => s + Number(r.total_credit ?? r.credit ?? 0), 0);
 
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>
-              {title} ({entries.length} transactions)
-            </Text>
-            {key === "ledger" && reportData?.closing_balance !== undefined ? (
-              <View style={{ flexDirection: "row", gap: 12 }}>
-                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                  Opening: <Text style={{ fontWeight: "700", color: colors.textPrimary }}>{fmt(reportData.opening_balance)}</Text>
-                </Text>
-                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                  Closing: <Text style={{ fontWeight: "700", color: colors.accent }}>{fmt(reportData.closing_balance)}</Text>
-                </Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title={title} />
+          {key === "ledger" && reportData?.closing_balance !== undefined ? (
+            <View style={{ flexDirection: "row", justifyContent: "space-between", backgroundColor: "#F1F5F9", padding: 10, marginBottom: 12, borderLeftWidth: 4, borderLeftColor: colors.accent }}>
+              <Text style={{ fontSize: 12, color: "#334155" }}>
+                OPENING BALANCE: <Text style={{ fontWeight: "700", color: "#0F172A" }}>{fmt(reportData.opening_balance)}</Text>
+              </Text>
+              <Text style={{ fontSize: 12, color: "#334155" }}>
+                CLOSING BALANCE: <Text style={{ fontWeight: "800", color: colors.accent }}>{fmt(reportData.closing_balance)}</Text>
+              </Text>
+            </View>
+          ) : null}
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={{ flexDirection: "column" }}>
+            <View style={{ minWidth: 850 }}>
+              <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+                <Text style={[styles.reportTh, { width: 90 }]}>DATE</Text>
+                <Text style={[styles.reportTh, { width: 120 }]}>VOUCHER / REF</Text>
+                <Text style={[styles.reportTh, { width: 280 }]}>NARRATION / PARTICULAR</Text>
+                <Text style={[styles.reportTh, { width: 120, textAlign: "right" }]}>DEBIT (DR) RS.</Text>
+                <Text style={[styles.reportTh, { width: 120, textAlign: "right" }]}>CREDIT (CR) RS.</Text>
+                {key === "ledger" && <Text style={[styles.reportTh, { width: 120, textAlign: "right" }]}>BALANCE RS.</Text>}
               </View>
-            ) : null}
-          </View>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2 }]}>Date</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Voucher / Ref</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2.5 }]}>Narration / Particulars</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Debit (DR)</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Credit (CR)</Text>
-            {key === "ledger" ? (
-              <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Balance</Text>
-            ) : null}
+              <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ paddingRight: 12 }}>
+                {entries.map((r: any, i: number) => (
+                  <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                    <Text style={[styles.reportTd, { width: 90 }]}>{r.entry_date || r.date || ""}</Text>
+                    <Text style={[styles.reportTd, { width: 120, fontWeight: "600" }]}>{r.entry_number || r.voucher_no || r.ref || ""}</Text>
+                    <Text style={[styles.reportTd, { width: 280 }]} numberOfLines={2}>{r.description || r.narration || ""}</Text>
+                    <Text style={[styles.reportTd, { width: 120, textAlign: "right" }]}>{fmt(r.total_debit ?? r.debit)}</Text>
+                    <Text style={[styles.reportTd, { width: 120, textAlign: "right" }]}>{fmt(r.total_credit ?? r.credit)}</Text>
+                    {key === "ledger" && (
+                      <Text style={[styles.reportTd, { width: 120, textAlign: "right", fontWeight: "700", color: colors.accent }]}>
+                        {fmt(r.balance ?? r.running_balance)}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 4 }}>
+                <Text style={{ width: 490, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>TOTALS RS.:</Text>
+                <Text style={{ width: 120, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totDr)}</Text>
+                <Text style={{ width: 120, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totCr)}</Text>
+                {key === "ledger" && <Text style={{ width: 120, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totDr - totCr)}</Text>}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    // 7. Sales by Customer
+    if (key === "sales_by_customer" && Array.isArray(reportData)) {
+      const total = reportData.reduce((s: number, r: any) => s + Number(r.total_sales || 0), 0);
+      const totSub = reportData.reduce((s: number, r: any) => s + Number(r.subtotal || 0), 0);
+      const totTax = reportData.reduce((s: number, r: any) => s + Number(r.tax_amount || 0), 0);
+
+      return (
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="SALES BY CUSTOMER ANALYSIS REPORT" />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>CUSTOMER NAME</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "center" }]}>INVOICES</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>SUBTOTAL RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>TAX RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.8, textAlign: "right" }]}>TOTAL SALES RS.</Text>
           </View>
           <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
-            {entries.map((r: any, i: number) => (
-              <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <Text style={[styles.td, { color: colors.textSecondary, flex: 1.2 }]}>{r.entry_date || r.date || ""}</Text>
-                <View style={{ flex: 1.5 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary, fontWeight: "600" }]}>{r.entry_number || r.voucher_no || r.ref || ""}</Text>
-                  {r.reference_type ? <Text style={[styles.tdSub, { color: colors.accent }]}>{r.reference_type}</Text> : null}
-                </View>
-                <View style={{ flex: 2.5 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.description || r.narration || ""}</Text>
-                  {(r.lines || []).map((l: any, idx: number) => (
-                    <Text key={idx} style={[styles.tdSub, { color: colors.textSecondary }]}>
-                      • {l.account_name} ({l.debit > 0 ? `DR: ${fmt(l.debit)}` : `CR: ${fmt(l.credit)}`})
-                    </Text>
-                  ))}
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_debit ?? r.debit)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_credit ?? r.credit)}</Text>
-                {key === "ledger" ? (
-                  <Text style={[styles.td, { color: colors.accent, flex: 1.5, textAlign: "right", fontWeight: "600" }]}>
-                    {fmt(r.balance ?? r.running_balance)}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      );
-    }
-
-
-
-    // Sales by Customer
-    if (key === "sales_by_customer" && Array.isArray(reportData)) {
-      const total = reportData.reduce((s: number, r: any) => s + (r.total_sales || 0), 0);
-      return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Sales by Customer — {reportData.length} customers</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Customer</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1, textAlign: "center" }]}>Invoices</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Subtotal</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Tax</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Total</Text>
-          </View>
-          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => (
-              <View key={r.customer_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <View style={{ flex: 3 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.customer_name}</Text>
-                  {r.mobile ? <Text style={[styles.tdSub, { color: colors.textSecondary }]}>{r.mobile}</Text> : null}
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1, textAlign: "center" }]}>{r.invoice_count}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.subtotal)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.tax_amount)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_sales)}</Text>
+              <View key={r.customer_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.customer_name}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, textAlign: "center" }]}>{r.invoice_count}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.subtotal)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.tax_amount)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.8, textAlign: "right", fontWeight: "700" }]}>{fmt(r.total_sales)}</Text>
               </View>
             ))}
           </ScrollView>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 3 }]}>Grand Total</Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1 }]}></Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.5 }]}></Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.5 }]}></Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(total)}</Text>
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 4 }}>
+            <Text style={{ flex: 4.2, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>GRAND TOTALS RS.:</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totSub)}</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(totTax)}</Text>
+            <Text style={{ flex: 1.8, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", paddingRight: 12, fontFamily: "Consolas" }}>{fmt(total)}</Text>
           </View>
         </View>
       );
     }
 
-    // Sales by Item
+    // 8. Sales by Item
     if (key === "sales_by_item" && Array.isArray(reportData)) {
-      const total = reportData.reduce((s: number, r: any) => s + (r.total_sales_value || 0), 0);
+      const total = reportData.reduce((s: number, r: any) => s + Number(r.total_sales_value || 0), 0);
+      const totQty = reportData.reduce((s: number, r: any) => s + Number(r.total_quantity || 0), 0);
+
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Sales by Item — {reportData.length} products</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Product</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1 }]}>Unit</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Qty Sold</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Avg Rate</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Revenue</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="SALES BY ITEM PRODUCT REPORT" />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>PRODUCT / ITEM NAME</Text>
+            <Text style={[styles.reportTh, { flex: 1 }]}>UNIT</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>QTY SOLD</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>AVG RATE RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.8, textAlign: "right" }]}>REVENUE RS.</Text>
           </View>
-          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingRight: 12 }}>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => (
-              <View key={r.product_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <View style={{ flex: 3 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.product_name}</Text>
-                  {r.sku ? <Text style={[styles.tdSub, { color: colors.textSecondary }]}>SKU: {r.sku}</Text> : null}
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1 }]}>{r.unit}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmtQty(r.total_quantity)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.avg_rate)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.total_sales_value)}</Text>
+              <View key={r.product_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.product_name}</Text>
+                <Text style={[styles.reportTd, { flex: 1 }]}>{r.unit}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmtQty(r.total_quantity)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.avg_rate)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.8, textAlign: "right", fontWeight: "700" }]}>{fmt(r.total_sales_value)}</Text>
               </View>
             ))}
           </ScrollView>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 3 }]}>Grand Total</Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1 }]}></Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.5 }]}></Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.5 }]}></Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(total)}</Text>
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 4 }}>
+            <Text style={{ flex: 4, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>GRAND TOTALS:</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmtQty(totQty)}</Text>
+            <Text style={{ flex: 1.5, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>-</Text>
+            <Text style={{ flex: 1.8, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", paddingRight: 12, fontFamily: "Consolas" }}>{fmt(total)}</Text>
           </View>
         </View>
       );
     }
 
-    // Item Movement
+    // 9. Item Movement
     if (key === "item_movement" && Array.isArray(reportData)) {
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Item Movement — {reportData.length} products</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Product</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>Opening</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>Inward</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>Outward</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>Closing</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Value</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="ITEM MOVEMENT & STOCK REGISTER" />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>PRODUCT NAME</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>OPENING</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>INWARD</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>OUTWARD</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>CLOSING</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>VALUATION RS.</Text>
           </View>
-          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ paddingRight: 12 }}>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => (
-              <View key={r.product_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <View style={{ flex: 3 }}>
-                  <Text style={[styles.td, { color: colors.textPrimary }]}>{r.product_name}</Text>
-                  <Text style={[styles.tdSub, { color: colors.textSecondary }]}>{r.category_name} · {r.unit}</Text>
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmtQty(r.opening_stock)}</Text>
-                <Text style={[styles.td, { color: "#4ADE80", flex: 1.2, textAlign: "right" }]}>{fmtQty(r.inward_qty)}</Text>
-                <Text style={[styles.td, { color: "#F87171", flex: 1.2, textAlign: "right" }]}>{fmtQty(r.outward_qty)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmtQty(r.closing_stock)}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.valuation)}</Text>
+              <View key={r.product_id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.product_name}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right" }]}>{fmtQty(r.opening_stock)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right", color: "#16A34A" }]}>{fmtQty(r.inward_qty)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right", color: "#DC2626" }]}>{fmtQty(r.outward_qty)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right", fontWeight: "700" }]}>{fmtQty(r.closing_stock)}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.valuation)}</Text>
               </View>
             ))}
           </ScrollView>
@@ -767,68 +857,60 @@ export default function ReportsScreen() {
       );
     }
 
-    // Stock Valuation
+    // 10. Stock Valuation
     if (key === "stock_valuation" && Array.isArray(reportData)) {
       const totalValuation = reportData.reduce((s: number, r: any) => s + (Number(r.current_stock || 0) * Number(r.purchase_price || 0)), 0);
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Stock Valuation Summary</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Product</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>Stock</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Price</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.8, textAlign: "right" }]}>Valuation</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="STOCK VALUATION STATEMENT" periodText={`AS OF : ${endDate}`} />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>PRODUCT NAME</Text>
+            <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>STOCK QTY</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>PURCHASE PRICE RS.</Text>
+            <Text style={[styles.reportTh, { flex: 1.8, textAlign: "right" }]}>TOTAL VALUATION RS.</Text>
           </View>
-          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ paddingRight: 12 }}>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => {
               const val = Number(r.current_stock || 0) * Number(r.purchase_price || 0);
               return (
-                <View key={r.id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                  <View style={{ flex: 3 }}>
-                    <Text style={[styles.td, { color: colors.textPrimary }]}>{r.name}</Text>
-                    {r.sku ? <Text style={[styles.tdSub, { color: colors.textSecondary }]}>SKU: {r.sku}</Text> : null}
-                  </View>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.2, textAlign: "right" }]}>{fmtQty(r.current_stock)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(r.purchase_price)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.8, textAlign: "right" }]}>{fmt(val)}</Text>
+                <View key={r.id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                  <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.name}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right" }]}>{fmtQty(r.current_stock)}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmt(r.purchase_price)}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.8, textAlign: "right", fontWeight: "700" }]}>{fmt(val)}</Text>
                 </View>
               );
             })}
           </ScrollView>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 3 }]}>Total Valuation</Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.2 }]}></Text>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 1.5 }]}></Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.8, textAlign: "right" }]}>{fmt(totalValuation)}</Text>
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 4 }}>
+            <Text style={{ flex: 5.7, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>TOTAL VALUATION RS.:</Text>
+            <Text style={{ flex: 1.8, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", paddingRight: 12, fontFamily: "Consolas" }}>{fmt(totalValuation)}</Text>
           </View>
         </View>
       );
     }
 
-    // Low Stock Alert
+    // 11. Low Stock Alert
     if (key === "low_stock" && Array.isArray(reportData)) {
       const lowStockItems = reportData.filter((r: any) => Number(r.current_stock || 0) <= Number(r.reorder_level || 0));
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Low Stock Alerts — {lowStockItems.length} items</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 3 }]}>Product</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Current Stock</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Reorder Level</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Shortage</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="LOW STOCK ALERTS & REORDER STATEMENT" periodText={`AS OF : ${endDate}`} />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 3 }]}>PRODUCT NAME</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>CURRENT STOCK</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>REORDER LEVEL</Text>
+            <Text style={[styles.reportTh, { flex: 1.5, textAlign: "right" }]}>SHORTAGE QTY</Text>
           </View>
-          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ paddingRight: 12 }}>
+          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {lowStockItems.map((r: any, i: number) => {
               const shortage = Number(r.reorder_level || 0) - Number(r.current_stock || 0);
               return (
-                <View key={r.id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                  <View style={{ flex: 3 }}>
-                    <Text style={[styles.td, { color: colors.textPrimary }]}>{r.name}</Text>
-                    {r.sku ? <Text style={[styles.tdSub, { color: colors.textSecondary }]}>SKU: {r.sku}</Text> : null}
-                  </View>
-                  <Text style={[styles.td, { color: "#F87171", flex: 1.5, textAlign: "right" }]}>{fmtQty(r.current_stock)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmtQty(r.reorder_level)}</Text>
-                  <Text style={[styles.td, { color: "#F87171", flex: 1.5, textAlign: "right" }]}>{fmtQty(shortage)}</Text>
+                <View key={r.id || i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                  <Text style={[styles.reportTd, { flex: 3, fontWeight: "600" }]}>{r.name}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right", color: "#DC2626", fontWeight: "700" }]}>{fmtQty(r.current_stock)}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right" }]}>{fmtQty(r.reorder_level)}</Text>
+                  <Text style={[styles.reportTd, { flex: 1.5, textAlign: "right", color: "#DC2626", fontWeight: "700" }]}>{fmtQty(shortage)}</Text>
                 </View>
               );
             })}
@@ -837,29 +919,24 @@ export default function ReportsScreen() {
       );
     }
 
-    // Audit Trail
+    // 12. Audit Trail
     if (key === "audit_trail" && Array.isArray(reportData)) {
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>Audit Trail — {reportData.length} events</Text>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.8 }]}>Timestamp</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2 }]}>Action</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Table</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2 }]}>User</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="SYSTEM AUDIT LOG REGISTER" />
+          <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+            <Text style={[styles.reportTh, { flex: 1.8 }]}>TIMESTAMP</Text>
+            <Text style={[styles.reportTh, { flex: 1.2 }]}>ACTION</Text>
+            <Text style={[styles.reportTh, { flex: 1.5 }]}>ENTITY / TABLE</Text>
+            <Text style={[styles.reportTh, { flex: 2 }]}>USER</Text>
           </View>
           <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
             {reportData.map((r: any, i: number) => (
-              <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                <Text style={[styles.td, { color: colors.textSecondary, flex: 1.8 }]} numberOfLines={2}>{r.timestamp || r.created_at || ""}</Text>
-                <View style={{ flex: 1.2, justifyContent: "center" }}>
-                  <Text style={[styles.actionTag, {
-                    backgroundColor: r.action === "CREATE" ? "#166534" : r.action === "DELETE" ? "#7F1D1D" : "#1E3A5F",
-                    color: "#FFFFFF"
-                  }]}>{r.action}</Text>
-                </View>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5 }]}>{r.table_name || r.entity_type || ""}</Text>
-                <Text style={[styles.td, { color: colors.textPrimary, flex: 2 }]}>{r.user_email || r.changed_by || ""}</Text>
+              <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                <Text style={[styles.reportTd, { flex: 1.8 }]}>{r.timestamp || r.created_at || ""}</Text>
+                <Text style={[styles.reportTd, { flex: 1.2, fontWeight: "700", color: r.action === "CREATE" ? "#16A34A" : r.action === "DELETE" ? "#DC2626" : "#2563EB" }]}>{r.action}</Text>
+                <Text style={[styles.reportTd, { flex: 1.5 }]}>{r.table_name || r.entity_type || ""}</Text>
+                <Text style={[styles.reportTd, { flex: 2 }]}>{r.user_email || r.changed_by || ""}</Text>
               </View>
             ))}
           </ScrollView>
@@ -867,66 +944,60 @@ export default function ReportsScreen() {
       );
     }
 
-    // GST Summary Overview
+    // 13. GST Summary Overview
     if (key === "gst_summary" && reportData && typeof reportData === "object") {
       const d = reportData;
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>GST Summary Overview</Text>
-          <KVRow label="Total Sales Value" value={fmt(d.total_sales_value)} colors={colors} />
-          <KVRow label="Output Tax Liability" value={fmt(d.output_tax)} colors={colors} />
-          <KVRow label="Total Purchases Value" value={fmt(d.total_purchases_value)} colors={colors} />
-          <KVRow label="Input Tax Credit (ITC Claimed)" value={fmt(d.itc_claimed)} colors={colors} />
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>Net GST Payable / (Refund)</Text>
-            <Text style={[styles.totalValue, { color: (d.net_tax_payable ?? 0) >= 0 ? colors.accent : "#4ADE80" }]}>{fmt(d.net_tax_payable)}</Text>
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="GOODS AND SERVICES TAX SUMMARY OVERVIEW" />
+          <KVRow label="TOTAL SALES VALUE" value={fmt(d.total_sales_value)} colors={colors} />
+          <KVRow label="OUTPUT TAX LIABILITY" value={fmt(d.output_tax)} colors={colors} />
+          <KVRow label="TOTAL PURCHASES VALUE" value={fmt(d.total_purchases_value)} colors={colors} />
+          <KVRow label="INPUT TAX CREDIT (ITC CLAIMED)" value={fmt(d.itc_claimed)} colors={colors} />
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 10, paddingHorizontal: 12, marginTop: 14 }}>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "800", color: "#FFFFFF", fontFamily: "Segoe UI Variable Display" }}>NET GST PAYABLE / (REFUND) RS.:</Text>
+            <Text style={{ fontSize: 14, fontWeight: "800", color: (d.net_tax_payable ?? 0) >= 0 ? "#38BDF8" : "#4ADE80", fontFamily: "Consolas" }}>{fmt(d.net_tax_payable)}</Text>
           </View>
         </View>
       );
     }
 
-    // GSTR-1 Summary & GSTR-2 Summary (Category & Monthly Grid)
+    // 14. GSTR-1 Summary & GSTR-2 Summary
     if ((key === "gstr1_summary" || key === "gstr2_summary") && reportData && typeof reportData === "object" && reportData.data) {
       const d = reportData;
       const categories = Object.keys(d.data || {});
       const months: string[] = d.months || [];
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>
-            {key === "gstr1_summary" ? "GSTR-1 Outward Summary" : "GSTR-2 Inward Summary"}
-          </Text>
-          {d.period ? (
-            <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 12, fontFamily: "Segoe UI Variable Text" }}>
-              Period: {d.period.start} to {d.period.end}
-            </Text>
-          ) : null}
-
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title={key === "gstr1_summary" ? "GSTR-1 OUTWARD SUPPLIES SUMMARY" : "GSTR-2 INWARD SUPPLIES SUMMARY"} />
           {categories.map((catKey) => {
             const catObj = d.data[catKey] || {};
             const subTypes = Object.keys(catObj);
             return (
               <View key={catKey} style={{ marginBottom: 16 }}>
-                <Text style={[styles.sectionLabel, { color: colors.accent, marginBottom: 6 }]}>Category: {catKey}</Text>
-                <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-                  <Text style={[styles.th, { color: colors.textSecondary, flex: 2 }]}>Type</Text>
+                <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>CATEGORY: {catKey}</Text>
+                </View>
+                <View style={[styles.tableHeader, { backgroundColor: "#F1F5F9" }]}>
+                  <Text style={[styles.reportTh, { flex: 2 }]}>TYPE</Text>
                   {months.map((m) => (
-                    <Text key={m} style={[styles.th, { color: colors.textSecondary, flex: 1, textAlign: "right" }]}>{m}</Text>
+                    <Text key={m} style={[styles.reportTh, { flex: 1, textAlign: "right" }]}>{m}</Text>
                   ))}
-                  <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2, textAlign: "right" }]}>TOTAL</Text>
+                  <Text style={[styles.reportTh, { flex: 1.2, textAlign: "right" }]}>TOTAL RS.</Text>
                 </View>
                 {subTypes.map((subType, idx) => {
                   const monthVals = catObj[subType] || {};
                   return (
-                    <View key={subType} style={[styles.tableRow, { backgroundColor: idx % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                      <Text style={[styles.td, { color: colors.textPrimary, flex: 2, fontWeight: subType === "TOTAL" ? "bold" : "normal" }]}>
+                    <View key={subType} style={[styles.tableRow, { backgroundColor: idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }]}>
+                      <Text style={[styles.reportTd, { flex: 2, fontWeight: subType === "TOTAL" ? "bold" : "normal" }]}>
                         {subType}
                       </Text>
                       {months.map((m) => (
-                        <Text key={m} style={[styles.td, { color: colors.textPrimary, flex: 1, textAlign: "right" }]}>
+                        <Text key={m} style={[styles.reportTd, { flex: 1, textAlign: "right" }]}>
                           {fmt(monthVals[m])}
                         </Text>
                       ))}
-                      <Text style={[styles.td, { color: colors.accent, flex: 1.2, textAlign: "right", fontWeight: "bold" }]}>
+                      <Text style={[styles.reportTd, { flex: 1.2, textAlign: "right", fontWeight: "bold", color: colors.accent }]}>
                         {fmt(monthVals["TOTAL"])}
                       </Text>
                     </View>
@@ -939,37 +1010,40 @@ export default function ReportsScreen() {
       );
     }
 
-    // GSTR-3B Return Summary
+    // 15. GSTR-3B Return Summary
     if (key === "gstr3b" && reportData && typeof reportData === "object") {
       const d = reportData;
       const outward = d.outward_supplies || {};
       const inward = d.inward_supplies_itc || {};
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>GSTR-3B Monthly Return Summary</Text>
-          {d.period ? (
-            <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 12, fontFamily: "Segoe UI Variable Text" }}>
-              Period: {d.period.start} to {d.period.end}
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          <HeaderDoc title="GSTR-3B MONTHLY RETURN SUMMARY" />
+
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginBottom: 4 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+              3.1 DETAILS OF OUTWARD SUPPLIES (OUTPUT TAX LIABILITY)
             </Text>
-          ) : null}
+          </View>
+          <KVRow label="TAXABLE VALUE" value={fmt(outward.taxable_value)} colors={colors} />
+          <KVRow label="INTEGRATED TAX (IGST)" value={fmt(outward.igst)} colors={colors} />
+          <KVRow label="CENTRAL TAX (CGST)" value={fmt(outward.cgst)} colors={colors} />
+          <KVRow label="STATE/UT TAX (SGST)" value={fmt(outward.sgst)} colors={colors} />
+          <KVRow label="TOTAL OUTPUT TAX" value={fmt(outward.total_tax)} colors={colors} />
 
-          <Text style={[styles.sectionLabel, { color: colors.accent }]}>3.1 Outward Supplies (Output Tax Liability)</Text>
-          <KVRow label="Taxable Value" value={fmt(outward.taxable_value)} colors={colors} />
-          <KVRow label="Integrated Tax (IGST)" value={fmt(outward.igst)} colors={colors} />
-          <KVRow label="Central Tax (CGST)" value={fmt(outward.cgst)} colors={colors} />
-          <KVRow label="State/UT Tax (SGST)" value={fmt(outward.sgst)} colors={colors} />
-          <KVRow label="Total Output Tax" value={fmt(outward.total_tax)} colors={colors} />
+          <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 14, marginBottom: 4 }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+              4. ELIGIBLE INPUT TAX CREDIT (ITC)
+            </Text>
+          </View>
+          <KVRow label="TAXABLE VALUE" value={fmt(inward.taxable_value)} colors={colors} />
+          <KVRow label="INTEGRATED TAX (IGST)" value={fmt(inward.igst)} colors={colors} />
+          <KVRow label="CENTRAL TAX (CGST)" value={fmt(inward.cgst)} colors={colors} />
+          <KVRow label="STATE/UT TAX (SGST)" value={fmt(inward.sgst)} colors={colors} />
+          <KVRow label="TOTAL ITC AVAILABLE" value={fmt(inward.itc_available)} colors={colors} />
 
-          <Text style={[styles.sectionLabel, { color: colors.accent, marginTop: 14 }]}>4. Eligible ITC (Inward Supplies)</Text>
-          <KVRow label="Taxable Value" value={fmt(inward.taxable_value)} colors={colors} />
-          <KVRow label="Integrated Tax (IGST)" value={fmt(inward.igst)} colors={colors} />
-          <KVRow label="Central Tax (CGST)" value={fmt(inward.cgst)} colors={colors} />
-          <KVRow label="State/UT Tax (SGST)" value={fmt(inward.sgst)} colors={colors} />
-          <KVRow label="Total ITC Available" value={fmt(inward.itc_available)} colors={colors} />
-
-          <View style={[styles.totalRow, { borderTopColor: colors.divider, marginTop: 14 }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary }]}>Net Tax Payable in Cash</Text>
-            <Text style={[styles.totalValue, { color: (d.net_tax_payable ?? 0) >= 0 ? colors.accent : "#4ADE80" }]}>
+          <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 10, paddingHorizontal: 12, marginTop: 16 }}>
+            <Text style={{ flex: 1, fontSize: 13, fontWeight: "800", color: "#FFFFFF", fontFamily: "Segoe UI Variable Display" }}>NET TAX PAYABLE IN CASH RS.:</Text>
+            <Text style={{ fontSize: 14, fontWeight: "800", color: (d.net_tax_payable ?? 0) >= 0 ? "#38BDF8" : "#4ADE80", fontFamily: "Consolas" }}>
               {fmt(d.net_tax_payable)}
             </Text>
           </View>
@@ -977,148 +1051,290 @@ export default function ReportsScreen() {
       );
     }
 
-    // GSTR-1 / GSTR-2 Supplies Table
-    if ((key === "gstr1" || key === "gstr2") && reportData) {
-      let records: any[] = [];
-      if (Array.isArray(reportData)) {
-        records = reportData;
-      } else if (key === "gstr1") {
-        const b2b = (reportData.b2b || []).map((r: any) => ({
-          date: r.date || r.invoice_date || "",
-          docNo: r.inv_no || r.invoice_number || "",
-          partyName: r.receiver_name || r.customer_name || "",
-          gstin: r.gstin || "",
-          taxable: Number(r.taxable_value || r.subtotal || 0),
-          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
-          total: Number(r.value || r.total || 0),
-          tag: "B2B"
-        }));
-        const b2cl = (reportData.b2cl || []).map((r: any) => ({
-          date: r.date || "",
-          docNo: r.inv_no || "",
-          partyName: r.receiver_name || "Unregistered (Large)",
-          gstin: "URP",
-          taxable: Number(r.taxable_value || 0),
-          tax: Number(r.total_tax || r.igst || 0),
-          total: Number(r.value || 0),
-          tag: "B2C Large"
-        }));
-        const b2cs = (reportData.b2cs || []).map((r: any) => {
-          const taxVal = Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0);
-          const taxables = Number(r.taxable_value || 0);
-          return {
-            date: "-",
-            docNo: `B2CS (${r.pos || "Local"})`,
-            partyName: `Rate: ${r.rate || 0}% (${r.pos || "Local"})`,
-            gstin: "URP",
-            taxable: taxables,
-            tax: taxVal,
-            total: taxables + taxVal,
-            tag: "B2C Small"
-          };
-        });
-        const cdnr = (reportData.cdnr || []).map((r: any) => ({
-          date: r.note_date || "",
-          docNo: r.note_no || "",
-          partyName: r.receiver_name || "",
-          gstin: r.gstin || "",
-          taxable: Number(r.taxable_value || 0),
-          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
-          total: Number(r.value || 0),
-          tag: "CDNR"
-        }));
-        const cdnur = (reportData.cdnur || []).map((r: any) => ({
-          date: r.note_date || "",
-          docNo: r.note_no || "",
-          partyName: r.receiver_name || "Unregistered",
-          gstin: "URP",
-          taxable: Number(r.taxable_value || 0),
-          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
-          total: Number(r.value || 0),
-          tag: "CDNUR"
-        }));
-        records = [...b2b, ...b2cl, ...b2cs, ...cdnr, ...cdnur];
-      } else if (key === "gstr2") {
-        const b2b = (reportData.b2b || []).map((r: any) => ({
-          date: r.date || r.bill_date || "",
-          docNo: r.bill_no || r.bill_number || "",
-          partyName: r.supplier_name || "",
-          gstin: r.gstin || "",
-          taxable: Number(r.taxable_value || r.subtotal || 0),
-          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
-          total: Number(r.value || r.total || 0),
-          tag: "B2B"
-        }));
-        const b2bur = (reportData.b2bur || []).map((r: any) => ({
-          date: r.date || "",
-          docNo: r.bill_no || "",
-          partyName: r.supplier_name || "Unregistered Supplier",
-          gstin: "URP",
-          taxable: Number(r.taxable_value || 0),
-          tax: Number(r.total_tax || (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0))),
-          total: Number(r.value || 0),
-          tag: "B2BUR"
-        }));
-        records = [...b2b, ...b2bur];
-      }
+    // GSTR-1 / GSTR-2 (Full Official GST Analysis Report Layout)
+    if ((key === "gstr1" || key === "gstr2") && reportData && typeof reportData === "object") {
+      const companyInfo = reportData.company || {};
+      const period = reportData.period || { start: startDate, end: endDate };
 
-      const totTaxable = records.reduce((s: number, r: any) => s + Number(r.taxable ?? r.taxable_value ?? 0), 0);
-      const totTax = records.reduce((s: number, r: any) => s + Number(r.tax ?? r.total_tax ?? 0), 0);
-      const totTotal = records.reduce((s: number, r: any) => s + Number(r.total ?? r.value ?? 0), 0);
+      const b2b = reportData.b2b || [];
+      const b2cl = reportData.b2cl || [];
+      const b2cs = reportData.b2cs || [];
+      const cdnr = reportData.cdnr || [];
+      const cdnur = reportData.cdnur || [];
+      const b2bur = reportData.b2bur || [];
+
+      const calcSum = (arr: any[]) => {
+        let t = 0, i = 0, c = 0, s = 0, cs = 0, g = 0, n = 0;
+        arr.forEach((inv: any) => {
+          const tx = Number(inv.taxable_value || inv.subtotal || 0);
+          const ig = Number(inv.igst || 0);
+          const cg = Number(inv.cgst || 0);
+          const sg = Number(inv.sgst || 0);
+          const css = Number(inv.cess || 0);
+          const gst = ig + cg + sg;
+          const net = Number(inv.value || inv.total || (tx + gst));
+
+          t += tx; i += ig; c += cg; s += sg; cs += css; g += gst; n += net;
+        });
+        return { t, i, c, s, cs, g, n };
+      };
+
+      const b2bSum = calcSum(b2b);
+      const b2clSum = calcSum(b2cl);
+      const b2csSum = calcSum(b2cs);
+      const cdnrSum = calcSum(cdnr);
+      const cdnurSum = calcSum(cdnur);
+      const b2burSum = calcSum(b2bur);
+
+      const grandTaxable = b2bSum.t + b2clSum.t + b2csSum.t + cdnrSum.t + cdnurSum.t + b2burSum.t;
+      const grandIgst = b2bSum.i + b2clSum.i + b2csSum.i + cdnrSum.i + cdnurSum.i + b2burSum.i;
+      const grandCgst = b2bSum.c + b2clSum.c + b2csSum.c + cdnrSum.c + cdnurSum.c + b2burSum.c;
+      const grandSgst = b2bSum.s + b2clSum.s + b2csSum.s + cdnrSum.s + cdnurSum.s + b2burSum.s;
+      const grandCess = b2bSum.cs + b2clSum.cs + b2csSum.cs + cdnrSum.cs + cdnurSum.cs + b2burSum.cs;
+      const grandGst = b2bSum.g + b2clSum.g + b2csSum.g + cdnrSum.g + cdnurSum.g + b2burSum.g;
+      const grandNet = b2bSum.n + b2clSum.n + b2csSum.n + cdnrSum.n + cdnurSum.n + b2burSum.n;
 
       return (
-        <View style={[styles.previewCard, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <Text style={[styles.previewTitle, { color: colors.textPrimary }]}>
-              {key === "gstr1" ? "GSTR-1 (Outward)" : "GSTR-2 (Inward)"} — {records.length} records
+        <View style={[styles.previewCard, { backgroundColor: "#FFFFFF", borderColor: colors.cardBorder, padding: 20 }]}>
+          {/* Document Letterhead */}
+          <View style={{ alignItems: "center", marginBottom: 16, borderBottomWidth: 2, borderBottomColor: "#0F172A", paddingBottom: 12 }}>
+            <Text style={{ fontSize: 18, fontWeight: "800", color: "#0F172A", letterSpacing: 0.5, fontFamily: "Segoe UI Variable Display" }}>
+              {companyInfo.name || company?.name || "JK INFOTECH PVT LTD."}
             </Text>
-            {reportData?.period ? (
-              <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                Period: {reportData.period.start} to {reportData.period.end}
-              </Text>
-            ) : null}
+            <Text style={{ fontSize: 12, fontWeight: "700", color: "#475569", marginTop: 2, fontFamily: "Segoe UI Variable Text" }}>
+              GSTIN: {companyInfo.gst_number || company?.gst_number || "URP"}
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: "700", color: colors.accent, marginTop: 4, fontFamily: "Segoe UI Variable Display" }}>
+              GOODS AND SERVICES TAX MONTHLY ANALYSIS REPORT FROM : {period.start} TO : {period.end}
+            </Text>
           </View>
-          <View style={[styles.tableHeader, { backgroundColor: colors.tableHeaderBg }]}>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.2 }]}>Date</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5 }]}>Number</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 2.2 }]}>Party / Details</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1, textAlign: "center" }]}>Type</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.5, textAlign: "right" }]}>Taxable</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.4, textAlign: "right" }]}>Tax</Text>
-            <Text style={[styles.th, { color: colors.textSecondary, flex: 1.6, textAlign: "right" }]}>Total</Text>
-          </View>
-          <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ paddingRight: 12 }}>
-            {records.map((r: any, i: number) => {
-              const dateVal = r.date || r.invoice_date || r.bill_date || "";
-              const docNo = r.docNo || r.inv_no || r.bill_no || r.invoice_number || r.bill_number || "";
-              const partyName = r.partyName || r.receiver_name || r.supplier_name || r.customer_name || "";
-              const taxable = r.taxable ?? r.taxable_value ?? r.subtotal ?? 0;
-              const tax = r.tax ?? r.total_tax ?? (Number(r.cgst || 0) + Number(r.sgst || 0) + Number(r.igst || 0)) ?? 0;
-              const totalVal = r.total ?? r.value ?? 0;
-              const tag = r.tag || (r.gstin && r.gstin !== "URP" ? "B2B" : "B2C");
-              return (
-                <View key={i} style={[styles.tableRow, { backgroundColor: i % 2 === 1 ? colors.stripeRow : "transparent" }]}>
-                  <Text style={[styles.td, { color: colors.textSecondary, flex: 1.2 }]}>{dateVal}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, fontWeight: "600" }]}>{docNo}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 2.2 }]} numberOfLines={1}>{partyName}</Text>
-                  <View style={{ flex: 1, alignItems: "center" }}>
-                    <Text style={{ fontSize: 10, fontWeight: "700", color: colors.accent, backgroundColor: colors.activeRowBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                      {tag}
+
+          {/* Full Width Scrollable 11-Column Table */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={true} contentContainerStyle={{ flexDirection: "column", paddingBottom: 28, paddingRight: 16 }}>
+            <View style={{ minWidth: 1050, paddingBottom: 28, marginBottom: 12 }}>
+              {/* Table Column Headers */}
+              <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#CBD5E1", paddingVertical: 8 }}>
+                <Text style={[styles.reportTh, { width: 100 }]}>INVOICE-DATE</Text>
+                <Text style={[styles.reportTh, { width: 110 }]}>INVOICE-NO.</Text>
+                <Text style={[styles.reportTh, { width: 130 }]}>GSTIN-NUMBERS</Text>
+                <Text style={[styles.reportTh, { width: 170 }]}>ACCOUNTS NAME</Text>
+                <Text style={[styles.reportTh, { width: 110, textAlign: "right" }]}>TAXABLE RS.</Text>
+                <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>IGST RS.</Text>
+                <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>CGST RS.</Text>
+                <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>SGST RS.</Text>
+                <Text style={[styles.reportTh, { width: 85, textAlign: "right" }]}>CESS RS.</Text>
+                <Text style={[styles.reportTh, { width: 105, textAlign: "right" }]}>TOTALGST RS.</Text>
+                <Text style={[styles.reportTh, { width: 115, textAlign: "right" }]}>NETBILL RS.</Text>
+              </View>
+
+              {/* B2B Section */}
+              {b2b.length > 0 && (
+                <>
+                  <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+                      DAYBOOK : {key === "gstr1" ? "SALES OF BUSINESS TO BUSINESS-(B2B)" : "PURCHASES FROM REGISTERED SUPPLIERS-(B2B)"}
                     </Text>
                   </View>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.5, textAlign: "right" }]}>{fmt(taxable)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.4, textAlign: "right" }]}>{fmt(tax)}</Text>
-                  <Text style={[styles.td, { color: colors.textPrimary, flex: 1.6, textAlign: "right", fontWeight: "600" }]}>{fmt(totalVal)}</Text>
+                  {b2b.map((inv: any, idx: number) => {
+                    const tx = Number(inv.taxable_value || inv.subtotal || 0);
+                    const ig = Number(inv.igst || 0);
+                    const cg = Number(inv.cgst || 0);
+                    const sg = Number(inv.sgst || 0);
+                    const cs = Number(inv.cess || 0);
+                    const gst = ig + cg + sg;
+                    const net = Number(inv.value || inv.total || (tx + gst));
+                    return (
+                      <View key={idx} style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 6, backgroundColor: idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }}>
+                        <Text style={[styles.reportTd, { width: 100 }]}>{inv.date || inv.bill_date || period.start}</Text>
+                        <Text style={[styles.reportTd, { width: 110, fontWeight: "600" }]}>{inv.inv_no || inv.bill_no}</Text>
+                        <Text style={[styles.reportTd, { width: 130 }]}>{inv.gstin || "URP"}</Text>
+                        <Text style={[styles.reportTd, { width: 170 }]} numberOfLines={1}>{inv.receiver_name || inv.supplier_name}</Text>
+                        <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(tx)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(ig)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(cg)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(sg)}</Text>
+                        <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(cs)}</Text>
+                        <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(gst)}</Text>
+                        <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(net)}</Text>
+                      </View>
+                    );
+                  })}
+                  <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#CBD5E1", paddingVertical: 6 }}>
+                    <Text style={{ width: 510, fontSize: 11, fontWeight: "800", color: "#0F172A", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>
+                      TOTAL OF B2B SUPPLIES RS.:
+                    </Text>
+                    <Text style={[styles.reportTh, { width: 110, textAlign: "right" }]}>{fmt(b2bSum.t)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.i)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.c)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.s)}</Text>
+                    <Text style={[styles.reportTh, { width: 85, textAlign: "right" }]}>{fmt(b2bSum.cs)}</Text>
+                    <Text style={[styles.reportTh, { width: 105, textAlign: "right" }]}>{fmt(b2bSum.g)}</Text>
+                    <Text style={[styles.reportTh, { width: 115, textAlign: "right" }]}>{fmt(b2bSum.n)}</Text>
+                  </View>
+                </>
+              )}
+
+              {/* B2CS Section */}
+              {b2cs.length > 0 && (
+                <>
+                  <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+                      DAYBOOK : SALES OF BUSINESS TO CONSUMER SMALL-(B2CS)
+                    </Text>
+                  </View>
+                  {b2cs.map((inv: any, idx: number) => {
+                    const tx = Number(inv.taxable_value || 0);
+                    const ig = Number(inv.igst || 0);
+                    const cg = Number(inv.cgst || 0);
+                    const sg = Number(inv.sgst || 0);
+                    const cs = Number(inv.cess || 0);
+                    const gst = ig + cg + sg;
+                    const net = tx + gst;
+                    return (
+                      <View key={idx} style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 6, backgroundColor: idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }}>
+                        <Text style={[styles.reportTd, { width: 100 }]}>{period.start}</Text>
+                        <Text style={[styles.reportTd, { width: 110, fontWeight: "600" }]}>B2CS-{idx + 1}</Text>
+                        <Text style={[styles.reportTd, { width: 130 }]}>URP</Text>
+                        <Text style={[styles.reportTd, { width: 170 }]} numberOfLines={1}>Consumer Small - {inv.pos || "Other"}</Text>
+                        <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(tx)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(ig)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(cg)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(sg)}</Text>
+                        <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(cs)}</Text>
+                        <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(gst)}</Text>
+                        <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(net)}</Text>
+                      </View>
+                    );
+                  })}
+                  <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#CBD5E1", paddingVertical: 6 }}>
+                    <Text style={{ width: 510, fontSize: 11, fontWeight: "800", color: "#0F172A", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>
+                      TOTAL OF SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:
+                    </Text>
+                    <Text style={[styles.reportTh, { width: 110, textAlign: "right" }]}>{fmt(b2csSum.t)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.i)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.c)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.s)}</Text>
+                    <Text style={[styles.reportTh, { width: 85, textAlign: "right" }]}>{fmt(b2csSum.cs)}</Text>
+                    <Text style={[styles.reportTh, { width: 105, textAlign: "right" }]}>{fmt(b2csSum.g)}</Text>
+                    <Text style={[styles.reportTh, { width: 115, textAlign: "right" }]}>{fmt(b2csSum.n)}</Text>
+                  </View>
+                </>
+              )}
+
+              {/* B2BUR Section */}
+              {b2bur.length > 0 && (
+                <>
+                  <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 8 }}>
+                    <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+                      DAYBOOK : PURCHASES FROM UNREGISTERED SUPPLIERS-(B2BUR)
+                    </Text>
+                  </View>
+                  {b2bur.map((inv: any, idx: number) => {
+                    const tx = Number(inv.taxable_value || 0);
+                    const ig = Number(inv.igst || 0);
+                    const cg = Number(inv.cgst || 0);
+                    const sg = Number(inv.sgst || 0);
+                    const cs = Number(inv.cess || 0);
+                    const gst = ig + cg + sg;
+                    const net = Number(inv.value || (tx + gst));
+                    return (
+                      <View key={idx} style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 6, backgroundColor: idx % 2 === 1 ? "#F8FAFC" : "#FFFFFF" }}>
+                        <Text style={[styles.reportTd, { width: 100 }]}>{inv.date || period.start}</Text>
+                        <Text style={[styles.reportTd, { width: 110, fontWeight: "600" }]}>{inv.bill_no}</Text>
+                        <Text style={[styles.reportTd, { width: 130 }]}>URP</Text>
+                        <Text style={[styles.reportTd, { width: 170 }]} numberOfLines={1}>{inv.supplier_name}</Text>
+                        <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(tx)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(ig)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(cg)}</Text>
+                        <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(sg)}</Text>
+                        <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(cs)}</Text>
+                        <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(gst)}</Text>
+                        <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(net)}</Text>
+                      </View>
+                    );
+                  })}
+                  <View style={{ flexDirection: "row", backgroundColor: "#F1F5F9", borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#CBD5E1", paddingVertical: 6 }}>
+                    <Text style={{ width: 510, fontSize: 11, fontWeight: "800", color: "#0F172A", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>
+                      TOTAL OF PURCHASES FROM UNREGISTERED SUPPLIERS-(B2BUR) RS.:
+                    </Text>
+                    <Text style={[styles.reportTh, { width: 110, textAlign: "right" }]}>{fmt(b2burSum.t)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.i)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.c)}</Text>
+                    <Text style={[styles.reportTh, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.s)}</Text>
+                    <Text style={[styles.reportTh, { width: 85, textAlign: "right" }]}>{fmt(b2burSum.cs)}</Text>
+                    <Text style={[styles.reportTh, { width: 105, textAlign: "right" }]}>{fmt(b2burSum.g)}</Text>
+                    <Text style={[styles.reportTh, { width: 115, textAlign: "right" }]}>{fmt(b2burSum.n)}</Text>
+                  </View>
+                </>
+              )}
+
+              {/* DAYBOOKS SUMMARY SECTION */}
+              <View style={{ backgroundColor: "#E2E8F0", paddingVertical: 6, paddingHorizontal: 8, marginTop: 16 }}>
+                <Text style={{ fontSize: 12, fontWeight: "800", color: "#0F172A", fontFamily: "Segoe UI Variable Display" }}>
+                  DAYBOOKS SUMMARY :-
+                </Text>
+              </View>
+
+              {b2b.length > 0 && (
+                <View style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 5 }}>
+                  <Text style={{ width: 510, fontSize: 11, fontWeight: "600", color: "#334155", paddingLeft: 8, fontFamily: "Segoe UI Variable Text" }}>
+                    {key === "gstr1" ? "SALES OF BUSINESS TO BUSINESS-(B2B) RS.:" : "PURCHASES FROM REGISTERED SUPPLIERS-(B2B) RS.:"}
+                  </Text>
+                  <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(b2bSum.t)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.i)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.c)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2bSum.s)}</Text>
+                  <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(b2bSum.cs)}</Text>
+                  <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(b2bSum.g)}</Text>
+                  <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(b2bSum.n)}</Text>
                 </View>
-              );
-            })}
+              )}
+
+              {b2cs.length > 0 && (
+                <View style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 5 }}>
+                  <Text style={{ width: 510, fontSize: 11, fontWeight: "600", color: "#334155", paddingLeft: 8, fontFamily: "Segoe UI Variable Text" }}>
+                    SALES OF BUSINESS TO CONSUMER SMALL-(B2CS) RS.:
+                  </Text>
+                  <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(b2csSum.t)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.i)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.c)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2csSum.s)}</Text>
+                  <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(b2csSum.cs)}</Text>
+                  <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(b2csSum.g)}</Text>
+                  <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(b2csSum.n)}</Text>
+                </View>
+              )}
+
+              {b2bur.length > 0 && (
+                <View style={{ flexDirection: "row", borderBottomWidth: 1, borderColor: "#E2E8F0", paddingVertical: 5 }}>
+                  <Text style={{ width: 510, fontSize: 11, fontWeight: "600", color: "#334155", paddingLeft: 8, fontFamily: "Segoe UI Variable Text" }}>
+                    PURCHASES FROM UNREGISTERED SUPPLIERS-(B2BUR) RS.:
+                  </Text>
+                  <Text style={[styles.reportTd, { width: 110, textAlign: "right" }]}>{fmt(b2burSum.t)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.i)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.c)}</Text>
+                  <Text style={[styles.reportTd, { width: 95, textAlign: "right" }]}>{fmt(b2burSum.s)}</Text>
+                  <Text style={[styles.reportTd, { width: 85, textAlign: "right" }]}>{fmt(b2burSum.cs)}</Text>
+                  <Text style={[styles.reportTd, { width: 105, textAlign: "right" }]}>{fmt(b2burSum.g)}</Text>
+                  <Text style={[styles.reportTd, { width: 115, textAlign: "right", fontWeight: "700" }]}>{fmt(b2burSum.n)}</Text>
+                </View>
+              )}
+
+              {/* NET PAYABLE / TAX SUMMARY */}
+              <View style={{ flexDirection: "row", backgroundColor: "#0F172A", paddingVertical: 8, marginTop: 4 }}>
+                <Text style={{ width: 510, fontSize: 12, fontWeight: "800", color: "#FFFFFF", paddingLeft: 8, fontFamily: "Segoe UI Variable Display" }}>
+                  NET PAYABLE GOODS AND SERVICES TAX RS.:
+                </Text>
+                <Text style={{ width: 110, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandTaxable)}</Text>
+                <Text style={{ width: 95, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandIgst)}</Text>
+                <Text style={{ width: 95, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandCgst)}</Text>
+                <Text style={{ width: 95, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandSgst)}</Text>
+                <Text style={{ width: 85, fontSize: 12, fontWeight: "800", color: "#FFFFFF", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandCess)}</Text>
+                <Text style={{ width: 105, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandGst)}</Text>
+                <Text style={{ width: 115, fontSize: 12, fontWeight: "800", color: "#38BDF8", textAlign: "right", fontFamily: "Consolas" }}>{fmt(grandNet)}</Text>
+              </View>
+            </View>
           </ScrollView>
-          <View style={[styles.totalRow, { borderTopColor: colors.divider }]}>
-            <Text style={[styles.totalLabel, { color: colors.textPrimary, flex: 4.9 }]}>Totals</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.5, textAlign: "right" }]}>{fmt(totTaxable)}</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.4, textAlign: "right" }]}>{fmt(totTax)}</Text>
-            <Text style={[styles.totalValue, { color: colors.accent, flex: 1.6, textAlign: "right" }]}>{fmt(totTotal)}</Text>
-          </View>
         </View>
       );
     }
@@ -1270,39 +1486,103 @@ export default function ReportsScreen() {
             <Text style={[styles.filterTitle, { color: colors.textSecondary }]}>REPORT PARAMETERS</Text>
 
             {/* Date Range */}
-            {selectedReport.hasDateRange && (
-              <View style={styles.filterRow}>
-                <View style={styles.filterGroup}>
-                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>From Date</Text>
-                  <DatePicker
-                    style={{ width: 160 }}
-                    value={startDate}
-                    onChange={setStartDate}
-                  />
-                </View>
-                <View style={styles.filterGroup}>
-                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>To Date</Text>
-                  <DatePicker
-                    style={{ width: 160 }}
-                    value={endDate}
-                    onChange={setEndDate}
-                  />
-                </View>
-                <View style={styles.filterGroup}>
-                  <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Quick Set</Text>
-                  <View style={styles.presetRow}>
-                    <Pressable onPress={() => { setStartDate(monthStart()); setEndDate(today()); }}
-                      style={[styles.presetBtn, { backgroundColor: colors.btnSecondaryBg }]}>
-                      <Text style={[styles.presetBtnText, { color: colors.btnSecondaryText }]}>This Month</Text>
-                    </Pressable>
-                    <Pressable onPress={() => { setStartDate(fyStart()); setEndDate(today()); }}
-                      style={[styles.presetBtn, { backgroundColor: colors.btnSecondaryBg }]}>
-                      <Text style={[styles.presetBtnText, { color: colors.btnSecondaryText }]}>This FY</Text>
-                    </Pressable>
+            {selectedReport.hasDateRange && (() => {
+              const isTodaySelected = startDate === today() && endDate === today();
+              const isThisMonthSelected = startDate === monthStart() && endDate === monthEnd();
+              const isLastMonthSelected = startDate === lastMonthStart() && endDate === lastMonthEnd();
+              const isThisFySelected = startDate === fyStart() && endDate === today();
+
+              return (
+                <View style={styles.filterRow}>
+                  <View style={styles.filterGroup}>
+                    <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>From Date</Text>
+                    <DatePicker
+                      style={{ width: 160 }}
+                      value={startDate}
+                      onChange={(val) => {
+                        setStartDate(val);
+                        handleViewData({ startDate: val });
+                      }}
+                    />
+                  </View>
+                  <View style={styles.filterGroup}>
+                    <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>To Date</Text>
+                    <DatePicker
+                      style={{ width: 160 }}
+                      value={endDate}
+                      onChange={(val) => {
+                        setEndDate(val);
+                        handleViewData({ endDate: val });
+                      }}
+                    />
+                  </View>
+                  <View style={styles.filterGroup}>
+                    <Text style={[styles.filterLabel, { color: colors.textSecondary }]}>Quick Set</Text>
+                    <View style={styles.presetRow}>
+                      <Pressable
+                        onPress={() => handleQuickSet(today(), today())}
+                        style={({ pressed }) => [
+                          styles.presetBtn,
+                          {
+                            backgroundColor: isTodaySelected ? colors.accent : colors.btnSecondaryBg,
+                            transform: [{ scale: pressed ? 0.95 : 1 }],
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}>
+                        <Text style={[styles.presetBtnText, { color: isTodaySelected ? "#FFFFFF" : colors.btnSecondaryText, fontWeight: isTodaySelected ? "700" : "600" }]}>
+                          Today
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => handleQuickSet(monthStart(), monthEnd())}
+                        style={({ pressed }) => [
+                          styles.presetBtn,
+                          {
+                            backgroundColor: isThisMonthSelected ? colors.accent : colors.btnSecondaryBg,
+                            transform: [{ scale: pressed ? 0.95 : 1 }],
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}>
+                        <Text style={[styles.presetBtnText, { color: isThisMonthSelected ? "#FFFFFF" : colors.btnSecondaryText, fontWeight: isThisMonthSelected ? "700" : "600" }]}>
+                          This Month
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => handleQuickSet(lastMonthStart(), lastMonthEnd())}
+                        style={({ pressed }) => [
+                          styles.presetBtn,
+                          {
+                            backgroundColor: isLastMonthSelected ? colors.accent : colors.btnSecondaryBg,
+                            transform: [{ scale: pressed ? 0.95 : 1 }],
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}>
+                        <Text style={[styles.presetBtnText, { color: isLastMonthSelected ? "#FFFFFF" : colors.btnSecondaryText, fontWeight: isLastMonthSelected ? "700" : "600" }]}>
+                          Last Month
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => handleQuickSet(fyStart(), today())}
+                        style={({ pressed }) => [
+                          styles.presetBtn,
+                          {
+                            backgroundColor: isThisFySelected ? colors.accent : colors.btnSecondaryBg,
+                            transform: [{ scale: pressed ? 0.95 : 1 }],
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}>
+                        <Text style={[styles.presetBtnText, { color: isThisFySelected ? "#FFFFFF" : colors.btnSecondaryText, fontWeight: isThisFySelected ? "700" : "600" }]}>
+                          This FY
+                        </Text>
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
             {/* As-Of Date */}
             {selectedReport.hasAsOf && (
@@ -1312,7 +1592,10 @@ export default function ReportsScreen() {
                   <DatePicker
                     style={{ width: 160 }}
                     value={asOf}
-                    onChange={setAsOf}
+                    onChange={(val) => {
+                      setAsOf(val);
+                      handleViewData({ asOf: val });
+                    }}
                   />
                 </View>
               </View>
@@ -1324,8 +1607,14 @@ export default function ReportsScreen() {
                 <Text style={[styles.filterLabel, { color: colors.textSecondary, marginBottom: 6 }]}>Select Account</Text>
                 <ScrollView style={[styles.selectorList, { borderColor: colors.inputBorder, backgroundColor: colors.inputBg }]} contentContainerStyle={{ paddingRight: 12 }}>
                   {accounts.map((acc: any) => (
-                    <Pressable key={acc.id} onPress={() => setAccountId(acc.id)}
-                      style={[styles.selectorItem, { backgroundColor: accountId === acc.id ? colors.activeRowBg : "transparent" }]}>
+                    <Pressable key={acc.id} onPress={() => { setAccountId(acc.id); handleViewData({ accountId: acc.id }); }}
+                      style={({ pressed }) => [
+                        styles.selectorItem,
+                        {
+                          backgroundColor: accountId === acc.id ? colors.activeRowBg : "transparent",
+                          opacity: pressed ? 0.8 : 1,
+                        },
+                      ]}>
                       <Text style={[styles.selectorItemText, { color: accountId === acc.id ? colors.accent : colors.textPrimary }]}>
                         {acc.name || acc.account_name}
                       </Text>
@@ -1344,7 +1633,13 @@ export default function ReportsScreen() {
                   <View style={styles.toggleRow}>
                     {(["customer", "supplier"] as const).map((pt) => (
                       <Pressable key={pt} onPress={() => { setPartyType(pt); setPartyId(""); }}
-                        style={[styles.toggleBtn, { backgroundColor: partyType === pt ? colors.accent : colors.btnSecondaryBg }]}>
+                        style={({ pressed }) => [
+                          styles.toggleBtn,
+                          {
+                            backgroundColor: partyType === pt ? colors.accent : colors.btnSecondaryBg,
+                            transform: [{ scale: pressed ? 0.96 : 1 }],
+                          },
+                        ]}>
                         <Text style={[styles.toggleBtnText, { color: partyType === pt ? "#FFFFFF" : colors.btnSecondaryText }]}>
                           {pt === "customer" ? "Customer" : "Supplier"}
                         </Text>
@@ -1358,8 +1653,14 @@ export default function ReportsScreen() {
                   </Text>
                   <ScrollView style={[styles.selectorList, { borderColor: colors.inputBorder, backgroundColor: colors.inputBg }]} contentContainerStyle={{ paddingRight: 12 }}>
                     {(partyType === "customer" ? customers : suppliers).map((p: any) => (
-                      <Pressable key={p.id} onPress={() => setPartyId(p.id)}
-                        style={[styles.selectorItem, { backgroundColor: partyId === p.id ? colors.activeRowBg : "transparent" }]}>
+                      <Pressable key={p.id} onPress={() => { setPartyId(p.id); handleViewData({ partyId: p.id, partyType }); }}
+                        style={({ pressed }) => [
+                          styles.selectorItem,
+                          {
+                            backgroundColor: partyId === p.id ? colors.activeRowBg : "transparent",
+                            opacity: pressed ? 0.8 : 1,
+                          },
+                        ]}>
                         <Text style={[styles.selectorItemText, { color: partyId === p.id ? colors.accent : colors.textPrimary }]}>{p.name}</Text>
                         {p.phone ? <Text style={[styles.selectorItemSub, { color: colors.textSecondary }]}>{p.phone}</Text> : null}
                       </Pressable>
@@ -1372,7 +1673,16 @@ export default function ReportsScreen() {
             {/* Action Buttons */}
             <View style={styles.actionRow}>
               {selectedReport.dataEndpoint && (
-                <Pressable onPress={handleViewData} style={[styles.actionBtn, { backgroundColor: colors.accent }]}>
+                <Pressable
+                  onPress={() => handleViewData()}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    {
+                      backgroundColor: colors.accent,
+                      transform: [{ scale: pressed ? 0.95 : 1 }],
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     {isLoadingData && <ActivityIndicator size="small" color="#FFFFFF" style={{ width: 18, height: 18 }} />}
                     <Text style={styles.actionBtnText}>👁  View Data</Text>
@@ -1380,7 +1690,16 @@ export default function ReportsScreen() {
                 </Pressable>
               )}
               {selectedReport.pdfEndpoint && (
-                <Pressable onPress={handlePdf} style={[styles.actionBtn, { backgroundColor: colors.pdfBtnBg }]}>
+                <Pressable
+                  onPress={handlePdf}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    {
+                      backgroundColor: colors.pdfBtnBg,
+                      transform: [{ scale: pressed ? 0.95 : 1 }],
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     {isPdfLoading ? (
                       <ActivityIndicator size="small" color="#FFFFFF" style={{ width: 18, height: 18 }} />
@@ -1395,7 +1714,6 @@ export default function ReportsScreen() {
                   </View>
                 </Pressable>
               )}
-
             </View>
           </View>
 
@@ -1422,15 +1740,24 @@ export default function ReportsScreen() {
         breadcrumb="reports / preview"
         reportKey={`${selectedReport?.key || "report"}`}
         defaultOrientation={
-          selectedReport && ["gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary", "daybook", "trial_balance", "cdn_register", "stock_valuation", "sales_by_customer", "sales_by_item"].includes(selectedReport.key)
+          selectedReport && [
+            "gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary",
+            "daybook", "trial_balance", "cdn_register", "stock_valuation",
+            "sales_by_customer", "sales_by_item", "account_ledger", "ledger",
+            "party_ledger", "audit_trail", "item_movement", "outstanding",
+            "outstanding_summary", "low_stock", "gst_summary"
+          ].includes(selectedReport.key)
             ? "landscape"
             : "portrait"
         }
         getPdfUrl={(orientation, search, theme, copyType) => {
           if (!selectedReport || !selectedReport.pdfEndpoint) return "";
-          const baseEndpoint = selectedReport.pdfEndpoint(currentParams);
+          let baseEndpoint = selectedReport.pdfEndpoint(currentParams);
+          if (baseEndpoint.startsWith("/api/") && !baseEndpoint.startsWith("/api/v1/")) {
+            baseEndpoint = baseEndpoint.replace("/api/", "/api/v1/");
+          }
           const sep = baseEndpoint.includes("?") ? "&" : "?";
-          return `${apiClient.defaults.baseURL}${baseEndpoint}${sep}orientation=${orientation}&search=${encodeURIComponent(search)}`;
+          return `${apiClient.defaults.baseURL}${baseEndpoint}${sep}orientation=${orientation}&search=${encodeURIComponent(search)}&_t=${Date.now()}`;
         }}
         getExcelUrl={selectedReport?.excelEndpoint ? () => {
           if (!selectedReport?.excelEndpoint) return "";
@@ -1500,6 +1827,8 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 12, marginTop: 8, borderTopWidth: 2 },
   totalLabel: { fontSize: 15, fontWeight: "700", fontFamily: "Segoe UI Variable Display" },
   totalValue: { fontSize: 18.5, fontWeight: "800", fontFamily: "Segoe UI Variable Display" },
+  reportTh: { fontSize: 11, fontWeight: "700", color: "#475569", letterSpacing: 0.2 },
+  reportTd: { fontSize: 11, color: "#0F172A" },
   // Tables
   tableHeader: { flexDirection: "row", paddingLeft: 12, paddingRight: 26, paddingVertical: 8, borderRadius: 6, marginBottom: 2 },
   th: { fontSize: 13, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase", fontFamily: "Segoe UI Variable Display" },

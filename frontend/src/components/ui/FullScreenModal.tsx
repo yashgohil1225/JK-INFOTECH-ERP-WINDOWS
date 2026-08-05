@@ -14,6 +14,7 @@ import {
   useWindowDimensions
 } from "react-native";
 import { useUIStore } from "../../store/uiStore";
+import { ModalStackManager } from "../../utils/modalStackManager";
 
 interface FullScreenModalProps {
   isOpen: boolean;
@@ -52,6 +53,18 @@ export function FullScreenModal({
   const setIsFullScreenOpen = useUIStore(state => state.setIsFullScreenOpen);
 
   const wasOpenRef = useRef(false);
+  const modalIdRef = useRef(`fullscreen_modal_${Math.random().toString(36).substring(2, 9)}`);
+
+  useEffect(() => {
+    if (isOpen) {
+      ModalStackManager.register(modalIdRef.current, onClose);
+    } else {
+      ModalStackManager.unregister(modalIdRef.current);
+    }
+    return () => {
+      ModalStackManager.unregister(modalIdRef.current);
+    };
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen) {
@@ -137,7 +150,17 @@ export function FullScreenModal({
   return (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     <View
-      {...({ focusable: true, onKeyDown, onKeyUp } as any)}
+      {...({
+        focusable: true,
+        onKeyDown: (e: any) => {
+          if (onKeyDown) onKeyDown(e);
+          const k = e?.nativeEvent?.key || e?.key;
+          if (k === "Escape" || k === "Esc") {
+            onClose();
+          }
+        },
+        onKeyUp
+      } as any)}
       style={[
         styles.masterContainer,
         {

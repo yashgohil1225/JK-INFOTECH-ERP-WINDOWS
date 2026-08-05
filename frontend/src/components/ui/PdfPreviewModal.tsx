@@ -1,6 +1,9 @@
 // =============================================================
 // JK INFOTECH ERP — Reusable PDF Print Preview Modal Component
 // File : src/components/ui/PdfPreviewModal.tsx
+// Architecture: Tally ERP + Adobe Acrobat pattern
+//   Native XAML ScrollViewer (ZoomMode::Enabled) handles ALL
+//   zoom/pan/scroll — zero React state involved during gesture.
 // =============================================================
 
 import React, { useEffect, useRef, useState } from "react";
@@ -15,8 +18,6 @@ import {
   Alert,
   NativeModules,
   Image,
-  DeviceEventEmitter,
-  PanResponder
 } from "react-native";
 import { useUIStore } from "../../store/uiStore";
 import apiClient from "../../api/client";
@@ -25,9 +26,7 @@ import { FullScreenModal } from "./FullScreenModal";
 import { Button } from "./Button";
 import { ShareReportModal } from "./ShareReportModal";
 import { PrinterIcon } from "./Icons";
-
-const WindowsView = View as any;
-const WindowsScrollView = ScrollView as any;
+import NativePdfScrollViewer, { PdfScrollViewerHandle } from "./NativePdfScrollViewer";
 
 interface CenteredSearchBarProps {
   value: string;
@@ -228,10 +227,16 @@ export function PdfPreviewModal({
   const [previewPages, setPreviewPages] = useState<string[]>([]);
   const [zoomScale, setZoomScale] = useState(1.0);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
-
-  // Print layout settings & search state
-  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [printTheme, setPrintTheme] = useState("modern");
+  const isLandscapeReportDef = [
+    "gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary",
+    "daybook", "trial_balance", "cdn_register", "stock_valuation",
+    "sales_by_customer", "sales_by_item", "account_ledger", "ledger",
+    "party_ledger", "audit_trail", "item_movement", "outstanding",
+    "outstanding_summary", "low_stock", "gst_summary"
+  ].includes(reportKey);
+  const initialDefaultOrient = defaultOrientation || (isLandscapeReportDef ? 'landscape' : 'portrait');
+  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>(initialDefaultOrient);
+  const [printTheme, setPrintTheme] = useState("classic");
   const [printCopyType, setPrintCopyType] = useState("original");
   const [printCopies, setPrintCopies] = useState(1);
   const [pageSelection, setPageSelection] = useState<'all' | 'range'>('all');
@@ -254,12 +259,6 @@ export function PdfPreviewModal({
     return 0;
   };
 
-  useEffect(() => {
-    if (defaultOrientation) {
-      setPrintOrientation(defaultOrientation);
-    }
-  }, [defaultOrientation]);
-
   const isThermalSticker = reportKey === "barcode_labels" && layout?.startsWith("thermal_");
   let baseWidth = printOrientation === 'landscape' ? 1018 : 720;
   let baseHeight = printOrientation === 'landscape' ? 720 : 1018;
@@ -277,287 +276,31 @@ export function PdfPreviewModal({
     }
   }
 
-  const scrollToPage = (pageIdx: number) => {
-    const offsetY = 20 + pageIdx * (baseHeight * zoomScale + 16);
-    scrollViewRef.current?.scrollTo({
-      x: 0,
-      y: offsetY,
-      animated: true
-    });
-  };
-
   const totalMatches = searchMatches.reduce((a, b) => a + b, 0);
 
   const handleNextMatch = () => {
     if (totalMatches === 0) return;
     const nextIdx = currentMatchIndex >= totalMatches ? 1 : currentMatchIndex + 1;
     setCurrentMatchIndex(nextIdx);
-    const targetPage = findPageForMatchIndex(nextIdx, searchMatches);
-    scrollToPage(targetPage);
   };
-
   const handlePrevMatch = () => {
     if (totalMatches === 0) return;
     const prevIdx = currentMatchIndex <= 1 ? totalMatches : currentMatchIndex - 1;
     setCurrentMatchIndex(prevIdx);
-    const targetPage = findPageForMatchIndex(prevIdx, searchMatches);
-    scrollToPage(targetPage);
   };
 
-  const workspaceRef = useRef<any>(null);
-  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
-  const [panX, setPanX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+  // ── Native PDF Viewer ref (for imperative zoom commands) ────────────────
+  const pdfViewerRef = useRef<PdfScrollViewerHandle>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [workspaceWidth, setWorkspaceWidth] = useState(750);
-  const scrollbarDragRef = useRef<{ startX: number; startPanX: number } | null>(null);
-
-  const isDraggingRef = useRef(false);
-  const startXRef = useRef(0);
-  const startPanXRef = useRef(0);
-
-  // Compute max horizontal pan based on content vs viewport
-  const contentWidth = baseWidth * zoomScale;
-  const maxPan = Math.max(0, (contentWidth - workspaceWidth + 40) / 2);
-
-  const panXRef = useRef(panX);
-  panXRef.current = panX;
-
-  const maxPanRef = useRef(maxPan);
-  maxPanRef.current = maxPan;
-
-  const workspaceWidthRef = useRef(workspaceWidth);
-  workspaceWidthRef.current = workspaceWidth;
-
-  const contentWidthRef = useRef(contentWidth);
-  contentWidthRef.current = contentWidth;
-
-  const handleKeyDown = (e: any) => {
-    if (!e || !e.nativeEvent) return;
-    const key = e.nativeEvent.key;
-
-    if (key === "Control" || e.nativeEvent.ctrlKey) {
-      setIsCtrlPressed(true);
-    }
-    if (key === "Shift" || e.nativeEvent.shiftKey) {
-      setIsShiftPressed(true);
-    }
-
-    // Keyboard Arrow Keys for Left/Right Panning when zoomed
-    if (zoomScale > 1.0) {
-      if (key === "ArrowLeft") {
-        setPanX((prev) => Math.min(2000, prev + 80));
-      } else if (key === "ArrowRight") {
-        setPanX((prev) => Math.max(-2000, prev - 80));
-      }
-    }
-  };
-
-  const handleKeyUp = (e: any) => {
-    if (!e || !e.nativeEvent) return;
-    const key = e.nativeEvent.key;
-    if (key === "Control" || !e.nativeEvent.ctrlKey) {
-      setIsCtrlPressed(false);
-    }
-    if (key === "Shift" || !e.nativeEvent.shiftKey) {
-      setIsShiftPressed(false);
-    }
-  };
-
-  // Drag-to-Pan (Hand Tool) PanResponder for React Native Windows
-  const contentPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => maxPanRef.current > 0,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dx) > 3 && maxPanRef.current > 0,
-      onPanResponderGrant: () => {
-        startPanXRef.current = panXRef.current;
-        setIsDragging(true);
-      },
-      onPanResponderMove: (_, gestureState) => {
-        const currentMaxPan = maxPanRef.current;
-        if (currentMaxPan <= 0) return;
-        const newPan = startPanXRef.current + gestureState.dx;
-        setPanX(Math.min(currentMaxPan, Math.max(-currentMaxPan, newPan)));
-      },
-      onPanResponderRelease: () => {
-        setIsDragging(false);
-      },
-      onPanResponderTerminate: () => {
-        setIsDragging(false);
-      }
-    })
-  ).current;
-
-  // Reset/clamp panX horizontal scroll when maxPan changes
-  useEffect(() => {
-    if (maxPan <= 0) {
-      setPanX(0);
-    } else {
-      setPanX((prev) => Math.min(maxPan, Math.max(-maxPan, prev)));
-    }
-  }, [maxPan]);
-
-  // Native C++ CoreWindow PointerWheelChanged listener for instant, smooth Ctrl+wheel, trackpad pinch zoom, and horizontal trackpad swipe
-  useEffect(() => {
-    if (!isOpen) return;
-    const zoomSub = DeviceEventEmitter.addListener("OnPdfZoomWheel", (evt: { delta: number }) => {
-      if (!evt || typeof evt.delta !== "number" || !isFinite(evt.delta)) return;
-      const rawDelta = evt.delta;
-      if (rawDelta !== 0) {
-        const absDelta = Math.abs(rawDelta);
-        const zoomStep = absDelta >= 100
-          ? (rawDelta > 0 ? 0.08 : -0.08)
-          : (rawDelta * 0.0012);
-        setZoomScale((z) => {
-          const current = isFinite(z) && z > 0 ? z : 1.0;
-          const next = current + zoomStep;
-          if (!isFinite(next)) return current;
-          return Math.min(3.0, Math.max(0.4, next));
-        });
-      }
-    });
-
-    const scrollSub = DeviceEventEmitter.addListener("OnPdfHorizontalScroll", (evt: { delta: number }) => {
-      if (!evt || typeof evt.delta !== "number" || !isFinite(evt.delta)) return;
-      const delta = evt.delta;
-      setPanX((prev) => {
-        const mxPan = maxPanRef.current;
-        if (!isFinite(mxPan) || mxPan <= 0) return 0;
-        const currentP = isFinite(prev) ? prev : 0;
-        const next = currentP + delta * 1.5;
-        if (!isFinite(next)) return 0;
-        return Math.min(mxPan, Math.max(-mxPan, next));
-      });
-    });
-
-    return () => {
-      zoomSub.remove();
-      scrollSub.remove();
-    };
-  }, [isOpen]);
-
-
-
-  const scrollbarPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const currentMaxPan = maxPanRef.current;
-        const currentWorkspaceW = workspaceWidthRef.current;
-        const currentContentW = contentWidthRef.current;
-        if (currentMaxPan <= 0 || currentWorkspaceW <= 0) return;
-
-        const clickX = evt.nativeEvent.locationX || 0;
-        const trackWidth = currentWorkspaceW - 60;
-        const thumbW = Math.max(40, (currentWorkspaceW / currentContentW) * trackWidth);
-        const scrollableRange = Math.max(1, trackWidth - thumbW);
-
-        const targetProgress = Math.min(1.0, Math.max(0.0, (clickX - thumbW / 2) / scrollableRange));
-        const newPanX = (0.5 - targetProgress) * (2 * currentMaxPan);
-        const clampedPanX = Math.min(currentMaxPan, Math.max(-currentMaxPan, newPanX));
-
-        setPanX(clampedPanX);
-        scrollbarDragRef.current = { startX: clickX, startPanX: clampedPanX };
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const currentMaxPan = maxPanRef.current;
-        const currentWorkspaceW = workspaceWidthRef.current;
-        const currentContentW = contentWidthRef.current;
-        if (currentMaxPan <= 0 || currentWorkspaceW <= 0 || !scrollbarDragRef.current) return;
-
-        const dx = gestureState.dx;
-        const trackWidth = currentWorkspaceW - 60;
-        const thumbW = Math.max(40, (currentWorkspaceW / currentContentW) * trackWidth);
-        const scrollableRange = Math.max(1, trackWidth - thumbW);
-
-        const panDelta = -(dx / scrollableRange) * (2 * currentMaxPan);
-        const newPanX = scrollbarDragRef.current.startPanX + panDelta;
-        setPanX(Math.min(currentMaxPan, Math.max(-currentMaxPan, newPanX)));
-      },
-      onPanResponderRelease: () => {
-        scrollbarDragRef.current = null;
-      },
-      onPanResponderTerminate: () => {
-        scrollbarDragRef.current = null;
-      }
-    })
-  ).current;
-
-  const handleZoomWheel = (e: any) => {
-    try {
-      if (!e || !e.nativeEvent) return;
-
-      const deltaX = e.nativeEvent.deltaX || 0;
-      const deltaY = e.nativeEvent.deltaY || 0;
-      const isShift = isShiftPressed || e.nativeEvent.shiftKey || false;
-
-      // 1. Detect two-finger horizontal trackpad swipe / horizontal scroll wheel / Shift+wheel
-      if ((Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 0.5) || (isShift && !isCtrlPressed && Math.abs(deltaY) > 0.5)) {
-        if (typeof e.preventDefault === "function") { try { e.preventDefault(); } catch (_) {} }
-        const hDelta = Math.abs(deltaX) > 0.5 ? deltaX : deltaY;
-        setPanX((prev) => {
-          const mxPan = maxPanRef.current;
-          if (!isFinite(mxPan) || mxPan <= 0) return 0;
-          const currentP = isFinite(prev) ? prev : 0;
-          const next = currentP - hDelta * 1.5;
-          if (!isFinite(next)) return 0;
-          return Math.min(mxPan, Math.max(-mxPan, next));
-        });
-        return;
-      }
-
-      // 2. Detect Ctrl key: state, event property (Windows trackpad pinch emits ctrlKey=true natively), or modifierKeys bitmask (Control = bit 2)
-      const isCtrl = isCtrlPressed ||
-        e.nativeEvent.ctrlKey ||
-        (e.nativeEvent.modifierKeys !== undefined && (e.nativeEvent.modifierKeys & 2) !== 0);
-
-      if (!isCtrl) return; // Normal vertical scroll mode — let ScrollView handle vertical scrolling
-
-      if (typeof e.preventDefault === "function") { try { e.preventDefault(); } catch (_) {} }
-      if (typeof e.stopPropagation === "function") { try { e.stopPropagation(); } catch (_) {} }
-
-      let rawDelta = 0;
-      if (e.nativeEvent.deltaY !== undefined) {
-        rawDelta = -e.nativeEvent.deltaY;
-      } else if (e.nativeEvent.wheelDeltaY !== undefined) {
-        rawDelta = e.nativeEvent.wheelDeltaY;
-      } else if (e.nativeEvent.wheelDelta !== undefined) {
-        rawDelta = e.nativeEvent.wheelDelta;
-      }
-
-      if (rawDelta !== 0 && isFinite(rawDelta)) {
-        const absDelta = Math.abs(rawDelta);
-        const zoomStep = absDelta >= 100
-          ? (rawDelta > 0 ? 0.08 : -0.08)
-          : (rawDelta * 0.0012);
-
-        setZoomScale((z) => {
-          const current = isFinite(z) && z > 0 ? z : 1.0;
-          const next = current + zoomStep;
-          if (!isFinite(next)) return current;
-          return Math.min(3.0, Math.max(0.4, next));
-        });
-      }
-    } catch (err) {
-      console.warn("Error in handleZoomWheel:", err);
-    }
-  };
+  const [zoomPercent, setZoomPercent] = useState(100);
 
   const regeneratePreview = async (
     orientation: string = printOrientation,
-    searchQuery: string = pdfSearchQuery,
-    isSilent: boolean = false,
     theme: string = printTheme,
     copyType: string = printCopyType
   ) => {
     if (!isOpen) return;
-    if (!isSilent) {
-      setIsPdfLoading(true);
-    } else {
-      setIsSearching(true);
-    }
+    setIsPdfLoading(true);
     try {
       const { PdfRenderer: pdfModule } = NativeModules;
       if (!pdfModule || !pdfModule.RenderPdfWithToken) {
@@ -566,40 +309,14 @@ export function PdfPreviewModal({
 
       if (!getPdfUrl) {
         setIsPdfLoading(false);
-        setIsSearching(false);
         return;
       }
 
-      const url = getPdfUrl(orientation as any, searchQuery, theme, copyType);
-      const token = storage.getItemSync("access_token") || "";
-
-      // Parallel fetch to extract match counts header in JS
-      if (searchQuery) {
-        fetch(url, {
-          method: "HEAD",
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        })
-          .then((res) => {
-            const matchHeader = res.headers.get("x-pdf-search-matches");
-            if (matchHeader) {
-              const counts: number[] = JSON.parse(matchHeader);
-              setSearchMatches(counts);
-              const total = counts.reduce((a, b) => a + b, 0);
-              setCurrentMatchIndex(total > 0 ? 1 : 0);
-            } else {
-              setSearchMatches([]);
-              setCurrentMatchIndex(0);
-            }
-          })
-          .catch((err) => console.warn("Failed to fetch search match headers:", err))
-          .finally(() => setIsSearching(false));
-      } else {
-        setSearchMatches([]);
-        setCurrentMatchIndex(0);
-        setIsSearching(false);
+      let url = getPdfUrl(orientation as any, "", theme, copyType);
+      if (url.includes("/api/") && !url.includes("/api/v1/")) {
+        url = url.replace("/api/", "/api/v1/");
       }
+      const token = storage.getItemSync("access_token") || "";
 
       const pages = await pdfModule.RenderPdfWithToken(url, reportKey + "_" + orientation, token);
       setPreviewPages(pages);
@@ -616,7 +333,9 @@ export function PdfPreviewModal({
       const isLandscapeReport = [
         "gstr1", "gstr2", "gstr3b", "gstr1_summary", "gstr2_summary",
         "daybook", "trial_balance", "cdn_register", "stock_valuation",
-        "sales_by_customer", "sales_by_item"
+        "sales_by_customer", "sales_by_item", "account_ledger", "ledger",
+        "party_ledger", "audit_trail", "item_movement", "outstanding",
+        "outstanding_summary", "low_stock", "gst_summary"
       ].includes(reportKey);
       const initialOrientation = defaultOrientation || (isLandscapeReport ? "landscape" : "portrait");
       setPrintOrientation(initialOrientation);
@@ -626,7 +345,6 @@ export function PdfPreviewModal({
       setPdfSearchQuery("");
       setSearchMatches([]);
       setCurrentMatchIndex(0);
-      setZoomScale(1.0);
       // Read saved preferences and load
       const initLoad = async () => {
         let defaultTheme = "modern";
@@ -649,27 +367,57 @@ export function PdfPreviewModal({
         } catch (e) {
           console.warn("Error reading print preferences:", e);
         }
-        regeneratePreview(initialOrientation, "", false, defaultTheme, defaultCopy);
+        regeneratePreview(initialOrientation, defaultTheme, defaultCopy);
       };
       initLoad();
     } else {
       setPreviewPages([]);
-      try {
-        const { PdfRenderer: pdfModule } = NativeModules;
-        if (pdfModule && pdfModule.CleanupTempFiles) {
-          pdfModule.CleanupTempFiles().catch(() => { });
-        }
-      } catch (e) { }
     }
   }, [isOpen, reportKey, showThemeSelector, showCopySelector]);
 
-  // Trigger preview regeneration when settings update
+  // Lightweight search matching without reloading base PDF page bitmaps (Adobe Acrobat pattern)
+  useEffect(() => {
+    if (!isOpen || !getPdfUrl) return;
+    if (!pdfSearchQuery.trim()) {
+      setSearchMatches([]);
+      setCurrentMatchIndex(0);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    const url = getPdfUrl(printOrientation as any, pdfSearchQuery, printTheme, printCopyType);
+    const token = storage.getItemSync("access_token") || "";
+
+    const timer = setTimeout(() => {
+      fetch(url, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${token}` }
+      })
+        .then((res) => {
+          const matchHeader = res.headers.get("x-pdf-search-matches");
+          if (matchHeader) {
+            const counts: number[] = JSON.parse(matchHeader);
+            setSearchMatches(counts);
+            const total = counts.reduce((a, b) => a + b, 0);
+            setCurrentMatchIndex(total > 0 ? 1 : 0);
+          } else {
+            setSearchMatches([]);
+            setCurrentMatchIndex(0);
+          }
+        })
+        .catch((err) => console.warn("Failed to fetch search match headers:", err))
+        .finally(() => setIsSearching(false));
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, pdfSearchQuery, printOrientation, printTheme, printCopyType]);
+
+  // Trigger preview regeneration ONLY when document structure updates (Orientation, Theme, Copy Type)
   useEffect(() => {
     if (!isOpen) return;
-    // Silent loading for search query (less distracting), full indicator for other settings changes
-    const isSearchOnly = (pdfSearchQuery !== "");
-    regeneratePreview(printOrientation, pdfSearchQuery, isSearchOnly, printTheme, printCopyType);
-  }, [printOrientation, pdfSearchQuery, printTheme, printCopyType]);
+    regeneratePreview(printOrientation, printTheme, printCopyType);
+  }, [printOrientation, printTheme, printCopyType]);
 
   return (
     <FullScreenModal
@@ -679,8 +427,6 @@ export function PdfPreviewModal({
       subtitle={subtitle}
       breadcrumb={breadcrumb}
       scrollEnabled={false}
-      onKeyDown={handleKeyDown}
-      onKeyUp={handleKeyUp}
       headerActions={
         <CenteredSearchBar
           value={pdfSearchQuery}
@@ -696,20 +442,20 @@ export function PdfPreviewModal({
       }
       footerActions={
         <View style={{ flexDirection: "row", gap: 10, flex: 1, justifyContent: "space-between", alignItems: "center" }}>
-          {/* Zoom Controls */}
+          {/* Zoom Controls — dispatch to native XAML ScrollViewer (Tally pattern) */}
           <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
             <Button
-              onPress={() => setZoomScale(z => Math.max(0.5, z - 0.1))}
+              onPress={() => pdfViewerRef.current?.zoomOut()}
               variant="secondary"
               style={{ minWidth: 42, paddingHorizontal: 0, height: 42, borderColor: colors.divider }}
             >
               <Text style={{ fontSize: 18, color: colors.textPrimary }}>-</Text>
             </Button>
             <Text style={{ fontSize: 14.5, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", width: 50, textAlign: "center" }}>
-              {Math.round(zoomScale * 100)}%
+              {zoomPercent}%
             </Text>
             <Button
-              onPress={() => setZoomScale(z => Math.min(2.0, z + 0.1))}
+              onPress={() => pdfViewerRef.current?.zoomIn()}
               variant="secondary"
               style={{ minWidth: 42, paddingHorizontal: 0, height: 42, borderColor: colors.divider }}
             >
@@ -720,19 +466,19 @@ export function PdfPreviewModal({
 
             <Button
               title="Fit Width"
-              onPress={() => setZoomScale(1.35)}
+              onPress={() => pdfViewerRef.current?.setZoom(1.35)}
               variant="secondary"
               style={{ height: 42, borderColor: colors.divider, paddingHorizontal: 12 }}
             />
             <Button
               title="Fit Page"
-              onPress={() => setZoomScale(0.75)}
+              onPress={() => pdfViewerRef.current?.setZoom(0.75)}
               variant="secondary"
               style={{ height: 42, borderColor: colors.divider, paddingHorizontal: 12 }}
             />
             <Button
               title="Reset"
-              onPress={() => setZoomScale(1.0)}
+              onPress={() => pdfViewerRef.current?.resetZoom()}
               variant="secondary"
               style={{ height: 42, borderColor: colors.divider, paddingHorizontal: 12 }}
             />
@@ -813,7 +559,6 @@ export function PdfPreviewModal({
               title="Send to CA / Share"
               onPress={() => setIsShareModalOpen(true)}
               variant="secondary"
-              style={{ borderColor: colors.accent, minWidth: 150 }}
               textStyle={{ color: colors.accent }}
             />
 
@@ -829,13 +574,17 @@ export function PdfPreviewModal({
               onPress={async () => {
                 try {
                   const { PdfRenderer: pdfModule } = NativeModules;
-                  if (!pdfModule || !pdfModule.PrintPdfUrlWithToken) {
-                    throw new Error("PrintPdfUrlWithToken method not found in native PdfRenderer module");
+                  if (!pdfModule) {
+                    throw new Error("Native PdfRenderer module not registered");
                   }
                   if (!getPdfUrl) return;
                   const printUrl = getPdfUrl(printOrientation, pdfSearchQuery, printTheme, printCopyType);
                   const token = storage.getItemSync("access_token") || "";
-                  await pdfModule.PrintPdfUrlWithToken(printUrl, token);
+                  if (pdfModule.DirectPrintPdfWithToken) {
+                    await pdfModule.DirectPrintPdfWithToken(printUrl, token);
+                  } else if (pdfModule.PrintPdfUrlWithToken) {
+                    await pdfModule.PrintPdfUrlWithToken(printUrl, token);
+                  }
                 } catch (e: any) {
                   Alert.alert("Error", `Could not print: ${e?.message || e}`);
                 }
@@ -944,7 +693,9 @@ export function PdfPreviewModal({
                     <Pressable
                       key={o.value}
                       onPress={() => {
-                        setPrintOrientation(o.value as any);
+                        const newOrient = o.value as 'portrait' | 'landscape';
+                        setPrintOrientation(newOrient);
+                        regeneratePreview(newOrient, printTheme, printCopyType);
                       }}
                       style={({ hovered }: any) => [
                         {
@@ -1038,139 +789,29 @@ export function PdfPreviewModal({
           </ScrollView>
         </View>
 
-        {/* Right Scrollable Preview Workspace */}
-        <WindowsView
-          ref={workspaceRef}
-          focusable={true}
-          onMouseEnter={() => {
-            try { workspaceRef.current?.focus(); } catch (e) { }
-          }}
-          onPointerDown={() => {
-            try { workspaceRef.current?.focus(); } catch (e) { }
-          }}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          onBlur={() => { setIsCtrlPressed(false); }}
-          onWheel={handleZoomWheel}
-          onLayout={(e: any) => { setWorkspaceWidth(e.nativeEvent.layout.width); }}
-          style={{ flex: 1, backgroundColor: isDarkMode ? "#0B0F19" : "#F3F4F6" }}
-        >
+        {/* Right Preview Workspace — Native XAML ScrollViewer (Tally + Acrobat pattern) */}
+        <View style={{ flex: 1, backgroundColor: isDarkMode ? "#0B0F19" : "#F3F4F6" }}>
           {isPdfLoading ? (
             <View style={styles.centerBox}>
               <ActivityIndicator size="large" color={colors.accent} />
               <Text style={{ fontSize: 15, color: colors.textSecondary, fontFamily: "Segoe UI Variable Text", marginTop: 8 }}>Loading print preview...</Text>
             </View>
           ) : (
-            <WindowsScrollView
-              ref={scrollViewRef}
+            <NativePdfScrollViewer
+              ref={pdfViewerRef}
+              pages={previewPages}
+              pageWidth={baseWidth}
+              pageHeight={baseHeight}
               style={{ flex: 1 }}
-              contentContainerStyle={{
-                paddingVertical: 40,
-                paddingHorizontal: 60,
-                alignItems: "center",
-                minWidth: "100%",
-                minHeight: "100%"
+              onZoomChanged={(e) => {
+                const zoom = e?.nativeEvent?.zoom;
+                if (typeof zoom === "number" && isFinite(zoom)) {
+                  setZoomPercent(Math.round(zoom * 100));
+                }
               }}
-              nestedScrollEnabled={true}
-              scrollEnabled={true}
-              showsVerticalScrollIndicator={true}
-              showsHorizontalScrollIndicator={true}
-              pinchGestureEnabled={true}
-              minimumZoomScale={0.4}
-              maximumZoomScale={3.0}
-              zoomScale={zoomScale}
-              onWheel={handleZoomWheel}
-            >
-              <View
-                {...contentPanResponder.panHandlers}
-                style={{
-                  gap: 20,
-                  marginVertical: 16,
-                  marginHorizontal: 32,
-                  alignItems: "center",
-                  width: Math.max(baseWidth * zoomScale, 100),
-                  transform: [{ translateX: panX }]
-                }}
-              >
-                {previewPages.map((pagePath, index) => {
-                  const w = baseWidth * zoomScale;
-                  const h = baseHeight * zoomScale;
-                  return (
-                    <WindowsView
-                      key={index}
-                      style={{
-                        width: w,
-                        height: h,
-                        backgroundColor: "#FFFFFF",
-                        borderWidth: 1,
-                        borderColor: colors.divider,
-                        borderRadius: 6,
-                        elevation: 4,
-                        shadowColor: "#000",
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.15,
-                        shadowRadius: 6,
-                        overflow: "hidden",
-                        marginVertical: 12,
-                        justifyContent: "flex-start",
-                        alignItems: "flex-start"
-                      }}
-                    >
-                      <Image
-                        source={{ uri: pagePath }}
-                        style={{ width: "100%", height: "100%" }}
-                        resizeMode="contain"
-                      />
-                    </WindowsView>
-                  );
-                })}
-              </View>
-            </WindowsScrollView>
+            />
           )}
-
-          {/* Bottom Horizontal Scrollbar when content exceeds viewport - Placed strictly on outer side */}
-          {maxPan > 0 && (() => {
-            const safeContentW = isFinite(contentWidth) && contentWidth > 0 ? contentWidth : 1;
-            const safeWorkspaceW = isFinite(workspaceWidth) && workspaceWidth > 0 ? workspaceWidth : 1;
-            const trackW = Math.max(1, safeWorkspaceW - 48);
-            const rawThumbW = (safeWorkspaceW / safeContentW) * trackW;
-            const thumbW = Math.max(40, isFinite(rawThumbW) ? rawThumbW : 40);
-            const scrollableRange = Math.max(1, trackW - thumbW);
-
-            const rawProgress = maxPan > 0 ? (0.5 - panX / (2 * maxPan)) : 0;
-            const safeProgress = isFinite(rawProgress) ? Math.max(0, Math.min(1, rawProgress)) : 0;
-            const thumbTranslateX = safeProgress * scrollableRange;
-
-            return (
-              <View
-                {...scrollbarPanResponder.panHandlers}
-                style={{
-                  height: 20,
-                  backgroundColor: isDarkMode ? "#0F172A" : "#E2E8F0",
-                  width: "100%",
-                  justifyContent: "center",
-                  paddingHorizontal: 24,
-                  borderTopWidth: 1,
-                  borderTopColor: colors.divider
-                }}
-              >
-                <View
-                  style={{
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: isDarkMode ? "#475569" : "#94A3B8",
-                    width: thumbW,
-                    transform: [
-                      {
-                        translateX: thumbTranslateX
-                      }
-                    ]
-                  }}
-                />
-              </View>
-            );
-          })()}
-        </WindowsView>
+        </View>
       </View>
 
       <ShareReportModal
